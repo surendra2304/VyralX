@@ -125,20 +125,43 @@ def import_video_file(video_id: int, file_id: int, *, title: str, max_bytes: int
 
     written = 0
     try:
-        with httpx.stream(
-            "GET", file_url, timeout=60, follow_redirects=False,
-            headers={"User-Agent": "VyralX/1.0"},
-        ) as media_response:
-            media_response.raise_for_status()
-            content_length = media_response.headers.get("content-length")
-            if content_length and int(content_length) > max_bytes:
-                raise ValueError("Selected Pexels video exceeds MAX_UPLOAD_MB")
-            with destination.open("wb") as output:
-                for chunk in media_response.iter_bytes(chunk_size=1024 * 1024):
-                    written += len(chunk)
-                    if written > max_bytes:
-                        raise ValueError("Selected Pexels video exceeds MAX_UPLOAD_MB")
-                    output.write(chunk)
+        # Follow redirects manually and revalidate every target. Provider CDNs may
+        # redirect once, but an arbitrary Location must never become an SSRF path.
+        current_url = file_url
+        with httpx.Client(timeout=60, follow_redirects=False) as client:
+            media_response = None
+            for _ in range(4):
+                request = client.build_request(
+                    "GET", current_url, headers={"User-Agent": "VyralX/1.0"}
+                )
+                response = client.send(request, stream=True)
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    location = response.headers.get("location", "")
+                    response.close()
+                    if not location:
+                        raise RuntimeError("Pexels CDN returned a redirect without Location")
+                    next_url = httpx.URL(current_url).join(location).human_repr()
+                    if not _safe_file_url(next_url):
+                        raise RuntimeError("Pexels CDN redirect target is outside the approved HTTPS domain")
+                    current_url = next_url
+                    continue
+                response.raise_for_status()
+                media_response = response
+                break
+            if media_response is None:
+                raise RuntimeError("Pexels CDN exceeded the redirect limit")
+            try:
+                content_length = media_response.headers.get("content-length")
+                if content_length and int(content_length) > max_bytes:
+                    raise ValueError("Selected Pexels video exceeds MAX_STOCK_CLIP_MB")
+                with destination.open("wb") as output:
+                    for chunk in media_response.iter_bytes(chunk_size=1024 * 1024):
+                        written += len(chunk)
+                        if written > max_bytes:
+                            raise ValueError("Selected Pexels video exceeds MAX_STOCK_CLIP_MB")
+                        output.write(chunk)
+            finally:
+                media_response.close()
         if written == 0:
             raise RuntimeError("Pexels returned an empty media file")
         metadata = probe_media(destination)
