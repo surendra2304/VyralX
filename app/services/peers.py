@@ -41,7 +41,7 @@ def peer_health(name: str, *, timeout_seconds: float = 3.0) -> dict[str, Any]:
     peer = peers.get(name)
     if peer is None:
         return {"name": name, "configured": False, "reachable": False, "status": "not_configured"}
-    headers = {"Authorization": f"Bearer {peer.api_key}", "X-API-Key": peer.api_key}
+    headers = {"Authorization": f"Bearer {peer.api_key}", "X-API-Key": peer.api_key, "X-Agent-Name": "vyralx"}
     try:
         response = httpx.get(f"{peer.base_url}/health", headers=headers, timeout=timeout_seconds)
         return {
@@ -81,7 +81,7 @@ def post_peer_json(
     try:
         response = httpx.post(
             peer.base_url + path,
-            headers={"Authorization": f"Bearer {peer.api_key}", "X-API-Key": peer.api_key, "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {peer.api_key}", "X-API-Key": peer.api_key, "X-Agent-Name": "vyralx", "Content-Type": "application/json"},
             json=payload,
             timeout=timeout_seconds,
             follow_redirects=False,
