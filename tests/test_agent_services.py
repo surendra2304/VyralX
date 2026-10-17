@@ -309,3 +309,119 @@ def test_youtube_ambiguous_upload_is_flagged_for_reconciliation(tmp_path: Path, 
             privacy_status="private",
             category_id="28",
         )
+
+
+def test_caption_segmentation_spans_target_duration():
+    from app.services.captions import segment_script
+
+    cues = segment_script(
+        "Solar panels turn sunlight into electricity. An inverter converts direct current to usable alternating current.",
+        20,
+    )
+    assert cues
+    assert cues[0]["start_seconds"] == 0
+    assert cues[-1]["end_seconds"] == 20
+    assert all(cue["end_seconds"] > cue["start_seconds"] for cue in cues)
+    assert all(cues[i]["start_seconds"] >= cues[i - 1]["start_seconds"] for i in range(1, len(cues)))
+
+
+def test_project_scene_selection_uses_unique_candidates_and_mp4_files():
+    from app.services.project_pipeline import _choose_candidate, _scene_query
+
+    items = [
+        {
+            "video_id": 101,
+            "video_files": [
+                {"id": 11, "width": 640, "height": 360, "quality": "sd", "file_type": "video/mp4"},
+                {"id": 12, "width": 1920, "height": 1080, "quality": "hd", "file_type": "video/mp4"},
+                {"id": 13, "width": 1920, "height": 1080, "quality": "hd", "file_type": "video/webm"},
+            ],
+        },
+        {"video_id": 102, "video_files": [{"id": 14, "width": 1280, "height": 720, "quality": "hd", "file_type": "video/mp4"}]},
+    ]
+    chosen = _choose_candidate(items, {101})
+    assert chosen is not None
+    assert chosen[0]["video_id"] == 102
+    assert chosen[1]["id"] == 14
+    query = _scene_query("solar power", {"visual": "A wide shot of solar panels on a sunny roof"}, 0)
+    assert "solar power" in query.lower()
+    assert len(query) <= 200
+
+
+def test_montage_renderer_builds_concat_and_voiceover_command(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import montage
+
+    media_dir = tmp_path / "media"
+    render_dir = tmp_path / "renders"
+    data_dir = tmp_path / "data"
+    media_dir.mkdir()
+    render_dir.mkdir()
+    data_dir.mkdir()
+    clip_a = media_dir / "a.mp4"
+    clip_b = media_dir / "b.mp4"
+    voice = media_dir / "voice.wav"
+    clip_a.write_bytes(b"a")
+    clip_b.write_bytes(b"b")
+    voice.write_bytes(b"wav")
+    output = render_dir / "project.mp4"
+    settings = SimpleNamespace(
+        media_dir=media_dir,
+        render_dir=render_dir,
+        data_dir=data_dir,
+        ffmpeg_bin="ffmpeg",
+        max_render_seconds=120,
+    )
+    monkeypatch.setattr(montage, "get_settings", lambda: settings)
+    calls = {}
+
+    def fake_run(command, **kwargs):
+        calls["command"] = command
+        Path(command[-1]).write_bytes(b"rendered")
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(montage.subprocess, "run", fake_run)
+    result = montage.render_montage(
+        [clip_a, clip_b],
+        output,
+        "shorts",
+        target_seconds=20,
+        fit_mode="crop",
+        voiceover_path=voice,
+    )
+    command = calls["command"]
+    assert result == str(output.resolve())
+    assert "concat=n=2:v=1:a=0[outv]" in command[command.index("-filter_complex") + 1]
+    assert "-stream_loop" in command
+    assert "[2:a:0]" in command or "2:a:0" in command
+    assert output.read_bytes() == b"rendered"
+
+
+def test_video_project_task_creates_durable_queued_project():
+    from uuid import uuid4
+
+    from app.database import SessionLocal
+    from app.models import VideoProject
+    from app.services.task_dispatch import dispatch_agent_task
+
+    project_key = "test-project-" + uuid4().hex[:12]
+    payload = {
+        "project_key": project_key,
+        "topic": "How wind turbines work",
+        "video_format": "shorts",
+        "target_seconds": 30,
+        "scene_count": 3,
+        "confirm_pexels_license": True,
+        "use_voiceover": True,
+    }
+    with SessionLocal() as db:
+        result = dispatch_agent_task("project.create", payload, db)
+        project = db.get(VideoProject, result["project_id"])
+        assert project is not None
+        assert project.status == "queued"
+        assert project.project_key == project_key
+        db.rollback()
+    with SessionLocal() as db:
+        db.query(VideoProject).filter(VideoProject.project_key == project_key).delete()
+        db.commit()
