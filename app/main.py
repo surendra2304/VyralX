@@ -83,22 +83,110 @@ def dashboard():
     return HTMLResponse("""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VyralX Control Room</title><style>
-:root{color-scheme:dark;font-family:Inter,system-ui,sans-serif;background:#090d16;color:#edf2ff}
-body{max-width:1100px;margin:0 auto;padding:28px}header{display:flex;justify-content:space-between;align-items:center;gap:20px}
-h1{font-size:2.3rem;margin:0}p{color:#aab6cf}.pill{border:1px solid #2e405e;border-radius:30px;padding:8px 12px;color:#9ee7c0}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:24px 0}
-.card{background:#111a2a;border:1px solid #26334a;border-radius:16px;padding:18px}.card h2{font-size:1rem;margin-top:0}
-button{background:#8be0b1;color:#08140f;border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer}
-small{color:#aab6cf}pre{white-space:pre-wrap;word-break:break-word;color:#aee9c8}
-</style></head><body><header><div><h1>VyralX <span style="color:#8be0b1">/</span></h1><p>Discover. Edit. Publish. Scale.</p></div><span class="pill" id="health">Checking API…</span></header>
-<div class="grid"><section class="card"><h2>1 · Discover</h2><p>Track source links, creators, licenses and permission evidence.</p><small>Platform discovery does not imply download rights.</small></section>
-<section class="card"><h2>2 · Edit</h2><p>Import authorized media and render Shorts, landscape or square outputs with FFmpeg.</p><small>Render concurrency is intentionally bounded.</small></section>
-<section class="card"><h2>3 · Publish</h2><p>Queue YouTube uploads, descriptions, tags, privacy and scheduling.</p><small>Publishing stays disabled until explicitly enabled.</small></section>
-<section class="card"><h2>4 · Measure</h2><p>Persist jobs and video IDs for later analytics integration.</p><small>Health does not prove external providers are configured.</small></section></div>
-<section class="card"><h2>Operator quick check</h2><p>Service status</p><pre id="details">Loading…</pre><button onclick="refresh()">Refresh status</button></section>
-<script>async function refresh(){try{const r=await fetch('/ready');const d=await r.json();document.getElementById('health').textContent=d.status;document.getElementById('details').textContent=JSON.stringify(d,null,2)}catch(e){document.getElementById('health').textContent='API unavailable';document.getElementById('details').textContent=String(e)}}refresh()</script>
-</body></html>""")
-
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#070b12;color:#edf2ff;--panel:#101827;--line:#26354b;--muted:#9daec9;--accent:#8be0b1}
+*{box-sizing:border-box}body{max-width:1440px;margin:0 auto;padding:24px}header{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:20px}
+h1{font-size:2rem;margin:0}h2{font-size:1.05rem;margin:0 0 14px}h3{font-size:.95rem;margin:0 0 10px;color:#cbd7ef}p{color:var(--muted);line-height:1.5}.sub{color:var(--muted);font-size:.88rem}.pill{border:1px solid var(--line);border-radius:999px;padding:8px 12px;color:var(--accent);font-size:.86rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px;margin:18px 0}.card{min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}.span{grid-column:1/-1}
+label{display:block;color:#cbd7ef;font-size:.84rem;margin:10px 0 6px}input,select,textarea{width:100%;padding:10px 11px;background:#080e18;border:1px solid #34445e;border-radius:8px;color:#edf2ff;font:inherit}textarea{min-height:95px;resize:vertical}input[type=checkbox]{width:auto}button{background:var(--accent);color:#07150d;border:0;border-radius:8px;padding:10px 13px;font-weight:750;cursor:pointer;margin-top:10px}button.secondary{background:#23354e;color:#e4edff}button.warn{background:#f2c477;color:#221703}button:disabled{opacity:.5;cursor:wait}.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.output{min-height:50px;max-height:340px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#070c14;border:1px solid var(--line);padding:12px;border-radius:9px;color:#b7f1ce;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}.notice{font-size:.82rem;color:#f0cb86}.stat{font-size:1.65rem;color:var(--accent);font-weight:800}.tablewrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.87rem}td,th{text-align:left;padding:9px;border-bottom:1px solid var(--line);vertical-align:top}th{color:#bdcbe2}
+@media(max-width:620px){body{padding:12px}.row2{grid-template-columns:1fr}h1{font-size:1.6rem}.card{padding:14px}}
+</style></head><body>
+<header><div><h1>VyralX <span style="color:var(--accent)">/ Control Room</span></h1><p>Discover, script, produce, review, publish and measure.</p></div><span class="pill" id="health">Checking service...</span></header>
+<section class="card" style="margin-top:16px"><h2>Service access</h2><div class="row2"><div><label for="apiKey">API key (kept only in this browser tab session)</label><input id="apiKey" type="password" autocomplete="off" placeholder="Required outside development mode"></div><div><label>&nbsp;</label><div class="actions"><button onclick="saveKey()">Use key</button><button class="secondary" onclick="refreshAll()">Refresh dashboard</button><button class="secondary" onclick="clearKey()">Clear key</button></div></div></div><p class="sub">The dashboard does not embed secrets in HTML. Do not use development mode on a public endpoint.</p><pre class="output" id="statusOut">Loading status...</pre></section>
+<div class="grid">
+<section class="card"><h2>1. YouTube discovery</h2><label for="ytQuery">Topic or keyword</label><input id="ytQuery" value="AI productivity" maxlength="200"><div class="row2"><div><label>Sort</label><select id="ytOrder"><option value="viewCount">Views</option><option value="date">Newest</option><option value="relevance">Relevance</option><option value="rating">Rating</option></select></div><div><label>Results</label><select id="ytCount"><option>5</option><option selected>10</option><option>15</option><option>25</option></select></div></div><button onclick="discoverYouTube()">Find videos</button><p class="sub">Metadata only. Discovery does not grant permission to download or repost.</p></section>
+<section class="card"><h2>2. Pexels stock footage</h2><label for="pxQuery">Search stock clips</label><input id="pxQuery" value="technology workspace" maxlength="200"><div class="row2"><div><label>Orientation</label><select id="pxOrientation"><option value="portrait">Portrait</option><option value="landscape">Landscape</option><option value="square">Square</option></select></div><div><label>Results</label><select id="pxCount"><option>5</option><option selected>10</option><option>20</option><option>25</option></select></div></div><button onclick="discoverPexels()">Search licensed stock</button><p class="sub">Review Pexels terms and the source details before import.</p></section>
+<section class="card"><h2>3. Create original script</h2><label for="topic">Video topic</label><input id="topic" value="How solar panels work" maxlength="500"><div class="row2"><div><label>Format</label><select id="format"><option value="shorts">Shorts (vertical)</option><option value="long">Long form (landscape)</option></select></div><div><label>Target seconds</label><input id="duration" type="number" value="45" min="15" max="1800"></div></div><label for="audience">Audience</label><input id="audience" value="general audience" maxlength="200"><label for="tone">Tone</label><input id="tone" value="clear, energetic and factual" maxlength="200"><button onclick="generateContent()">Generate content pack</button><p class="sub">Uses the real Inference task API. Output requires editor and fact-check review.</p></section>
+<section class="card"><h2>4. Register a permitted source</h2><label>Title</label><input id="sourceTitle" placeholder="Source title" maxlength="300"><label>Source URL or permission record</label><input id="sourceUrl" placeholder="https://..." maxlength="2048"><div class="row2"><div><label>Platform</label><select id="sourcePlatform"><option value="manual">Manual / owned</option><option value="pexels">Pexels</option><option value="youtube">YouTube</option><option value="other">Other</option></select></div><div><label>Creator / owner</label><input id="sourceCreator" placeholder="Creator or owner" maxlength="300"></div></div><label>License name</label><input id="licenseName" placeholder="Owned / written permission / Pexels Content License" maxlength="200"><label>Permission evidence URL or reference</label><input id="permissionRef" placeholder="Link to the license or permission evidence" maxlength="2048"><label>Notes</label><textarea id="sourceNotes" placeholder="Record restrictions, attribution and reuse scope"></textarea><label><input id="rightsConfirm" type="checkbox"> I reviewed the rights evidence and confirm reuse is permitted.</label><button onclick="createSource()">Register source</button><p class="notice">Only mark this verified after reviewing real evidence and usage scope.</p></section>
+<section class="card"><h2>5. Import local media</h2><label>Video file</label><input id="mediaFile" type="file" accept=".mp4,.mov,.mkv,.webm,.m4v,video/*"><label>Asset title</label><input id="assetTitle" placeholder="Asset title" maxlength="300"><label>Verified source ID</label><input id="assetSourceId" type="number" min="1" placeholder="Source ID (required for render rights gate)"><button onclick="uploadAsset()">Upload and inspect</button><p class="sub">Media size limit is configured by MAX_UPLOAD_MB. The upload is probed by FFprobe.</p></section>
+<section class="card"><h2>6. Import Pexels stock</h2><label>Pexels video ID</label><input id="pexelsVideoId" type="number" min="1" placeholder="Copy from search results"><label>Video file ID</label><input id="pexelsFileId" type="number" min="1" placeholder="Choose a returned MP4 file ID"><label>Asset title (optional)</label><input id="pexelsTitle" placeholder="Stock clip title" maxlength="300"><label><input id="pexelsConfirm" type="checkbox"> I reviewed the Pexels content license for this use.</label><button onclick="importPexels()">Import reviewed stock clip</button></section>
+<section class="card"><h2>7. Render video</h2><label>Asset ID</label><input id="renderAssetId" type="number" min="1" placeholder="Asset ID with verified source rights"><div class="row2"><div><label>Preset</label><select id="renderPreset"><option value="shorts">Shorts 9:16</option><option value="long">Landscape 16:9</option><option value="square">Square 1:1</option></select></div><div><label>Fit</label><select id="fitMode"><option value="pad">Pad</option><option value="crop">Crop</option></select></div></div><div class="row2"><div><label>Trim start (sec)</label><input id="trimStart" type="number" min="0" value="0"></div><div><label>Trim end (optional, sec)</label><input id="trimEnd" type="number" min="0" placeholder="End of source"></div></div><label>Subtitle cues (JSON array, optional)</label><textarea id="subtitleJson" placeholder='[{"start_seconds":0,"end_seconds":2.5,"text":"Opening caption"}]'></textarea><label>Content pack ID for voiceover (optional)</label><input id="voicePackId" type="number" min="1" placeholder="Generate TTS first"><button onclick="queueRender()">Queue render</button><p class="sub">Runs in the background. Poll the render jobs below for progress.</p></section>
+<section class="card"><h2>8. Publish review</h2><label>Asset ID</label><input id="publishAssetId" type="number" min="1" placeholder="Source asset ID"><label>Completed render job ID</label><input id="publishRenderId" type="number" min="1" placeholder="Completed render ID"><label>YouTube title</label><input id="publishTitle" maxlength="100" placeholder="Video title"><label>Description</label><textarea id="publishDescription" maxlength="5000" placeholder="Video description and attribution"></textarea><label>Tags (comma separated)</label><input id="publishTags" placeholder="ai, technology, education"><div class="row2"><div><label>Privacy</label><select id="privacy"><option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></div><div><label>Schedule (optional)</label><input id="publishAt" type="datetime-local"></div></div><label><input id="publishRights" type="checkbox"> I verified rights and reviewed this rendered video and metadata.</label><button onclick="requestPublish()">Create review request</button><button class="secondary" onclick="refreshJobs()">Refresh jobs</button><p class="notice">The final upload requires API-side approval, a valid OAuth token and publishing enabled.</p></section>
+<section class="card"><h2>9. Content and voiceover</h2><label>Content pack ID</label><input id="voiceContentId" type="number" min="1" placeholder="Content pack ID"><button onclick="generateVoiceover()">Generate voiceover (optional)</button><p class="sub">Requires INFERENCE_TTS_URL, model and a verified compatible TTS service.</p><label>Render job ID for thumbnail</label><input id="thumbJobId" type="number" min="1" placeholder="Completed render ID"><label>Thumbnail timestamp (sec)</label><input id="thumbTime" type="number" min="0" value="1"><button onclick="createThumbnail()">Create thumbnail</button></section>
+<section class="card"><h2>10. YouTube performance</h2><p class="sub">Read public view, like and comment counters for VyralX-uploaded videos.</p><button onclick="refreshAnalytics()">Refresh YouTube metrics</button><button class="secondary" onclick="loadAnalytics()">Load stored metrics</button></section>
+</div>
+<section class="card"><h2>Job & catalog snapshot</h2><div class="actions"><button class="secondary" onclick="loadSourcesAssets()">Sources and assets</button><button class="secondary" onclick="refreshJobs()">Render and publish jobs</button><button class="secondary" onclick="loadContent()">Content packs</button><button class="secondary" onclick="loadAnalytics()">Analytics</button><button class="secondary" onclick="loadManifest()">Agent manifest</button><button class="secondary" onclick="loadTasks()">FRIDAY tasks</button></div><pre class="output" id="actionOut">Choose an operation. Responses will appear here.</pre><div id="jobTables"></div></section>
+<script>
+const $=id=>document.getElementById(id);
+function key(){return sessionStorage.getItem('vyralxKey')||''}
+function saveKey(){sessionStorage.setItem('vyralxKey',$('apiKey').value.trim());refreshAll()}
+function clearKey(){sessionStorage.removeItem('vyralxKey');$('apiKey').value='';refreshAll()}
+async function api(path,opts={}){
+  const headers=new Headers(opts.headers||{});
+  if(key())headers.set('X-API-Key',key());
+  let body=opts.body;
+  if(body&&typeof body==='object'&&!(body instanceof FormData)){headers.set('Content-Type','application/json');body=JSON.stringify(body)}
+  const response=await fetch(path,{...opts,headers,body});
+  const type=response.headers.get('content-type')||'';
+  let data=type.includes('application/json')?await response.json():await response.text();
+  if(!response.ok){const message=data&&data.detail?data.detail:JSON.stringify(data);throw new Error(response.status+' '+message)}
+  return data;
+}
+function show(data){$('actionOut').textContent=typeof data==='string'?data:JSON.stringify(data,null,2)}
+function asInt(id){const v=Number($(id).value);if(!Number.isInteger(v)||v<=0)throw new Error(id+' must be a positive integer');return v}
+async function run(button,fn){try{button.disabled=true;const r=await fn();show(r)}catch(e){show({error:String(e)})}finally{button.disabled=false}}
+async function discoverYouTube(){return run(event.currentTarget,async()=>api('/api/discover',{method:'POST',body:{query:$('ytQuery').value,max_results:Number($('ytCount').value),order:$('ytOrder').value}}))}
+async function discoverPexels(){return run(event.currentTarget,async()=>api('/api/discover/pexels',{method:'POST',body:{query:$('pxQuery').value,max_results:Number($('pxCount').value),orientation:$('pxOrientation').value}}))}
+async function generateContent(){return run(event.currentTarget,async()=>api('/api/content/generate',{method:'POST',body:{topic:$('topic').value,video_format:$('format').value,target_seconds:Number($('duration').value),audience:$('audience').value,tone:$('tone').value}}))}
+async function createSource(){return run(event.currentTarget,async()=>{
+ if(!$('rightsConfirm').checked)throw new Error('Review rights evidence and confirm it before registration');
+ if(!$('licenseName').value.trim()||!$('permissionRef').value.trim())throw new Error('A license name and permission evidence reference are required');
+ return api('/api/sources',{method:'POST',body:{title:$('sourceTitle').value||'Untitled source',source_url:$('sourceUrl').value,platform:$('sourcePlatform').value,creator:$('sourceCreator').value,license_name:$('licenseName').value,permission_reference:$('permissionRef').value,rights_verified:true,status:'licensed',notes:$('sourceNotes').value}});
+})}
+async function uploadAsset(){return run(event.currentTarget,async()=>{
+ const file=$('mediaFile').files[0];if(!file)throw new Error('Select a video file');
+ const src=$('assetSourceId').value.trim();if(!src)throw new Error('A verified source ID is required');
+ const q=new URLSearchParams({title:$('assetTitle').value||file.name,source_id:src});
+ const form=new FormData();form.append('file',file);
+ return api('/api/assets/upload?'+q.toString(),{method:'POST',body:form});
+})}
+async function importPexels(){return run(event.currentTarget,async()=>{
+ if(!$('pexelsConfirm').checked)throw new Error('Confirm you reviewed the license');
+ return api('/api/assets/import/pexels',{method:'POST',body:{video_id:asInt('pexelsVideoId'),video_file_id:asInt('pexelsFileId'),title:$('pexelsTitle').value,confirm_license:true}});
+})}
+async function queueRender(){return run(event.currentTarget,async()=>{
+ const body={asset_id:asInt('renderAssetId'),preset:$('renderPreset').value,fit_mode:$('fitMode').value,trim_start_seconds:Number($('trimStart').value||0)};
+ if($('trimEnd').value.trim())body.trim_end_seconds=Number($('trimEnd').value);
+ if($('voicePackId').value.trim())body.content_pack_id=asInt('voicePackId');
+ if($('subtitleJson').value.trim())body.subtitle_segments=JSON.parse($('subtitleJson').value);
+ return api('/api/render',{method:'POST',body});
+})}
+async function requestPublish(){return run(event.currentTarget,async()=>{
+ if(!$('publishRights').checked)throw new Error('Review the media and metadata and confirm rights');
+ const body={asset_id:asInt('publishAssetId'),render_job_id:asInt('publishRenderId'),title:$('publishTitle').value,description:$('publishDescription').value,tags:$('publishTags').value.split(',').map(x=>x.trim()).filter(Boolean),privacy_status:$('privacy').value,confirm_rights:true};
+ if($('publishAt').value){body.scheduled_at=new Date($('publishAt').value).toISOString();body.privacy_status='private'}
+ return api('/api/publish',{method:'POST',body});
+})}
+async function generateVoiceover(){return run(event.currentTarget,async()=>api('/api/content/'+asInt('voiceContentId')+'/voiceover',{method:'POST'}))}
+async function createThumbnail(){return run(event.currentTarget,async()=>api('/api/thumbnails',{method:'POST',body:{render_job_id:asInt('thumbJobId'),timestamp_seconds:Number($('thumbTime').value||0)}}))}
+async function refreshAnalytics(){return run(event.currentTarget,async()=>api('/api/analytics/refresh',{method:'POST'}))}
+async function loadAnalytics(){return run(event.currentTarget,async()=>api('/api/analytics'))}
+async function loadSourcesAssets(){return run(event.currentTarget,async()=>({sources:await api('/api/sources'),assets:await api('/api/assets')}))}
+async function loadContent(){return run(event.currentTarget,async()=>api('/api/content'))}
+async function loadManifest(){return run(event.currentTarget,async()=>api('/api/agent/manifest'))}
+async function loadTasks(){return run(event.currentTarget,async()=>api('/api/v1/tasks'))}
+async function refreshJobs(){
+ const button=event.currentTarget;
+ return run(button,async()=>{
+  const result={renders:await api('/api/render'),publishes:await api('/api/publish')};
+  const root=$('jobTables');root.replaceChildren();
+  const renders=document.createElement('pre');renders.className='output';renders.textContent='RENDER JOBS\n'+JSON.stringify(result.renders,null,2);root.appendChild(renders);
+  const pubs=document.createElement('pre');pubs.className='output';pubs.textContent='PUBLISH JOBS\n'+JSON.stringify(result.publishes,null,2);root.appendChild(pubs);
+  const pending=result.publishes.filter(j=>j.status==='pending_approval');
+  for(const job of pending){
+    const btn=document.createElement('button');btn.className='warn';btn.textContent='Approve upload job '+job.id;
+    btn.onclick=async()=>{if(!confirm('You reviewed render '+job.render_job_id+', title and rights for publish job '+job.id+'? Upload only proceeds if YouTube is enabled.'))return;btn.disabled=true;try{show(await api('/api/publish/'+job.id+'/execute',{method:'POST'}));await refreshJobs()}catch(e){show({error:String(e)})}finally{btn.disabled=false}};
+    root.appendChild(btn);
+  }
+  return {render_count:result.renders.length,publish_count:result.publishes.length,pending_approval:pending.length};
+ });
+}
+async function refreshAll(){
+ try{const r=await fetch('/ready');const d=await r.json();$('health').textContent=d.status; $('statusOut').textContent=JSON.stringify(d,null,2)}
+ catch(e){$('health').textContent='API unavailable';$('statusOut').textContent=String(e)}
+}
+if(key())$('apiKey').value=key();
+refreshAll();
+</script></body></html>""")
 
 @app.post("/api/discover", dependencies=[Depends(require_api_key)])
 def discover(payload: DiscoveryRequest):
