@@ -42,7 +42,7 @@ x-vyralx-common: &vyralx-common
     SENTINEL_URL: ${SENTINEL_URL:-}
     SENTINEL_API_KEY: ${SENTINEL_API_KEY:-}
     SENTINEL_REQUIRED_FOR_PUBLISH: ${SENTINEL_REQUIRED_FOR_PUBLISH:-false}
-    SENTINEL_POLICY_PATH: ${SENTINEL_POLICY_PATH:-/api/v1/policy/check}
+    SENTINEL_POLICY_PATH: ${SENTINEL_POLICY_PATH:-}
   volumes:
     - vyralx-data:/app/data
     - vyralx-media:/app/media
