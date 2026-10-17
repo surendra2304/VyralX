@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
 from app.migrations import run_additive_migrations
-from app.models import AgentTask, Asset, PublishJob, RenderJob, Source, utcnow
+from app.models import AgentTask, Asset, PublishJob, RenderJob, Source, VideoProject, utcnow
 from app.services.probe import probe_media
 from app.services.captions import write_srt
 from app.services.renderer import render_video
@@ -27,6 +27,7 @@ from app.services.rights import source_is_publishable
 from app.services.youtube import UploadOutcomeUnknown, upload_video
 from app.services.peers import post_peer_json
 from app.services.task_dispatch import dispatch_agent_task
+from app.services.project_pipeline import execute_project_pipeline
 
 settings = get_settings()
 settings.prepare_directories()
@@ -142,6 +143,50 @@ def claim_agent_task(db: Session) -> int | None:
     )
     db.commit()
     return int(candidate) if result.rowcount == 1 else None
+
+
+def claim_video_project(db: Session) -> int | None:
+    candidate = db.scalar(
+        select(VideoProject.id)
+        .where(VideoProject.status == "queued")
+        .order_by(VideoProject.id.asc())
+        .limit(1)
+    )
+    if candidate is None:
+        return None
+    now = utcnow()
+    result = db.execute(
+        update(VideoProject)
+        .where(VideoProject.id == candidate, VideoProject.status == "queued")
+        .values(
+            status="running",
+            attempts=VideoProject.attempts + 1,
+            started_at=now,
+            updated_at=now,
+            error="",
+        )
+    )
+    db.commit()
+    return int(candidate) if result.rowcount == 1 else None
+
+
+def process_video_project(project_id: int) -> None:
+    with SessionLocal() as db:
+        _heartbeat("busy", f"project:{project_id}")
+        try:
+            execute_project_pipeline(project_id, db)
+        except Exception as exc:
+            log.exception("Unexpected project worker failure project_id=%s", project_id)
+            db.rollback()
+            project = db.get(VideoProject, project_id)
+            if project is not None:
+                project.status = "failed"
+                project.error = f"{type(exc).__name__}: {exc}"[:3000]
+                project.completed_at = utcnow()
+                project.updated_at = utcnow()
+                db.commit()
+        finally:
+            _heartbeat("idle")
 
 
 def process_agent_task(task_id: int) -> None:
@@ -315,7 +360,7 @@ def process_publish_job(job_id: int) -> None:
 
 def recover_interrupted_jobs() -> dict[str, int]:
     """Do not auto-repeat external uploads after a crash; require reconciliation."""
-    counts = {"renders": 0, "agent_tasks": 0, "uploads_uncertain": 0}
+    counts = {"renders": 0, "agent_tasks": 0, "projects": 0, "uploads_uncertain": 0}
     with SessionLocal() as db:
         now = utcnow()
         render_jobs = db.scalars(select(RenderJob).where(RenderJob.status == "running")).all()
@@ -334,6 +379,15 @@ def recover_interrupted_jobs() -> dict[str, int]:
             task.completed_at = now
             task.updated_at = now
             counts["agent_tasks"] += 1
+        projects = db.scalars(
+            select(VideoProject).where(VideoProject.status.in_(("running", "rendering")))
+        ).all()
+        for project in projects:
+            project.status = "failed"
+            project.error = "Worker restarted while creating this project; review its stored scenes and retry."
+            project.completed_at = now
+            project.updated_at = now
+            counts["projects"] += 1
         publish_jobs = db.scalars(select(PublishJob).where(PublishJob.status == "uploading")).all()
         for job in publish_jobs:
             job.status = "uncertain"
@@ -344,7 +398,7 @@ def recover_interrupted_jobs() -> dict[str, int]:
             job.updated_at = now
             counts["uploads_uncertain"] += 1
         db.commit()
-    if counts["renders"] or counts["agent_tasks"] or counts["uploads_uncertain"]:
+    if counts["renders"] or counts["agent_tasks"] or counts["projects"] or counts["uploads_uncertain"]:
         log.warning("Recovered interrupted jobs: %s", counts)
     return counts
 
@@ -353,9 +407,9 @@ _queue_cursor = 0
 
 
 def run_once() -> bool:
-    """Claim one item with rotating queue priority so no queue is starved."""
+    """Claim one item with rotating priority so no durable queue is starved."""
     global _queue_cursor
-    queue_names = ("agent", "render", "publish")
+    queue_names = ("agent", "project", "render", "publish")
     for offset in range(len(queue_names)):
         index = (_queue_cursor + offset) % len(queue_names)
         queue_name = queue_names[index]
@@ -363,6 +417,10 @@ def run_once() -> bool:
             with SessionLocal() as db:
                 job_id = claim_agent_task(db)
             processor = process_agent_task
+        elif queue_name == "project":
+            with SessionLocal() as db:
+                job_id = claim_video_project(db)
+            processor = process_video_project
         elif queue_name == "render":
             with SessionLocal() as db:
                 job_id = claim_render_job(db)
