@@ -14,8 +14,8 @@ from starlette.concurrency import run_in_threadpool
 from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.migrations import run_additive_migrations
-from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoMetric, utcnow
-from app.schemas import ContentGenerationRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, PublishResolutionRequest, RenderRequest, SourceCreate, ThumbnailRequest
+from app.models import AgentTask, Asset, ContentPack, PublishJob, RenderJob, Source, VideoMetric, utcnow
+from app.schemas import AgentTaskCancelRequest, AgentTaskRequest, ContentGenerationRequest, ContentVoiceoverRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, PublishResolutionRequest, RenderRequest, SourceCreate, ThumbnailRequest
 from app.security import require_api_key
 from app.services.probe import probe_media
 from app.services.discovery import discover_youtube_videos
@@ -370,8 +370,10 @@ def agent_manifest():
         "role": "video_discovery_production_and_youtube_distribution",
         "health_url": "/health",
         "readiness_url": "/ready",
-        "authentication": {"scheme": "X-API-Key"},
+        "authentication": {"schemes": ["Bearer", "X-API-Key"]},
         "capabilities": [
+            {"id": "task.submit", "method": "POST", "path": "/api/v1/tasks"},
+            {"id": "task.status", "method": "GET", "path": "/api/v1/tasks/{task_id}"},
             {"id": "discover.youtube", "method": "POST", "path": "/api/discover"},
             {"id": "discover.pexels", "method": "POST", "path": "/api/discover/pexels"},
             {"id": "asset.import.pexels", "method": "POST", "path": "/api/assets/import/pexels"},
@@ -700,3 +702,119 @@ def resolve_uncertain_publish(
         "status": job.status,
         "message": "Reconciled as not uploaded; review and approve again to retry",
     }
+
+
+def _agent_task_summary(task: AgentTask) -> dict:
+    return {
+        "task_id": task.task_id,
+        "task_type": task.task_type,
+        "correlation_id": task.correlation_id,
+        "status": task.status,
+        "attempts": task.attempts,
+        "error": task.error,
+        "created_at": task.created_at,
+        "started_at": task.started_at,
+        "updated_at": task.updated_at,
+        "completed_at": task.completed_at,
+    }
+
+
+@app.post("/api/v1/tasks", status_code=202, dependencies=[Depends(require_api_key)])
+def submit_agent_task(payload: AgentTaskRequest, db: Session = Depends(get_db)):
+    """FRIDAY-compatible durable task envelope with idempotent caller-supplied task_id."""
+    normalized_input = json.dumps(payload.input, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    existing = db.scalar(select(AgentTask).where(AgentTask.task_id == payload.task_id))
+    if existing is not None:
+        if existing.task_type != payload.task_type or existing.input_json != normalized_input:
+            raise HTTPException(409, "task_id already exists with a different task type or input")
+        return {
+            **_agent_task_summary(existing),
+            "status_url": "/api/v1/tasks/" + existing.task_id,
+            "idempotent_replay": True,
+        }
+
+    try:
+        # Reject malformed task inputs before putting them in the persistent queue.
+        if payload.task_type == "discover.youtube":
+            DiscoveryRequest.model_validate(payload.input)
+        elif payload.task_type == "discover.pexels":
+            PexelsSearchRequest.model_validate(payload.input)
+        elif payload.task_type == "content.generate":
+            ContentGenerationRequest.model_validate(payload.input)
+        elif payload.task_type == "content.voiceover":
+            ContentVoiceoverRequest.model_validate(payload.input)
+        elif payload.task_type == "render.create":
+            RenderRequest.model_validate(payload.input)
+        elif payload.task_type == "publish.request":
+            PublishRequest.model_validate(payload.input)
+    except Exception as exc:
+        from pydantic import ValidationError
+        if isinstance(exc, ValidationError):
+            raise HTTPException(422, detail=exc.errors()) from None
+        raise
+
+    task = AgentTask(
+        task_id=payload.task_id,
+        task_type=payload.task_type,
+        input_json=normalized_input,
+        correlation_id=payload.correlation_id,
+        status="queued",
+    )
+    db.add(task)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        existing = db.scalar(select(AgentTask).where(AgentTask.task_id == payload.task_id))
+        if existing is None:
+            raise HTTPException(500, "Could not persist agent task") from None
+        if existing.task_type != payload.task_type or existing.input_json != normalized_input:
+            raise HTTPException(409, "task_id concurrently created with different input") from None
+        task = existing
+    db.refresh(task)
+    return {
+        **_agent_task_summary(task),
+        "status_url": "/api/v1/tasks/" + task.task_id,
+        "idempotent_replay": False,
+    }
+
+
+@app.get("/api/v1/tasks/{task_id}", dependencies=[Depends(require_api_key)])
+def get_agent_task(task_id: str, db: Session = Depends(get_db)):
+    task = db.scalar(select(AgentTask).where(AgentTask.task_id == task_id))
+    if task is None:
+        raise HTTPException(404, "Agent task not found")
+    return {
+        **_agent_task_summary(task),
+        "result": json.loads(task.result_json or "{}") if task.result_json else {},
+    }
+
+
+@app.get("/api/v1/tasks", dependencies=[Depends(require_api_key)])
+def list_agent_tasks(db: Session = Depends(get_db), limit: int = 50):
+    limit = max(1, min(limit, 100))
+    rows = db.scalars(select(AgentTask).order_by(AgentTask.id.desc()).limit(limit)).all()
+    return {"count": len(rows), "items": [_agent_task_summary(task) for task in rows]}
+
+
+@app.post("/api/v1/tasks/{task_id}/cancel", dependencies=[Depends(require_api_key)])
+def cancel_agent_task(
+    task_id: str,
+    payload: AgentTaskCancelRequest,
+    db: Session = Depends(get_db),
+):
+    task = db.scalar(select(AgentTask).where(AgentTask.task_id == task_id))
+    if task is None:
+        raise HTTPException(404, "Agent task not found")
+    if task.status != "queued":
+        raise HTTPException(409, "Only queued tasks can be cancelled")
+    result = db.execute(
+        update(AgentTask)
+        .where(AgentTask.id == task.id, AgentTask.status == "queued")
+        .values(status="cancelled", error=payload.reason, updated_at=utcnow(), completed_at=utcnow())
+    )
+    db.commit()
+    if result.rowcount != 1:
+        raise HTTPException(409, "Task state changed; refresh before cancelling")
+    db.refresh(task)
+    return _agent_task_summary(task)
