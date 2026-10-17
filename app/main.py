@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.migrations import run_additive_migrations
 from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoMetric, utcnow
-from app.schemas import ContentGenerationRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, RenderRequest, SourceCreate, ThumbnailRequest
+from app.schemas import ContentGenerationRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, PublishResolutionRequest, RenderRequest, SourceCreate, ThumbnailRequest
 from app.security import require_api_key
 from app.services.probe import probe_media
 from app.services.discovery import discover_youtube_videos
@@ -385,6 +385,7 @@ def agent_manifest():
             {"id": "video.publish.request", "method": "POST", "path": "/api/publish"},
             {"id": "video.publish.approve", "method": "POST", "path": "/api/publish/{job_id}/execute"},
             {"id": "video.job.retry", "method": "POST", "path": "/api/jobs/{kind}/{job_id}/retry"},
+            {"id": "video.publish.resolve_uncertain", "method": "POST", "path": "/api/jobs/publish/{job_id}/resolve"},
         ],
         "peer_contract": "HTTP JSON authenticated using X-API-Key; paths must be confirmed for each peer",
         "configured_peers": sorted(peers.keys()),
@@ -658,3 +659,44 @@ def list_analytics(db: Session = Depends(get_db)):
         }
         for row in rows
     ]
+
+ 
+@app.post("/api/jobs/publish/{job_id}/resolve", dependencies=[Depends(require_api_key)])
+def resolve_uncertain_publish(
+    job_id: int,
+    payload: PublishResolutionRequest,
+    db: Session = Depends(get_db),
+):
+    """Reconcile a worker crash that occurred during a remote upload."""
+    job = db.get(PublishJob, job_id)
+    if job is None:
+        raise HTTPException(404, "Publish job not found")
+    if job.status != "uncertain":
+        raise HTTPException(409, "Only uncertain uploads can be resolved")
+    if payload.decision == "uploaded":
+        job.status = "uploaded"
+        job.youtube_video_id = payload.youtube_video_id.strip()
+        job.error = ""
+        job.completed_at = utcnow()
+        job.updated_at = utcnow()
+        db.commit()
+        return {
+            "job_id": job.id,
+            "status": job.status,
+            "youtube_video_id": job.youtube_video_id,
+            "message": "Upload reconciled; metrics can be refreshed later",
+        }
+    # The operator has confirmed the remote upload did not create a video.
+    # Require another explicit approval before the worker performs a new upload.
+    job.status = "pending_approval"
+    job.error = ""
+    job.youtube_video_id = ""
+    job.approved_at = None
+    job.completed_at = None
+    job.updated_at = utcnow()
+    db.commit()
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "message": "Reconciled as not uploaded; review and approve again to retry",
+    }
