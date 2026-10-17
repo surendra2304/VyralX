@@ -3,6 +3,8 @@ from app.main import app
 from app.services.renderer import PRESETS
 from app.services.rights import source_is_publishable
 from app.models import Source
+from app.config import Settings
+import pytest
 
 client = TestClient(app)
 
@@ -24,3 +26,21 @@ def test_rights_gate_fails_closed():
 def test_invalid_source_rejected_without_auth_in_dev():
     response = client.post("/api/sources", json={"title": ""})
     assert response.status_code == 422
+
+
+def test_discovery_errors_do_not_leak_provider_secrets(monkeypatch):
+    from app import main as main_module
+
+    def fail_discovery(*args, **kwargs):
+        raise RuntimeError("upstream URL contains key=do-not-leak")
+
+    monkeypatch.setattr(main_module, "discover_youtube_videos", fail_discovery)
+    response = client.post("/api/discover", json={"query": "test"})
+    assert response.status_code == 502
+    assert "do-not-leak" not in response.text
+    assert "check server logs" in response.text
+
+
+def test_production_rejects_default_api_key():
+    with pytest.raises(ValueError, match="unique API_KEY"):
+        Settings(app_env="production")
