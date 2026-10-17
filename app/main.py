@@ -124,7 +124,7 @@ async function api(path,opts={}){
 }
 function show(data){$('actionOut').textContent=typeof data==='string'?data:JSON.stringify(data,null,2)}
 function asInt(id){const v=Number($(id).value);if(!Number.isInteger(v)||v<=0)throw new Error(id+' must be a positive integer');return v}
-async function run(button,fn){try{button.disabled=true;const r=await fn();show(r)}catch(e){show({error:String(e)})}finally{button.disabled=false}}
+async function run(button,fn){try{if(button)button.disabled=true;const r=await fn();show(r);return r}catch(e){show({error:String(e)});return {error:String(e)}}finally{if(button)button.disabled=false}}
 async function createVideoProject(button){
  return run(button,async()=>{
   if(!$('projectLicense').checked)throw new Error('Review Pexels licensing and explicitly confirm before starting a project.');
