@@ -1,4 +1,12 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class DiscoveryRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=200)
+    max_results: int = Field(default=10, ge=1, le=25)
+    order: Literal["relevance", "date", "viewCount", "rating"] = "viewCount"
 
 
 class SourceCreate(BaseModel):
