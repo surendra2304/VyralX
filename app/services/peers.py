@@ -72,7 +72,7 @@ def post_peer_json(
     if not path.startswith("/") or path.startswith("//"):
         raise ValueError("Peer endpoint path must be an absolute path")
     if "://" in path:
-        raise ValueError("Peer endpoint path must not be a URL")
+        raise ValueError("Peer endpoint is not a URL")
     if any(segment == ".." for segment in path.split("/")):
         raise ValueError("Peer endpoint path must not contain traversal segments")
     peer = configured_peers().get(name)
