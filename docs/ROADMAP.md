@@ -24,9 +24,11 @@ This file distinguishes implemented repository capability from external producti
 ## Track C — Editing and publish pipeline
 
 - [x] Durable render queue and separate single-worker process.
+- [x] Durable topic-to-video projects: Inference script, Pexels scene search/import, local narration, timed captions, montage, thumbnail and project polling/retry.
 - [x] Shorts, long-form and square presets, pad/crop, trim, SRT captions and optional voiceover.
 - [x] Thumbnail extraction and persisted paths.
 - [x] Explicit publish request and separate approval before upload.
+- [x] Revalidate every montage asset's license evidence at request creation and immediately before upload; append Pexels creator/source credits.
 - [x] Official YouTube OAuth token loading and resumable upload path.
 - [x] Restart recovery that marks interrupted external uploads uncertain instead of blindly retrying.
 - [x] Public views/likes/comments snapshot history.
