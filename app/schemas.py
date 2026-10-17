@@ -111,3 +111,23 @@ class PublishResolutionRequest(BaseModel):
         if self.decision == "uploaded" and not self.youtube_video_id.strip():
             raise ValueError("youtube_video_id is required when decision is uploaded")
         return self
+
+
+from uuid import uuid4
+
+
+class AgentTaskRequest(BaseModel):
+    task_id: str = Field(default_factory=lambda: uuid4().hex, min_length=1, max_length=120)
+    task_type: Literal[
+        "discover.youtube",
+        "discover.pexels",
+        "content.generate",
+        "render.create",
+        "publish.request",
+    ]
+    input: dict = Field(default_factory=dict)
+    correlation_id: str = Field(default="", max_length=120)
+
+
+class AgentTaskCancelRequest(BaseModel):
+    reason: str = Field(default="cancelled_by_requester", max_length=200)
