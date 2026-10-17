@@ -27,16 +27,24 @@ class Settings(BaseSettings):
     default_shorts_height: int = 1920
     default_long_width: int = 1920
     default_long_height: int = 1080
+    worker_required: bool = False
+    worker_poll_seconds: float = 2.0
+    worker_heartbeat_timeout_seconds: int = 90
+    worker_max_attempts: int = 3
     friday_url: str = ""
     friday_api_key: str = ""
     inference_url: str = ""
     inference_api_key: str = ""
+    inference_model: str = ""
+    inference_generation_path: str = "/v1/chat/completions"
+    inference_timeout_seconds: int = 60
     intelx_url: str = ""
     intelx_api_key: str = ""
     memora_url: str = ""
     memora_api_key: str = ""
     sentinel_url: str = ""
     sentinel_api_key: str = ""
+    sentinel_required_for_publish: bool = False
     youtube_data_api_key: str = ""
     youtube_client_secrets_file: Path = Path("./secrets/youtube-client-secret.json")
     youtube_token_file: Path = Path("./secrets/youtube-token.json")
@@ -46,9 +54,21 @@ class Settings(BaseSettings):
     youtube_analytics_enabled: bool = False
 
     @model_validator(mode="after")
-    def validate_production_api_key(self) -> "Settings":
-        if self.app_env.lower() != "development" and (not self.api_key or self.api_key == "development-only-change-me"):
+    def validate_settings(self) -> "Settings":
+        if self.app_env.lower() != "development" and (
+            not self.api_key or self.api_key == "development-only-change-me"
+        ):
             raise ValueError("Set a unique API_KEY outside development")
+        if self.worker_poll_seconds < 0.5:
+            raise ValueError("WORKER_POLL_SECONDS must be at least 0.5")
+        if self.worker_max_attempts < 1:
+            raise ValueError("WORKER_MAX_ATTEMPTS must be at least 1")
+        if self.youtube_default_privacy not in {"private", "unlisted", "public"}:
+            raise ValueError("YOUTUBE_DEFAULT_PRIVACY must be private, unlisted, or public")
+        if self.sentinel_required_for_publish and not (
+            self.sentinel_url and self.sentinel_api_key
+        ):
+            raise ValueError("SENTINEL_URL and SENTINEL_API_KEY are required when policy checks are enforced")
         return self
 
     def prepare_directories(self) -> None:
