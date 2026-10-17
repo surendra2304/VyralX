@@ -36,8 +36,10 @@ class Settings(BaseSettings):
     inference_url: str = ""
     inference_api_key: str = ""
     inference_model: str = ""
-    inference_generation_path: str = "/v1/chat/completions"
+    inference_generation_path: str = "/v1/task/execute"
     inference_timeout_seconds: int = 60
+    inference_tts_url: str = ""
+    inference_tts_api_key: str = ""
     inference_tts_path: str = "/v1/audio/speech"
     inference_tts_model: str = ""
     inference_tts_voice: str = "alloy"
