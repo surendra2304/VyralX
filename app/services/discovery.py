@@ -15,19 +15,24 @@ def discover_youtube_videos(query: str, max_results: int = 10, order: str = "vie
     params = {"key": settings.youtube_data_api_key, "part": "snippet", "type": "video",
               "q": query[:200], "maxResults": max_results, "order": order,
               "safeSearch": "moderate"}
-    with httpx.Client(timeout=20) as client:
-        response = client.get(YOUTUBE_SEARCH_URL, params=params)
-        response.raise_for_status()
-        items = response.json().get("items", [])
-        ids = [item.get("id", {}).get("videoId") for item in items]
-        ids = [video_id for video_id in ids if video_id]
-        if not ids:
-            return []
-        stats_response = client.get(YOUTUBE_VIDEOS_URL, params={
-            "key": settings.youtube_data_api_key, "part": "statistics,contentDetails",
-            "id": ",".join(ids)})
-        stats_response.raise_for_status()
-        stats = {item["id"]: item for item in stats_response.json().get("items", [])}
+    try:
+        with httpx.Client(timeout=20) as client:
+            response = client.get(YOUTUBE_SEARCH_URL, params=params)
+            response.raise_for_status()
+            items = response.json().get("items", [])
+            ids = [item.get("id", {}).get("videoId") for item in items]
+            ids = [video_id for video_id in ids if video_id]
+            if not ids:
+                return []
+            stats_response = client.get(YOUTUBE_VIDEOS_URL, params={
+                "key": settings.youtube_data_api_key, "part": "statistics,contentDetails",
+                "id": ",".join(ids)})
+            stats_response.raise_for_status()
+            stats = {item["id"]: item for item in stats_response.json().get("items", [])}
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(f"YouTube Data API returned HTTP {exc.response.status_code}") from None
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"YouTube Data API request failed ({type(exc).__name__})") from None
     candidates = []
     for item in items:
         video_id = item.get("id", {}).get("videoId")
