@@ -46,8 +46,6 @@ def generate_content_pack(
     settings = get_settings()
     if not settings.inference_url or not settings.inference_api_key:
         raise RuntimeError("INFERENCE_URL and INFERENCE_API_KEY must be configured")
-    if not settings.inference_model:
-        raise RuntimeError("INFERENCE_MODEL must be configured for content generation")
     if video_format not in ("shorts", "long"):
         raise ValueError("video_format must be shorts or long")
     if not 15 <= target_seconds <= 1800:
@@ -140,8 +138,8 @@ def generate_content_pack(
     pack["format"] = video_format
     pack["target_seconds"] = target_seconds
     pack["provider_model"] = (
-        str(result.get("model_used") or settings.inference_model)
-        if isinstance(result, dict) else settings.inference_model
+        str(result.get("model_used") or settings.inference_model or "auto")
+        if isinstance(result, dict) else (settings.inference_model or "auto")
     )
     pack["generated_by"] = "inference"
     pack["requires_editor_review"] = True
