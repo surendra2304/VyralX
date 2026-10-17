@@ -20,7 +20,7 @@ Outside development mode, send the X-API-Key header for all /api/* routes.
 1. Copy .env.example to .env and set a strong API_KEY.
 2. Install FFmpeg and Python 3.11+.
 3. Install with pip install -e ".[dev]".
-4. Run uvicorn app.main:app --host 127.0.0.1 --port 8010.
+4. Run uvicorn app.main:app --host 127.0.0.1 --port 8000.
 5. Visit /docs, check /health, and run pytest.
 
 Publish requests must include `asset_id` and `render_job_id` so the queued job remains bound to the reviewed rendition. Omit `privacy_status` to use `YOUTUBE_DEFAULT_PRIVACY` (defaults to `private`). Optional `scheduled_at` must be a future ISO 8601 timestamp with an explicit timezone; scheduled uploads must use `private` privacy so YouTube can apply `publishAt`.
