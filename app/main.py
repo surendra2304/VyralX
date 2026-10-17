@@ -2,7 +2,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from threading import BoundedSemaphore
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
@@ -13,21 +13,23 @@ from starlette.concurrency import run_in_threadpool
 
 from app.config import get_settings
 from app.database import Base, engine, get_db
-from app.models import Asset, PublishJob, RenderJob, Source
-from app.schemas import DiscoveryRequest, PublishRequest, RenderRequest, SourceCreate
+from app.migrations import run_additive_migrations
+from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, utcnow
+from app.schemas import ContentGenerationRequest, DiscoveryRequest, PublishRequest, RenderRequest, SourceCreate
 from app.security import require_api_key
 from app.services.probe import probe_media
 from app.services.discovery import discover_youtube_videos
-from app.services.renderer import render_video
+from app.services.trends import rank_candidates
+from app.services.content import generate_content_pack
+from app.services.peers import configured_peers, peer_health, post_peer_json
 from app.services.rights import source_is_publishable
-from app.services.youtube import upload_video
 
 settings = get_settings()
 settings.prepare_directories()
 Base.metadata.create_all(bind=engine)
+run_additive_migrations(engine)
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("vyralx")
-render_slots = BoundedSemaphore(max(1, settings.max_concurrent_renders))
 
 app = FastAPI(title="VyralX", version="0.1.0",
               description="Video discovery, editing, and YouTube publishing agent")
@@ -40,8 +42,35 @@ def health():
 
 @app.get("/ready")
 def ready():
-    return {"status": "ready", "database": "connected",
-            "ffmpeg": shutil.which(settings.ffmpeg_bin) is not None}
+    database_ok = False
+    try:
+        with engine.connect() as connection:
+            connection.execute(select(1))
+        database_ok = True
+    except Exception:
+        log.exception("Readiness database check failed")
+    ffmpeg_ok = shutil.which(settings.ffmpeg_bin) is not None
+    worker_ok = not settings.worker_required
+    worker_status = "not_required"
+    if settings.worker_required:
+        heartbeat_path = settings.data_dir / "worker-heartbeat.json"
+        try:
+            heartbeat = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+            updated = datetime.fromisoformat(heartbeat["updated_at"])
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
+            age = max(0.0, (datetime.now(timezone.utc) - updated.astimezone(timezone.utc)).total_seconds())
+            worker_ok = age <= settings.worker_heartbeat_timeout_seconds and heartbeat.get("state") != "stopped"
+            worker_status = "healthy" if worker_ok else "stale"
+        except (OSError, ValueError, KeyError, TypeError):
+            worker_status = "missing"
+    ready_state = database_ok and ffmpeg_ok and worker_ok
+    return {
+        "status": "ready" if ready_state else "degraded",
+        "database": "connected" if database_ok else "unavailable",
+        "ffmpeg": ffmpeg_ok,
+        "worker": worker_status,
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -77,7 +106,8 @@ def discover(payload: DiscoveryRequest):
         log.error("YouTube discovery failed (error_type=%s)", type(exc).__name__)
         raise HTTPException(502, "YouTube discovery failed; check server logs and provider configuration") from None
     # Results are leads only: no media is downloaded and rights remain unverified.
-    return {"query": query, "count": len(items), "items": items}
+    ranked = rank_candidates(items)
+    return {"query": query, "count": len(ranked), "items": ranked, "score_note": "heuristic ranking; discovery is not permission"}
 
 
 @app.post("/api/sources", dependencies=[Depends(require_api_key)])
@@ -147,35 +177,23 @@ def list_assets(db: Session = Depends(get_db)):
             for a in rows]
 
 
-@app.post("/api/render", dependencies=[Depends(require_api_key)])
+@app.post("/api/render", status_code=202, dependencies=[Depends(require_api_key)])
 def create_render(payload: RenderRequest, db: Session = Depends(get_db)):
     asset = db.get(Asset, payload.asset_id)
     if asset is None:
         raise HTTPException(404, "Asset not found")
-    if not asset.rights_verified:
-        raise HTTPException(403, "Asset has no verified rights record; attach an authorized source first")
-    if not render_slots.acquire(blocking=False):
-        raise HTTPException(429, "Render capacity is busy; retry later")
-    job = RenderJob(asset_id=asset.id, preset=payload.preset, status="running")
+    source = db.get(Source, asset.source_id) if asset.source_id else None
+    if not asset.rights_verified or not source_is_publishable(source):
+        raise HTTPException(403, "Asset requires a verified license or permission record")
+    job = RenderJob(asset_id=asset.id, preset=payload.preset, status="queued")
     db.add(job)
     db.commit()
     db.refresh(job)
-    output = settings.render_dir / (
-        "asset-" + str(asset.id) + "-job-" + str(job.id) + "-" + payload.preset + ".mp4"
-    )
-    try:
-        job.output_path = render_video(asset.file_path, output, payload.preset)
-        job.status = "completed"
-    except Exception as exc:
-        log.error("Render failed; job_id=%s error_type=%s", job.id, type(exc).__name__)
-        job.status = "failed"
-        job.error = str(exc)[:3000]
-        db.commit()
-        raise HTTPException(500, "Render failed; job_id=" + str(job.id) + "; consult service logs") from None
-    finally:
-        render_slots.release()
-    db.commit()
-    return {"job_id": job.id, "status": job.status, "output_path": job.output_path}
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "message": "Queued for the VyralX worker; poll GET /api/render for status",
+    }
 
 
 @app.get("/api/render", dependencies=[Depends(require_api_key)])
@@ -204,9 +222,12 @@ def queue_publish(payload: PublishRequest, db: Session = Depends(get_db)):
     if payload.scheduled_at and privacy_status != "private":
         raise HTTPException(422, "Scheduled YouTube videos must use private privacy with publishAt")
     scheduled_at = payload.scheduled_at.isoformat().replace("+00:00", "Z") if payload.scheduled_at else ""
+    source = db.get(Source, asset.source_id) if asset.source_id else None
+    if not source_is_publishable(source):
+        raise HTTPException(403, "Current source record does not contain verified rights evidence")
     job = PublishJob(asset_id=asset.id, render_job_id=render.id, title=payload.title,
                      description=payload.description, tags_json=json.dumps(payload.tags[:30]),
-                     privacy_status=privacy_status, scheduled_at=scheduled_at, status="queued")
+                     privacy_status=privacy_status, scheduled_at=scheduled_at, status="pending_approval")
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -214,47 +235,39 @@ def queue_publish(payload: PublishRequest, db: Session = Depends(get_db)):
             "note": "Queued only; call the execute endpoint to upload"}
 
 
-@app.post("/api/publish/{job_id}/execute", dependencies=[Depends(require_api_key)])
+@app.post("/api/publish/{job_id}/execute", status_code=202, dependencies=[Depends(require_api_key)])
 def execute_publish(job_id: int, db: Session = Depends(get_db)):
+    """Approve a queued upload; the separate worker performs the network operation."""
     job = db.get(PublishJob, job_id)
     if job is None:
         raise HTTPException(404, "Publish job not found")
-    if job.status != "queued":
-        raise HTTPException(409, "Job is not queued")
+    if job.status == "queued":
+        return {"job_id": job.id, "status": job.status, "message": "Already queued for the worker"}
+    if job.status != "pending_approval":
+        raise HTTPException(409, f"Job cannot be approved from status {job.status}")
     asset = db.get(Asset, job.asset_id)
-    if asset is None or not asset.rights_verified:
-        raise HTTPException(403, "Asset is missing verified rights")
     render = db.get(RenderJob, job.render_job_id)
+    source = db.get(Source, asset.source_id) if asset and asset.source_id else None
     if (
-        render is None
-        or render.asset_id != asset.id
-        or render.status != "completed"
-        or not Path(render.output_path).is_file()
+        asset is None or render is None or render.asset_id != asset.id
+        or render.status != "completed" or not Path(render.output_path).is_file()
     ):
-        raise HTTPException(409, "The selected render is missing or no longer available")
-    claim = db.execute(
+        raise HTTPException(409, "The selected completed render is missing")
+    if not asset.rights_verified or not source_is_publishable(source):
+        raise HTTPException(403, "Current source record does not contain verified rights evidence")
+    result = db.execute(
         update(PublishJob)
-        .where(PublishJob.id == job.id, PublishJob.status == "queued")
-        .values(status="uploading")
+        .where(PublishJob.id == job.id, PublishJob.status == "pending_approval")
+        .values(status="queued", approved_at=utcnow(), updated_at=utcnow())
     )
     db.commit()
-    if claim.rowcount != 1:
-        raise HTTPException(409, "Publish job is already being processed or is no longer queued")
-    db.refresh(job)
-    try:
-        video_id = upload_video(render.output_path, title=job.title, description=job.description,
-                                tags=json.loads(job.tags_json), privacy_status=job.privacy_status,
-                                category_id=settings.youtube_category_id, scheduled_at=job.scheduled_at)
-        job.youtube_video_id = video_id
-        job.status = "uploaded"
-    except Exception as exc:
-        log.error("YouTube upload failed; job_id=%s error_type=%s", job.id, type(exc).__name__)
-        job.status = "failed"
-        job.error = str(exc)[:3000]
-        db.commit()
-        raise HTTPException(502, "YouTube upload failed; job_id=" + str(job.id) + "; consult service logs") from None
-    db.commit()
-    return {"job_id": job.id, "status": job.status, "youtube_video_id": job.youtube_video_id}
+    if result.rowcount != 1:
+        raise HTTPException(409, "Publish job status changed; refresh before approving")
+    return {
+        "job_id": job.id,
+        "status": "queued",
+        "message": "Approved; the VyralX worker will upload it if YouTube publishing is enabled",
+    }
 
 
 @app.get("/api/publish", dependencies=[Depends(require_api_key)])
