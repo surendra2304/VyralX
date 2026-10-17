@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -65,12 +65,13 @@ def ready():
         except (OSError, ValueError, KeyError, TypeError):
             worker_status = "missing"
     ready_state = database_ok and ffmpeg_ok and worker_ok
-    return {
+    response = {
         "status": "ready" if ready_state else "degraded",
         "database": "connected" if database_ok else "unavailable",
         "ffmpeg": ffmpeg_ok,
         "worker": worker_status,
     }
+    return JSONResponse(content=response, status_code=200 if ready_state else 503)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -247,6 +248,8 @@ def execute_publish(job_id: int, db: Session = Depends(get_db)):
         return {"job_id": job.id, "status": job.status, "message": "Already queued for the worker"}
     if job.status != "pending_approval":
         raise HTTPException(409, f"Job cannot be approved from status {job.status}")
+    if not settings.youtube_upload_enabled:
+        raise HTTPException(503, "YouTube publishing is disabled; enable it only after OAuth verification")
     asset = db.get(Asset, job.asset_id)
     render = db.get(RenderJob, job.render_job_id)
     source = db.get(Source, asset.source_id) if asset and asset.source_id else None
