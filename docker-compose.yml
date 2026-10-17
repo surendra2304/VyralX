@@ -1,0 +1,53 @@
+services:
+  vyralx:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vyralx
+    restart: unless-stopped
+    init: true
+    environment:
+      APP_ENV: production
+      PORT: "8010"
+      API_KEY: ${API_KEY:?Set API_KEY in Dokploy environment}
+      DATABASE_URL: sqlite:////app/data/vyralx.db
+      DATA_DIR: /app/data
+      MEDIA_DIR: /app/media
+      RENDER_DIR: /app/renders
+      MAX_CONCURRENT_RENDERS: "1"
+      MAX_UPLOAD_MB: "2048"
+      YOUTUBE_UPLOAD_ENABLED: ${YOUTUBE_UPLOAD_ENABLED:-false}
+      YOUTUBE_DEFAULT_PRIVACY: ${YOUTUBE_DEFAULT_PRIVACY:-private}
+      YOUTUBE_CLIENT_SECRETS_FILE: /app/secrets/youtube-client-secret.json
+      YOUTUBE_TOKEN_FILE: /app/secrets/youtube-token.json
+      FRIDAY_URL: ${FRIDAY_URL:-}
+      FRIDAY_API_KEY: ${FRIDAY_API_KEY:-}
+      INFERENCE_URL: ${INFERENCE_URL:-}
+      INFERENCE_API_KEY: ${INFERENCE_API_KEY:-}
+      INTELX_URL: ${INTELX_URL:-}
+      INTELX_API_KEY: ${INTELX_API_KEY:-}
+      MEMORA_URL: ${MEMORA_URL:-}
+      MEMORA_API_KEY: ${MEMORA_API_KEY:-}
+      SENTINEL_URL: ${SENTINEL_URL:-}
+      SENTINEL_API_KEY: ${SENTINEL_API_KEY:-}
+    volumes:
+      - vyralx-data:/app/data
+      - vyralx-media:/app/media
+      - vyralx-renders:/app/renders
+      - vyralx-secrets:/app/secrets
+    networks:
+      - friday_mesh
+    mem_limit: 768m
+    cpus: 1.0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+networks:
+  friday_mesh:
+    external: true
+volumes:
+  vyralx-data:
+  vyralx-media:
+  vyralx-renders:
+  vyralx-secrets:
