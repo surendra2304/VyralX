@@ -25,7 +25,7 @@ The worker is single-process by design. This serializes CPU-heavy FFmpeg renders
 - \`app/services/discovery.py\`: public YouTube Data API search and statistics; output is discovery-only.
 - \`app/services/trends.py\`: deterministic, bounded heuristic ranking using reach, engagement and recency. It is a prioritization score, not a promise of virality.
 - \`app/services/pexels.py\`: official Pexels search/details endpoint and size-limited import of API-returned media files. Source URL, creator, license references and attribution notice are retained.
-- \`app/services/content.py\`: Inference-compatible original script and scene-plan generation. Generated factual claims require review.
+- \`app/services/content.py\`: Original script and scene-plan generation via the FRIDAY Inference `/v1/task/execute` envelope. Generated factual claims require review.
 - \`app/services/voiceover.py\`: optional Inference-compatible narration synthesis.
 - \`app/services/captions.py\`: SRT subtitle-file construction.
 - \`app/services/thumbnail.py\`: deterministic FFmpeg thumbnail extraction.
