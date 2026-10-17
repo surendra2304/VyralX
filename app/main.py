@@ -957,12 +957,21 @@ def execute_friday_universe_task(
     task_input = envelope.inputs if envelope.inputs else envelope.payload
     normalized_input = json.dumps(task_input, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     idem_key = envelope.idempotency_key.strip() if envelope.idempotency_key else f"taskid:{envelope.task_id}"
+    stored_action = envelope.action or envelope.objective
+    if not stored_action.strip():
+        raise HTTPException(422, "action or objective must identify the requested VyralX operation")
     existing = db.scalar(select(AgentTask).where(AgentTask.task_id == envelope.task_id))
     if existing is None:
         existing = db.scalar(select(AgentTask).where(AgentTask.idempotency_key == idem_key))
     if existing is not None:
-        if existing.task_type != resolved_type or existing.input_json != normalized_input:
-            raise HTTPException(409, "task_id/idempotency_key already exists with a different action or input")
+        if (
+            existing.task_type != resolved_type
+            or existing.input_json != normalized_input
+            or existing.action != stored_action
+            or existing.idempotency_key != idem_key
+            or existing.target_agent != "vyralx"
+        ):
+            raise HTTPException(409, "task_id/idempotency_key already exists with different action, target, or input")
         return JSONResponse(
             status_code=202,
             content={
@@ -974,9 +983,6 @@ def execute_friday_universe_task(
 
     trace_id = envelope.trace_id or envelope.correlation_id or envelope.task_id
     request_id = envelope.request_id or envelope.correlation_id or envelope.task_id
-    stored_action = envelope.action or envelope.objective
-    if not stored_action.strip():
-        raise HTTPException(422, "action or objective must identify the requested VyralX operation")
     authorization_context = _redact_authorization_context(envelope.authorization_context)
     task = AgentTask(
         task_id=envelope.task_id,
@@ -1009,8 +1015,14 @@ def execute_friday_universe_task(
         existing = db.scalar(select(AgentTask).where(AgentTask.idempotency_key == idem_key))
         if existing is None:
             raise HTTPException(500, "Could not persist VyralX task") from None
-        if existing.task_type != resolved_type or existing.input_json != normalized_input:
-            raise HTTPException(409, "idempotency_key was concurrently reused with different input") from None
+        if (
+            existing.task_type != resolved_type
+            or existing.input_json != normalized_input
+            or existing.action != stored_action
+            or existing.idempotency_key != idem_key
+            or existing.target_agent != "vyralx"
+        ):
+            raise HTTPException(409, "idempotency_key was concurrently reused with different action, target, or input") from None
         task = existing
     return JSONResponse(
         status_code=202,
