@@ -24,7 +24,7 @@ from app.services.probe import probe_media
 from app.services.captions import write_srt
 from app.services.renderer import render_video
 from app.services.rights import source_is_publishable
-from app.services.youtube import upload_video
+from app.services.youtube import UploadOutcomeUnknown, upload_video
 from app.services.peers import post_peer_json
 from app.services.task_dispatch import dispatch_agent_task
 
@@ -296,6 +296,10 @@ def process_publish_job(job_id: int) -> None:
             job.status = "uploaded"
             job.error = ""
             log.info("YouTube upload completed job_id=%s video_id=%s", job.id, video_id)
+        except UploadOutcomeUnknown as exc:
+            job.status = "uncertain"
+            job.error = str(exc)[:3000]
+            log.error("YouTube upload outcome uncertain job_id=%s; manual reconciliation required", job.id)
         except Exception as exc:
             job.status = "failed"
             job.error = f"{type(exc).__name__}: {exc}"[:3000]
