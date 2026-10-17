@@ -43,10 +43,8 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
         "action": "VARCHAR(120) NOT NULL DEFAULT ''",
     },
 }
-    # The idempotency key is nullable so older/direct API tasks can coexist.
-    # SQLite and PostgreSQL both allow multiple NULLs in a unique index.
-    }
-    
+
+
 def run_additive_migrations(engine: Engine) -> None:
     inspector = inspect(engine)
     with engine.begin() as connection:
@@ -55,8 +53,15 @@ def run_additive_migrations(engine: Engine) -> None:
                 continue
             existing = {column["name"] for column in inspector.get_columns(table_name)}
             for column_name, declaration in wanted_columns.items():
-                if column_name in existing:
-                    continue
-                connection.execute(
-                    text(f'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {declaration}')
+                if column_name not in existing:
+                    connection.execute(
+                        text(f'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {declaration}')
+                    )
+        if inspector.has_table("agent_tasks"):
+            # NULL keys remain available to legacy/direct submissions; named keys are unique.
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_agent_tasks_idempotency_key "
+                    "ON agent_tasks (idempotency_key)"
                 )
+            )
