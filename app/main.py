@@ -71,8 +71,9 @@ def discover(payload: dict):
     try:
         items = discover_youtube_videos(query, payload.get("max_results", 10),
                                         payload.get("order", "viewCount"))
-    except Exception as exc:
-        raise HTTPException(502, "YouTube discovery failed: " + str(exc)[:300]) from exc
+    except Exception:
+        log.exception("YouTube discovery provider request failed")
+        raise HTTPException(502, "YouTube discovery failed; check server logs and provider configuration") from None
     # Results are leads only: no media is downloaded and rights remain unverified.
     return {"query": query, "count": len(items), "items": items}
 
@@ -160,10 +161,11 @@ def create_render(payload: RenderRequest, db: Session = Depends(get_db)):
         job.output_path = render_video(asset.file_path, output, payload.preset)
         job.status = "completed"
     except Exception as exc:
+        log.exception("Render failed; job_id=%s", job.id)
         job.status = "failed"
         job.error = str(exc)[:3000]
         db.commit()
-        raise HTTPException(500, "Render failed; job_id=" + str(job.id) + ": " + job.error) from exc
+        raise HTTPException(500, "Render failed; job_id=" + str(job.id) + "; consult service logs") from None
     db.commit()
     return {"job_id": job.id, "status": job.status, "output_path": job.output_path}
 
@@ -216,10 +218,11 @@ def execute_publish(job_id: int, db: Session = Depends(get_db)):
         job.youtube_video_id = video_id
         job.status = "uploaded"
     except Exception as exc:
+        log.exception("YouTube upload failed; job_id=%s", job.id)
         job.status = "failed"
         job.error = str(exc)[:3000]
         db.commit()
-        raise HTTPException(502, "Upload failed; job_id=" + str(job.id) + ": " + job.error) from exc
+        raise HTTPException(502, "YouTube upload failed; job_id=" + str(job.id) + "; consult service logs") from None
     db.commit()
     return {"job_id": job.id, "status": job.status, "youtube_video_id": job.youtube_video_id}
 
