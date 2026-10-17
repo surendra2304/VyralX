@@ -25,6 +25,21 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
         "voiceover_path": "VARCHAR(2048) NOT NULL DEFAULT ''",
         "voiceover_status": "VARCHAR(40) NOT NULL DEFAULT 'not_generated'",
     },
+    "agent_tasks": {
+        "trace_id": "VARCHAR(120) NOT NULL DEFAULT ''",
+        "parent_task_id": "VARCHAR(120) NOT NULL DEFAULT ''",
+        "request_id": "VARCHAR(120) NOT NULL DEFAULT ''",
+        "actor": "VARCHAR(120) NOT NULL DEFAULT 'operator'",
+        "capability": "VARCHAR(120) NOT NULL DEFAULT ''",
+        "objective": "VARCHAR(500) NOT NULL DEFAULT ''",
+        "trust_level": "VARCHAR(40) NOT NULL DEFAULT 'untrusted'",
+        "deadline": "VARCHAR(80) NOT NULL DEFAULT ''",
+        "requested_mode": "VARCHAR(20) NOT NULL DEFAULT 'async'",
+        "priority": "VARCHAR(20) NOT NULL DEFAULT 'normal'",
+        "source_agent": "VARCHAR(120) NOT NULL DEFAULT 'friday'",
+        "target_agent": "VARCHAR(120) NOT NULL DEFAULT 'vyralx'",
+        "action": "VARCHAR(120) NOT NULL DEFAULT ''",
+    },
 }
 
 
