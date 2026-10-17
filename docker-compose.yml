@@ -57,12 +57,24 @@ x-vyralx-common: &vyralx-common
     - ALL
 
 services:
+  vyralx-init:
+    <<: *vyralx-common
+    container_name: vyralx-init
+    restart: "no"
+    command: ["python", "-m", "app.init_db"]
+    mem_limit: 128m
+    cpus: 0.2
+    healthcheck:
+      disable: true
+
   vyralx:
     <<: *vyralx-common
     container_name: vyralx
     mem_limit: 320m
     cpus: 0.35
     depends_on:
+      vyralx-init:
+        condition: service_completed_successfully
       vyralx-worker:
         condition: service_started
 
@@ -70,6 +82,9 @@ services:
     <<: *vyralx-common
     container_name: vyralx-worker
     command: ["python", "-m", "app.worker"]
+    depends_on:
+      vyralx-init:
+        condition: service_completed_successfully
     mem_limit: 512m
     cpus: 0.65
     healthcheck:
