@@ -44,6 +44,12 @@ The worker is single-process by design. This serializes CPU-heavy FFmpeg renders
 - Memora remains the only long-term memory authority. VyralX does not create universal/shared memory copies. An explicit Memora API contract must be used for any future memory exchange.
 - Sentinel policy enforcement is disabled by default. When enabled, VyralX fails closed if the configured policy endpoint does not explicitly allow publication.
 
+## Topic-to-video project pipeline
+
+\`VideoProject\` is a durable job record separate from the generic FRIDAY task envelope. \`POST /api/projects\` or a FRIDAY \`project.create\` task queues it. The worker claims it with a conditional state update, generates/reuses its \`ContentPack\`, searches official Pexels results against each scene visual, imports unique MP4 scenes under the stock-download size cap, creates a voiceover (local eSpeak by default), computes approximate weighted subtitle timings, and invokes the FFmpeg montage renderer. A montage strips source audio, normalizes clip dimensions/frame rate, concatenates scenes, burns captions, adds narration, probes output and extracts a thumbnail.
+
+The completed \`RenderJob.options_json\` retains the montage asset IDs. Source-rights validation resolves every referenced asset, not just the first asset displayed as the primary asset. Pexels attribution is propagated into the publish description. A video project can only become publishable through the usual explicit approval gate.
+
 ## Main data path
 
 1. YouTube/Pexels discovery yields metadata leads; no rights are inferred.
