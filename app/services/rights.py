@@ -38,8 +38,8 @@ def verified_render_sources(render: RenderJob, db: Session) -> list[tuple[Asset,
             asset_ids.append(asset_id)
     if render.asset_id not in asset_ids:
         asset_ids.insert(0, render.asset_id)
-    if not asset_ids or len(asset_ids) > 8:
-        raise ValueError("Render must reference between 1 and 8 source assets")
+    if not asset_ids or len(asset_ids) > 4:
+        raise ValueError("Render must reference between 1 and 4 source assets")
 
     verified: list[tuple[Asset, Source]] = []
     for asset_id in asset_ids:
