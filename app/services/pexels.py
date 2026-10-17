@@ -23,7 +23,12 @@ def _api_key() -> str:
 def _safe_file_url(url: str) -> bool:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
-    return parsed.scheme == "https" and (host == "pexels.com" or host.endswith(".pexels.com"))
+    if parsed.scheme != "https" or not parsed.hostname:
+        return False
+    if host == "pexels.com" or host.endswith(".pexels.com"):
+        return True
+    # Some official Pexels API responses use Vimeo's player CDN for media files.
+    return host == "player.vimeo.com" and parsed.path.startswith("/external/")
 
 
 def _normalize_video(video: dict) -> dict:
