@@ -26,6 +26,8 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
         "voiceover_status": "VARCHAR(40) NOT NULL DEFAULT 'not_generated'",
     },
     "agent_tasks": {
+        "idempotency_key": "VARCHAR(160)",
+        "authorization_context_json": "TEXT NOT NULL DEFAULT '{}'",
         "trace_id": "VARCHAR(120) NOT NULL DEFAULT ''",
         "parent_task_id": "VARCHAR(120) NOT NULL DEFAULT ''",
         "request_id": "VARCHAR(120) NOT NULL DEFAULT ''",
@@ -41,8 +43,10 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
         "action": "VARCHAR(120) NOT NULL DEFAULT ''",
     },
 }
-
-
+    # The idempotency key is nullable so older/direct API tasks can coexist.
+    # SQLite and PostgreSQL both allow multiple NULLs in a unique index.
+    }
+    
 def run_additive_migrations(engine: Engine) -> None:
     inspector = inspect(engine)
     with engine.begin() as connection:
