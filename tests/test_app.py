@@ -163,3 +163,41 @@ def test_canonical_friday_task_contract_and_idempotent_replay(monkeypatch):
         with SessionLocal() as db:
             db.query(AgentTask).filter(AgentTask.task_id == task_id).delete()
             db.commit()
+
+
+def test_video_project_api_is_idempotent_and_requires_license_confirmation():
+    from uuid import uuid4
+
+    from app.database import SessionLocal
+    from app.models import VideoProject
+
+    key = "test-project-" + uuid4().hex[:12]
+    payload = {
+        "project_key": key,
+        "topic": "How wind power works",
+        "video_format": "shorts",
+        "target_seconds": 30,
+        "scene_count": 3,
+        "confirm_pexels_license": True,
+        "use_voiceover": True,
+    }
+    try:
+        denied = client.post("/api/projects", json={**payload, "confirm_pexels_license": False})
+        assert denied.status_code == 403
+        created = client.post("/api/projects", json=payload)
+        assert created.status_code == 202
+        result = created.json()
+        assert result["status"] == "queued"
+        assert result["project_key"] == key
+        replay = client.post("/api/projects", json=payload)
+        assert replay.status_code == 202
+        assert replay.json()["idempotent_replay"] is True
+        conflict = client.post("/api/projects", json={**payload, "topic": "Different topic"})
+        assert conflict.status_code == 409
+        polled = client.get("/api/projects/" + str(result["project_id"]))
+        assert polled.status_code == 200
+        assert polled.json()["status"] == "queued"
+    finally:
+        with SessionLocal() as db:
+            db.query(VideoProject).filter(VideoProject.project_key == key).delete()
+            db.commit()
