@@ -2,12 +2,14 @@ import json
 import logging
 import shutil
 from pathlib import Path
+from threading import BoundedSemaphore
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.config import get_settings
 from app.database import Base, engine, get_db
@@ -25,6 +27,7 @@ settings.prepare_directories()
 Base.metadata.create_all(bind=engine)
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("vyralx")
+render_slots = BoundedSemaphore(max(1, settings.max_concurrent_renders))
 
 app = FastAPI(title="VyralX", version="0.1.0",
               description="Video discovery, editing, and YouTube publishing agent")
@@ -125,7 +128,7 @@ async def upload_asset(file: UploadFile = File(...), title: str = "Untitled asse
     finally:
         await file.close()
     try:
-        meta = probe_media(destination)
+        meta = await run_in_threadpool(probe_media, destination)
     except Exception as exc:
         destination.unlink(missing_ok=True)
         raise HTTPException(422, "Media probe failed: " + str(exc)[:300]) from exc
@@ -152,11 +155,15 @@ def create_render(payload: RenderRequest, db: Session = Depends(get_db)):
         raise HTTPException(404, "Asset not found")
     if not asset.rights_verified:
         raise HTTPException(403, "Asset has no verified rights record; attach an authorized source first")
+    if not render_slots.acquire(blocking=False):
+        raise HTTPException(429, "Render capacity is busy; retry later")
     job = RenderJob(asset_id=asset.id, preset=payload.preset, status="running")
     db.add(job)
     db.commit()
     db.refresh(job)
-    output = settings.render_dir / ("asset-" + str(asset.id) + "-" + payload.preset + ".mp4")
+    output = settings.render_dir / (
+        "asset-" + str(asset.id) + "-job-" + str(job.id) + "-" + payload.preset + ".mp4"
+    )
     try:
         job.output_path = render_video(asset.file_path, output, payload.preset)
         job.status = "completed"
@@ -166,6 +173,8 @@ def create_render(payload: RenderRequest, db: Session = Depends(get_db)):
         job.error = str(exc)[:3000]
         db.commit()
         raise HTTPException(500, "Render failed; job_id=" + str(job.id) + "; consult service logs") from None
+    finally:
+        render_slots.release()
     db.commit()
     return {"job_id": job.id, "status": job.status, "output_path": job.output_path}
 
@@ -184,8 +193,17 @@ def queue_publish(payload: PublishRequest, db: Session = Depends(get_db)):
         raise HTTPException(404, "Asset not found")
     if not payload.confirm_rights or not asset.rights_verified:
         raise HTTPException(403, "Explicit rights confirmation and a verified source record are required")
-    job = PublishJob(asset_id=asset.id, title=payload.title, description=payload.description,
-                     tags_json=json.dumps(payload.tags[:30]), privacy_status=payload.privacy_status,
+    render = db.get(RenderJob, payload.render_job_id)
+    if (
+        render is None
+        or render.asset_id != asset.id
+        or render.status != "completed"
+        or not Path(render.output_path).is_file()
+    ):
+        raise HTTPException(409, "Select a completed render belonging to this asset")
+    job = PublishJob(asset_id=asset.id, render_job_id=render.id, title=payload.title,
+                     description=payload.description, tags_json=json.dumps(payload.tags[:30]),
+                     privacy_status=payload.privacy_status or settings.youtube_default_privacy,
                      scheduled_at=payload.scheduled_at, status="queued")
     db.add(job)
     db.commit()
@@ -204,13 +222,23 @@ def execute_publish(job_id: int, db: Session = Depends(get_db)):
     asset = db.get(Asset, job.asset_id)
     if asset is None or not asset.rights_verified:
         raise HTTPException(403, "Asset is missing verified rights")
-    render = db.scalar(select(RenderJob).where(RenderJob.asset_id == asset.id,
-                                               RenderJob.status == "completed")
-                       .order_by(RenderJob.id.desc()))
-    if render is None or not Path(render.output_path).is_file():
-        raise HTTPException(409, "Render the asset successfully before publishing")
-    job.status = "uploading"
+    render = db.get(RenderJob, job.render_job_id)
+    if (
+        render is None
+        or render.asset_id != asset.id
+        or render.status != "completed"
+        or not Path(render.output_path).is_file()
+    ):
+        raise HTTPException(409, "The selected render is missing or no longer available")
+    claim = db.execute(
+        update(PublishJob)
+        .where(PublishJob.id == job.id, PublishJob.status == "queued")
+        .values(status="uploading")
+    )
     db.commit()
+    if claim.rowcount != 1:
+        raise HTTPException(409, "Publish job is already being processed or is no longer queued")
+    db.refresh(job)
     try:
         video_id = upload_video(render.output_path, title=job.title, description=job.description,
                                 tags=json.loads(job.tags_json), privacy_status=job.privacy_status,
