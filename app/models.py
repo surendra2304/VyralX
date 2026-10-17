@@ -85,3 +85,14 @@ class ContentPack(Base):
     voiceover_path: Mapped[str] = mapped_column(String(2048), default="")
     voiceover_status: Mapped[str] = mapped_column(String(40), default="not_generated")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class VideoMetric(Base):
+    __tablename__ = "video_metrics"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    publish_job_id: Mapped[int] = mapped_column(Integer, index=True)
+    youtube_video_id: Mapped[str] = mapped_column(String(100), index=True)
+    view_count: Mapped[int] = mapped_column(Integer, default=0)
+    like_count: Mapped[int] = mapped_column(Integer, default=0)
+    comment_count: Mapped[int] = mapped_column(Integer, default=0)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
