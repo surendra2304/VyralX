@@ -78,6 +78,27 @@ Submit to \`POST /api/v1/tasks\`, then poll the returned \`status_url\`. Support
 
 The stable machine-readable contract is at \`GET /api/agent/manifest\`. Peer health is available at \`GET /api/agents/health\`. Peer base URLs and API keys remain unconfigured until set in Dokploy.
 
+## End-to-end topic-to-video projects
+
+Use \`POST /api/projects\` to queue a complete project without holding the request open. The worker generates an original script/scene plan through Inference, searches official Pexels stock results for each scene, downloads up to six permitted clips after explicit license confirmation, produces timed captions, creates local eSpeak narration by default (or uses a separately configured external TTS provider), renders a 9:16 Shorts or 16:9 landscape montage, and extracts a thumbnail.
+
+Poll \`GET /api/projects/{project_id}\` or list via \`GET /api/projects\`. A completed project returns a primary asset ID, all scene asset IDs, content-pack ID, completed render-job ID, thumbnail path and authenticated render-download path. Use the primary asset ID and render-job ID to create a publish request, then inspect and approve it separately. Failed project attempts can be retried within the configured limit; existing downloaded scenes and the content pack are reused when available.
+
+Example request:
+
+\`\`\`json
+{
+  "topic": "How wind turbines generate electricity",
+  "video_format": "shorts",
+  "target_seconds": 45,
+  "scene_count": 4,
+  "confirm_pexels_license": true,
+  "use_voiceover": true
+}
+\`\`\`
+
+The confirmation must represent a real operator review of [Pexels' current license](https://www.pexels.com/license/). The pipeline strips stock footage audio and uses generated narration, so it does not inadvertently re-use unknown music or speech from stock clips. Local eSpeak provides a no-key voiceover default; set \`TTS_PROVIDER=external\` only when a compatible external TTS endpoint has been configured and tested.
+
 ## Direct API workflow
 
 1. Discover candidates through \`POST /api/discover\` or \`POST /api/discover/pexels\`.
