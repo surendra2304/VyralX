@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.migrations import run_additive_migrations
 from app.models import AgentTask, Asset, ContentPack, PublishJob, RenderJob, Source, VideoMetric, utcnow
-from app.schemas import AgentTaskCancelRequest, AgentTaskRequest, ContentGenerationRequest, ContentVoiceoverRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, PublishResolutionRequest, RenderRequest, SourceCreate, ThumbnailRequest
+from app.schemas import AgentTaskCancelRequest, AgentTaskRequest, ContentGenerationRequest, ContentVoiceoverRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, PublishResolutionRequest, RenderRequest, SourceCreate, ThumbnailRequest, UniverseTaskEnvelope
 from app.security import require_api_key
 from app.services.probe import probe_media
 from app.services.discovery import discover_youtube_videos
@@ -378,6 +378,8 @@ def agent_manifest():
         "readiness_url": "/ready",
         "authentication": {"schemes": ["Bearer", "X-API-Key"]},
         "capabilities": [
+            {"id": "universe.task.execute", "method": "POST", "path": "/v1/task/execute"},
+            {"id": "universe.task.status", "method": "GET", "path": "/v1/task/{task_id}"},
             {"id": "task.submit", "method": "POST", "path": "/api/v1/tasks"},
             {"id": "task.status", "method": "GET", "path": "/api/v1/tasks/{task_id}"},
             {"id": "discover.youtube", "method": "POST", "path": "/api/discover"},
@@ -723,6 +725,225 @@ def _agent_task_summary(task: AgentTask) -> dict:
         "updated_at": task.updated_at,
         "completed_at": task.completed_at,
     }
+
+
+def _friday_state(internal_state: str) -> str:
+    return {
+        "queued": "PENDING",
+        "pending_approval": "PENDING",
+        "running": "RUNNING",
+        "uploading": "RUNNING",
+        "completed": "SUCCESS",
+        "uploaded": "SUCCESS",
+        "failed": "ERROR",
+        "uncertain": "DEGRADED",
+        "cancelled": "CANCELLED",
+    }.get(internal_state, "PENDING")
+
+
+def _redact_authorization_context(value):
+    """Keep useful authorization facts while never persisting credential-like values."""
+    sensitive_markers = ("token", "secret", "password", "api_key", "apikey", "credential", "private_key", "cookie")
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, child in value.items():
+            name = str(key)
+            if any(marker in name.lower() for marker in sensitive_markers):
+                cleaned[name] = "[REDACTED]"
+            else:
+                cleaned[name] = _redact_authorization_context(child)
+        return cleaned
+    if isinstance(value, list):
+        return [_redact_authorization_context(item) for item in value[:100]]
+    if isinstance(value, str):
+        return value[:2000]
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    return str(value)[:2000]
+
+
+def _friday_result(task: AgentTask) -> dict:
+    status = _friday_state(task.status)
+    result_data = {}
+    if task.result_json:
+        try:
+            parsed = json.loads(task.result_json)
+            if isinstance(parsed, dict):
+                result_data = parsed
+        except ValueError:
+            result_data = {}
+    start = task.started_at
+    end = task.completed_at or task.updated_at
+    execution_time_ms = 0
+    if start and end:
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        execution_time_ms = max(0, int((end - start).total_seconds() * 1000))
+    receipt = None
+    if status == "SUCCESS":
+        receipt = {
+            "requested_action": task.action or task.objective or task.task_type,
+            "target": task.target_agent or "vyralx",
+            "authorization_decision": "AUTHORIZED",
+            "execution_timestamp": (task.completed_at or utcnow()).isoformat(),
+            "result": result_data,
+            "verification_evidence": {
+                "evidence_type": "persisted_agent_task_result",
+                "task_row_id": task.id,
+                "task_type": task.task_type,
+                "final_status": status,
+                "completed_at": (task.completed_at or utcnow()).isoformat(),
+            },
+            "failure_reason": None,
+        }
+    summary = (
+        f"VyralX completed {task.task_type}."
+        if status == "SUCCESS"
+        else f"VyralX task {task.task_type} is {status.lower()}."
+    )
+    return {
+        "task_id": task.task_id,
+        "target_agent": task.target_agent or "vyralx",
+        "status": status,
+        "result": result_data,
+        "summary": summary,
+        "error": task.error or None,
+        "execution_time_ms": execution_time_ms,
+        "completed_at": (task.completed_at or utcnow()).isoformat(),
+        "receipt": receipt,
+        "trace_id": task.trace_id,
+        "parent_task_id": task.parent_task_id or None,
+        "correlation_id": task.correlation_id,
+        "progress": 1.0 if status in {"SUCCESS", "ERROR", "CANCELLED", "DEGRADED"} else 0.0,
+    }
+
+
+_TASK_ACTION_ALIASES = {
+    "discover.youtube": "discover.youtube",
+    "vyralx.discover.youtube": "discover.youtube",
+    "youtube.discover": "discover.youtube",
+    "discover.pexels": "discover.pexels",
+    "vyralx.discover.pexels": "discover.pexels",
+    "pexels.discover": "discover.pexels",
+    "content.generate": "content.generate",
+    "vyralx.content.generate": "content.generate",
+    "video.content.generate": "content.generate",
+    "content.voiceover": "content.voiceover",
+    "vyralx.content.voiceover": "content.voiceover",
+    "render.create": "render.create",
+    "vyralx.render.create": "render.create",
+    "video.render": "render.create",
+    "publish.request": "publish.request",
+    "vyralx.publish.request": "publish.request",
+    "youtube.publish.request": "publish.request",
+}
+
+
+@app.post("/v1/task/execute", status_code=202, dependencies=[Depends(require_api_key)])
+def execute_friday_universe_task(
+    envelope: UniverseTaskEnvelope,
+    db: Session = Depends(get_db),
+):
+    """Implement FRIDAY's canonical POST /v1/task/execute task-envelope contract."""
+    target = envelope.target_agent.strip().lower()
+    if target not in {"vyralx", "viralx"}:
+        raise HTTPException(422, "target_agent must identify VyralX")
+    candidates = [
+        envelope.task_type or "",
+        envelope.action,
+        envelope.capability,
+    ]
+    resolved_type = next(
+        (_TASK_ACTION_ALIASES[item.strip().lower()] for item in candidates
+         if item and item.strip().lower() in _TASK_ACTION_ALIASES),
+        None,
+    )
+    if resolved_type is None:
+        raise HTTPException(
+            422,
+            "Unsupported VyralX task action/capability; use the allowlisted names in GET /api/agent/manifest",
+        )
+    task_input = envelope.inputs if envelope.inputs else envelope.payload
+    normalized_input = json.dumps(task_input, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    idem_key = envelope.idempotency_key.strip() if envelope.idempotency_key else f"taskid:{envelope.task_id}"
+    existing = db.scalar(select(AgentTask).where(AgentTask.task_id == envelope.task_id))
+    if existing is None:
+        existing = db.scalar(select(AgentTask).where(AgentTask.idempotency_key == idem_key))
+    if existing is not None:
+        if existing.task_type != resolved_type or existing.input_json != normalized_input:
+            raise HTTPException(409, "task_id/idempotency_key already exists with a different action or input")
+        return JSONResponse(
+            status_code=202,
+            content={
+                **_friday_result(existing),
+                "status_url": "/v1/task/" + existing.task_id,
+                "idempotent_replay": True,
+            },
+        )
+
+    trace_id = envelope.trace_id or envelope.correlation_id or envelope.task_id
+    request_id = envelope.request_id or envelope.correlation_id or envelope.task_id
+    stored_action = envelope.action or envelope.objective or envelope.capability or resolved_type
+    authorization_context = _redact_authorization_context(envelope.authorization_context)
+    task = AgentTask(
+        task_id=envelope.task_id,
+        idempotency_key=idem_key,
+        task_type=resolved_type,
+        input_json=normalized_input,
+        authorization_context_json=json.dumps(authorization_context, ensure_ascii=False),
+        correlation_id=envelope.correlation_id or trace_id,
+        trace_id=trace_id,
+        parent_task_id=envelope.parent_task_id or "",
+        request_id=request_id,
+        actor=envelope.actor,
+        capability=envelope.capability,
+        objective=envelope.objective,
+        trust_level=envelope.trust_level,
+        deadline=envelope.deadline or "",
+        requested_mode=envelope.requested_mode,
+        priority=envelope.priority,
+        source_agent=envelope.source_agent,
+        target_agent="vyralx",
+        action=stored_action,
+        status="queued",
+    )
+    try:
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+    except Exception:
+        db.rollback()
+        existing = db.scalar(select(AgentTask).where(AgentTask.idempotency_key == idem_key))
+        if existing is None:
+            raise HTTPException(500, "Could not persist VyralX task") from None
+        if existing.task_type != resolved_type or existing.input_json != normalized_input:
+            raise HTTPException(409, "idempotency_key was concurrently reused with different input") from None
+        task = existing
+    return JSONResponse(
+        status_code=202,
+        content={
+            **_friday_result(task),
+            "status_url": "/v1/task/" + task.task_id,
+            "idempotent_replay": False,
+        },
+    )
+
+
+@app.get("/v1/task/{task_id}", dependencies=[Depends(require_api_key)])
+def get_friday_universe_task(task_id: str, db: Session = Depends(get_db)):
+    """Return a canonical FRIDAY TaskResult with a verifiable receipt after completion."""
+    task = db.scalar(select(AgentTask).where(AgentTask.task_id == task_id))
+    if task is None:
+        raise HTTPException(404, "VyralX task not found")
+    return _friday_result(task)
+
+
+@app.get("/v1/task/status/{task_id}", dependencies=[Depends(require_api_key)])
+def get_friday_universe_task_status(task_id: str, db: Session = Depends(get_db)):
+    """Compatibility status route for callers that separate status polling from task IDs."""
+    return get_friday_universe_task(task_id, db)
 
 
 @app.post("/api/v1/tasks", status_code=202, dependencies=[Depends(require_api_key)])
