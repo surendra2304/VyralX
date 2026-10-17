@@ -49,6 +49,7 @@ class RenderJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    options_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -81,4 +82,6 @@ class ContentPack(Base):
     status: Mapped[str] = mapped_column(String(40), default="generated")
     pack_json: Mapped[str] = mapped_column(Text)
     provider_model: Mapped[str] = mapped_column(String(200), default="")
+    voiceover_path: Mapped[str] = mapped_column(String(2048), default="")
+    voiceover_status: Mapped[str] = mapped_column(String(40), default="not_generated")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
