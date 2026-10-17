@@ -848,7 +848,7 @@ def execute_friday_universe_task(
 ):
     """Implement FRIDAY's canonical POST /v1/task/execute task-envelope contract."""
     target = envelope.target_agent.strip().lower()
-    if target not in {"vyralx", "viralx"}:
+    if target != "vyralx":
         raise HTTPException(422, "target_agent must identify VyralX")
     candidates = [
         envelope.task_type or "",
@@ -885,7 +885,9 @@ def execute_friday_universe_task(
 
     trace_id = envelope.trace_id or envelope.correlation_id or envelope.task_id
     request_id = envelope.request_id or envelope.correlation_id or envelope.task_id
-    stored_action = envelope.action or envelope.objective or envelope.capability or resolved_type
+    stored_action = envelope.action or envelope.objective
+    if not stored_action.strip():
+        raise HTTPException(422, "action or objective must identify the requested VyralX operation")
     authorization_context = _redact_authorization_context(envelope.authorization_context)
     task = AgentTask(
         task_id=envelope.task_id,
