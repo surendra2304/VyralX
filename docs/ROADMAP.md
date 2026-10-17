@@ -1,37 +1,60 @@
-# VyralX Roadmap
+# VyralX Roadmap and Acceptance Gates
 
-## Milestone 1 — Foundation
-- FastAPI service, SQLite persistence, health/readiness endpoints and operator dashboard.
-- Source/rights catalog, media import, FFprobe metadata inspection.
-- FFmpeg output presets and persistent render/publish job records.
-- YouTube OAuth credential loading and resumable upload implementation, disabled by default.
-- Container image, Dokploy-friendly Compose, CI and regression tests.
+This file distinguishes implemented repository capability from external production evidence. Do not mark a milestone complete based solely on code existence.
 
-## Milestone 2 — Local verification and operator setup
-- Run CI and fix all test/lint/container-build failures.
-- Verify Oracle VM architecture, available RAM/disk, Docker networks and mounted volumes.
-- Configure Dokploy environment secrets without committing credentials.
-- Complete OAuth consent and verify a private/unlisted test upload.
-- Confirm deployment branch so feature pushes cannot unexpectedly replace production.
+## Track A — Core service and controls
 
-## Milestone 3 — Agent integrations
-- Authenticated, timeout-bounded clients for FRIDAY, IntelX, Inference, Memora and Sentinel.
-- Define typed capability contracts and register VyralX in FRIDAY only after health, auth and integration tests pass.
-- Use Memora as memory authority; Sentinel policy checks precede privileged publishing actions.
-- Add retry/idempotency rules and a durable worker queue.
+- [x] FastAPI API, dashboard, health and readiness.
+- [x] Source, rights evidence, asset, render, publish and content-pack persistence.
+- [x] Additive migrations for new fields on existing volumes.
+- [x] API key/Bearer authentication with development-only placeholder bypass.
+- [x] Media upload cap, UUID filenames, FFprobe inspection and provenance validation.
+- [x] Pydantic request validation for schedule timezone, trim duration and subtitle ranges.
 
-## Milestone 4 — Content intelligence
-- Discover public video metadata and trend signals via permitted APIs/connectors.
-- Rank candidates by relevance, freshness, engagement and channel strategy.
-- Generate original scripts, voiceovers, captions, titles, descriptions and thumbnail briefs.
-- Support source files the operator owns, has licensed, or has explicit permission to republish.
-- Keep a provenance ledger and rights status per source/asset.
+## Track B — Discovery and content
 
-## Milestone 5 — Production workflow
-- Bounded background render workers, cancellation, retries, duplicate detection and upload idempotency.
-- YouTube Analytics API reporting and outcome-driven scheduling.
-- Backup/restore, metrics, structured logs, rate limits and dependency/security scanning.
-- Validate memory and CPU use on the actual Oracle instance before increasing concurrency.
+- [x] YouTube Data API search and engagement metadata.
+- [x] Deterministic trend heuristic that never turns candidates into authorized assets.
+- [x] Official Pexels API search, file metadata, rights confirmation gate, size-limited import and creator provenance.
+- [x] Original script, hook, scene plan, title, description, tags and thumbnail brief via configured Inference.
+- [x] Optional voiceover synthesis through a compatible configured TTS endpoint.
+- [ ] Validate actual Inference gateway route/model/response format and TTS model on the deployed FRIDAY mesh.
+- [ ] Add source-specific repeat-use license checks and operator-configurable channel strategy.
 
-## Completion definition
-A codebase is not 100% merely because files exist or CI is configured. Foundation completion requires green CI, a successful container build, API tests, documented configuration, and no known critical security defects. Production completion additionally requires verified OAuth, successful test upload, deployment health, durable storage/backup, and verified FRIDAY mesh integration. Those external conditions cannot be marked complete from source code alone.
+## Track C — Editing and publish pipeline
+
+- [x] Durable render queue and separate single-worker process.
+- [x] Shorts, long-form and square presets, pad/crop, trim, SRT captions and optional voiceover.
+- [x] Thumbnail extraction and persisted paths.
+- [x] Explicit publish request and separate approval before upload.
+- [x] Official YouTube OAuth token loading and resumable upload path.
+- [x] Restart recovery that marks interrupted external uploads uncertain instead of blindly retrying.
+- [x] Public views/likes/comments snapshot history.
+- [ ] Verify OAuth scope/client, channel permission, quota, private test upload and scheduled publish in the real account.
+- [ ] Add automatic output quality checks for black frames, silence, caption synchronization, aspect ratio and audio clipping.
+- [ ] Add upload session checkpoint/idempotency support to narrow the uncertain state window further.
+
+## Track D — FRIDAY Universe mesh
+
+- [x] Standard specialist port 8000 and private \`friday_mesh\` Compose topology.
+- [x] Durable, idempotent task envelope; polling, cancellation, correlation IDs and machine-readable capability manifest.
+- [x] Timeout-bounded generic peer client and peer health probes.
+- [x] Optional fail-closed Sentinel gate before YouTube upload.
+- [ ] Validate actual endpoint contracts against deployed FRIDAY, Inference, IntelX, Memora and Sentinel code/configuration.
+- [ ] Implement and integration-test a concrete Memora write/search contract; do not store cross-agent long-term memory locally.
+- [ ] Register VyralX in FRIDAY's live agent manifest only after authenticated contract tests pass.
+
+## Track E — CI, deployment and operations
+
+- [x] Containerized API and worker with non-root user, dropped capabilities, resource caps and heartbeat health.
+- [x] CI workflow for Ruff, pytest and Docker build.
+- [x] Example environment file and API/architecture/operations documentation.
+- [ ] Run and fix all CI checks on the latest branch head.
+- [ ] Run dependency audit and secret scan; pin base image and dependencies before immutable production release.
+- [ ] Validate the actual external Docker network and Dokploy stack before deploy.
+- [ ] Test persistence across recreation, encrypted backup and a successful restore.
+- [ ] Profile memory/CPU on the current AMD interim VM and separately on the target ARM VM.
+
+## Production completion definition
+
+Production is verified only when all of the following are evidenced: green CI on the final commit, a successful Docker build, configured secret mounts, readiness healthy with the worker present, provider credentials validated, successful private YouTube test upload, live mesh integration tests, and backup/restore proof. Those environment-dependent gates remain unverified from repository source alone.
