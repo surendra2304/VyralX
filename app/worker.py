@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -115,7 +115,15 @@ def claim_agent_task(db: Session) -> int | None:
     candidate = db.scalar(
         select(AgentTask.id)
         .where(AgentTask.status == "queued")
-        .order_by(AgentTask.id.asc())
+        .order_by(
+            case(
+                (AgentTask.priority == "urgent", 0),
+                (AgentTask.priority == "high", 1),
+                (AgentTask.priority == "normal", 2),
+                else_=3,
+            ),
+            AgentTask.id.asc(),
+        )
         .limit(1)
     )
     if candidate is None:
@@ -143,6 +151,15 @@ def process_agent_task(task_id: int) -> None:
             return
         _heartbeat("busy", f"task:{task.task_id}:{task.task_type}")
         try:
+            if task.deadline:
+                try:
+                    deadline = datetime.fromisoformat(task.deadline.replace("Z", "+00:00"))
+                except ValueError:
+                    raise ValueError("deadline must be an ISO-8601 timestamp")
+                if deadline.tzinfo is None or deadline.utcoffset() is None:
+                    raise ValueError("deadline must include a timezone")
+                if datetime.now(timezone.utc) >= deadline.astimezone(timezone.utc):
+                    raise TimeoutError("Task deadline expired before execution")
             result = dispatch_agent_task(task.task_type, json.loads(task.input_json or "{}"), db)
             task.result_json = json.dumps(result, ensure_ascii=False)
             task.status = "completed"
