@@ -51,3 +51,16 @@ def test_publish_request_binds_render_and_uses_configured_privacy_default():
     request = PublishRequest(asset_id=4, render_job_id=12, title="Demo Short")
     assert request.render_job_id == 12
     assert request.privacy_status is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"query": ""},
+        {"query": "trend", "max_results": 26},
+        {"query": "trend", "order": "popular"},
+    ],
+)
+def test_discovery_rejects_invalid_request(payload):
+    response = client.post("/api/discover", json=payload)
+    assert response.status_code == 422
