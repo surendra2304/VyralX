@@ -104,6 +104,8 @@ class AgentTask(Base):
     task_id: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     task_type: Mapped[str] = mapped_column(String(80), index=True)
     input_json: Mapped[str] = mapped_column(Text, default="{}")
+    idempotency_key: Mapped[str | None] = mapped_column(String(160), unique=True, nullable=True)
+    authorization_context_json: Mapped[str] = mapped_column(Text, default="{}")
     correlation_id: Mapped[str] = mapped_column(String(120), default="", index=True)
     trace_id: Mapped[str] = mapped_column(String(120), default="", index=True)
     parent_task_id: Mapped[str] = mapped_column(String(120), default="")
