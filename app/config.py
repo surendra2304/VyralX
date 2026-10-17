@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     sentinel_url: str = ""
     sentinel_api_key: str = ""
     sentinel_required_for_publish: bool = False
-    sentinel_policy_path: str = "/api/v1/policy/check"
+    sentinel_policy_path: str = ""
     pexels_api_key: str = ""
     youtube_data_api_key: str = ""
     youtube_client_secrets_file: Path = Path("./secrets/youtube-client-secret.json")
@@ -73,8 +73,13 @@ class Settings(BaseSettings):
             raise ValueError("YOUTUBE_DEFAULT_PRIVACY must be private, unlisted, or public")
         if self.sentinel_required_for_publish and not (
             self.sentinel_url and self.sentinel_api_key
+            and self.sentinel_policy_path.startswith("/")
+            and not self.sentinel_policy_path.startswith("//")
         ):
-            raise ValueError("SENTINEL_URL and SENTINEL_API_KEY are required when policy checks are enforced")
+            raise ValueError(
+                "SENTINEL_URL, SENTINEL_API_KEY and a validated absolute SENTINEL_POLICY_PATH "
+                "are required when policy checks are enforced"
+            )
         return self
 
     def prepare_directories(self) -> None:
