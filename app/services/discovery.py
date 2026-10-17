@@ -48,4 +48,6 @@ def discover_youtube_videos(query: str, max_results: int = 10, order: str = "vie
             "discovery_only": True,
             "rights_verified": False,
         })
-    return sorted(candidates, key=lambda x: x["view_count"], reverse=True)
+    if order == "viewCount":
+        return sorted(candidates, key=lambda x: x["view_count"], reverse=True)
+    return candidates
