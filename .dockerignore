@@ -1,0 +1,24 @@
+.git
+.github
+.venv
+__pycache__
+.pytest_cache
+.ruff_cache
+.env
+.env.*
+!.env.example
+data
+media
+renders
+tests
+*.sqlite3
+*.db
+tokens.json
+client_secret*.json
+
+# Never send credentials to the Docker build context
+secrets
+**/youtube-token*.json
+**/youtube-client-secret*.json
+**/client_secret*.json
+**/*service-account*.json
