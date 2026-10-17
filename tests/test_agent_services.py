@@ -266,3 +266,46 @@ def test_content_generation_uses_actual_inference_task_contract(monkeypatch):
     assert actual["provider_model"] == "test-model"
     assert actual["fact_check_passed"] is False
     assert actual["requires_editor_review"] is True
+
+
+def test_youtube_ambiguous_upload_is_flagged_for_reconciliation(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import youtube as youtube_service
+
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"fake video bytes")
+    monkeypatch.setattr(
+        youtube_service,
+        "get_settings",
+        lambda: SimpleNamespace(youtube_upload_enabled=True),
+    )
+
+    class FakeUploadRequest:
+        def next_chunk(self, num_retries=0):
+            raise TimeoutError("network disconnected after sending chunk")
+
+    class FakeVideos:
+        def insert(self, **kwargs):
+            return FakeUploadRequest()
+
+    class FakeService:
+        def videos(self):
+            return FakeVideos()
+
+    monkeypatch.setattr(youtube_service, "youtube_service", lambda: FakeService())
+    monkeypatch.setattr(
+        youtube_service,
+        "MediaFileUpload",
+        lambda *args, **kwargs: object(),
+    )
+
+    with pytest.raises(youtube_service.UploadOutcomeUnknown, match="reconcile before retrying"):
+        youtube_service.upload_video(
+            str(video),
+            title="Test",
+            description="",
+            tags=[],
+            privacy_status="private",
+            category_id="28",
+        )
