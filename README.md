@@ -36,7 +36,7 @@ Open `http://127.0.0.1:8010` for the dashboard and `http://127.0.0.1:8010/docs` 
 2. Import a local video file that you own, licensed, or have explicit permission to republish.
 3. VyralX probes the file and stores its metadata.
 4. Render a Shorts, landscape, or square variant.
-5. Create a publishing job with title, description, tags, privacy and optional schedule.
+5. Select the completed render job and create a publishing job with its `asset_id` and `render_job_id`, plus title, description, tags, privacy and optional schedule.
 6. Execute the job through YouTube's official API; persist the returned video ID.
 
 A public URL is a discovery lead, not permission to download or republish a creator's work. Platform download/access controls must not be bypassed. The code does not implement third-party social scraping or unauthorized ripping.
@@ -47,7 +47,7 @@ VyralX is intended to become the tenth service. Planned peers are FRIDAY (orches
 ## Configuration and security
 - Copy values from `.env.example` into protected environment configuration; never commit real credentials.
 - YouTube publishing is disabled unless `YOUTUBE_UPLOAD_ENABLED=true` is explicitly set.
-- Default YouTube privacy is private. Verify OAuth and perform a private test upload before public publishing.
+- `YOUTUBE_DEFAULT_PRIVACY` defaults to `private`; omitted request privacy uses that setting. Verify OAuth and perform a private test upload before public publishing.
 - Use a strong API key in production; do not expose the database or internal service ports publicly.
 - The Compose template expects the existing external Docker network `friday_mesh` and persistent volumes.
 - Render concurrency is intentionally conservative for small Oracle Cloud VMs.
