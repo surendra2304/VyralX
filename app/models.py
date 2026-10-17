@@ -45,6 +45,10 @@ class RenderJob(Base):
     status: Mapped[str] = mapped_column(String(40), default="queued")
     output_path: Mapped[str] = mapped_column(String(2048), default="")
     error: Mapped[str] = mapped_column(Text, default="")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -58,7 +62,23 @@ class PublishJob(Base):
     tags_json: Mapped[str] = mapped_column(Text, default="[]")
     privacy_status: Mapped[str] = mapped_column(String(20), default="private")
     scheduled_at: Mapped[str] = mapped_column(String(64), default="")
-    status: Mapped[str] = mapped_column(String(40), default="queued")
+    status: Mapped[str] = mapped_column(String(40), default="pending_approval")
     youtube_video_id: Mapped[str] = mapped_column(String(100), default="")
     error: Mapped[str] = mapped_column(Text, default="")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ContentPack(Base):
+    __tablename__ = "content_packs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    topic: Mapped[str] = mapped_column(String(500))
+    video_format: Mapped[str] = mapped_column(String(20), default="shorts")
+    status: Mapped[str] = mapped_column(String(40), default="generated")
+    pack_json: Mapped[str] = mapped_column(Text)
+    provider_model: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
