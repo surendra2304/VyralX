@@ -19,13 +19,14 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
 from app.migrations import run_additive_migrations
-from app.models import Asset, PublishJob, RenderJob, Source, utcnow
+from app.models import AgentTask, Asset, PublishJob, RenderJob, Source, utcnow
 from app.services.probe import probe_media
 from app.services.captions import write_srt
 from app.services.renderer import render_video
 from app.services.rights import source_is_publishable
 from app.services.youtube import upload_video
 from app.services.peers import post_peer_json
+from app.services.task_dispatch import dispatch_agent_task
 
 settings = get_settings()
 settings.prepare_directories()
@@ -107,6 +108,65 @@ def claim_publish_job(db: Session) -> int | None:
     )
     db.commit()
     return int(candidate) if result.rowcount == 1 else None
+
+
+
+def claim_agent_task(db: Session) -> int | None:
+    candidate = db.scalar(
+        select(AgentTask.id)
+        .where(AgentTask.status == "queued")
+        .order_by(AgentTask.id.asc())
+        .limit(1)
+    )
+    if candidate is None:
+        return None
+    now = utcnow()
+    result = db.execute(
+        update(AgentTask)
+        .where(AgentTask.id == candidate, AgentTask.status == "queued")
+        .values(
+            status="running",
+            attempts=AgentTask.attempts + 1,
+            started_at=now,
+            updated_at=now,
+            error="",
+        )
+    )
+    db.commit()
+    return int(candidate) if result.rowcount == 1 else None
+
+
+def process_agent_task(task_id: int) -> None:
+    with SessionLocal() as db:
+        task = db.get(AgentTask, task_id)
+        if task is None:
+            return
+        _heartbeat("busy", f"task:{task.task_id}:{task.task_type}")
+        try:
+            result = dispatch_agent_task(task.task_type, json.loads(task.input_json or "{}"), db)
+            task.result_json = json.dumps(result, ensure_ascii=False)
+            task.status = "completed"
+            task.error = ""
+            log.info(
+                "Agent task completed task_id=%s task_type=%s correlation_id=%s",
+                task.task_id, task.task_type, task.correlation_id,
+            )
+        except Exception as exc:
+            db.rollback()
+            task = db.get(AgentTask, task_id)
+            if task is not None:
+                task.status = "failed"
+                task.error = f"{type(exc).__name__}: {exc}"[:3000]
+                task.completed_at = utcnow()
+                task.updated_at = utcnow()
+            log.exception("Agent task failed task_row_id=%s", task_id)
+        finally:
+            task = db.get(AgentTask, task_id)
+            if task is not None:
+                task.completed_at = utcnow()
+                task.updated_at = utcnow()
+            db.commit()
+            _heartbeat("idle")
 
 
 def process_render_job(job_id: int) -> None:
@@ -234,7 +294,7 @@ def process_publish_job(job_id: int) -> None:
 
 def recover_interrupted_jobs() -> dict[str, int]:
     """Do not auto-repeat external uploads after a crash; require reconciliation."""
-    counts = {"renders": 0, "uploads_uncertain": 0}
+    counts = {"renders": 0, "agent_tasks": 0, "uploads_uncertain": 0}
     with SessionLocal() as db:
         now = utcnow()
         render_jobs = db.scalars(select(RenderJob).where(RenderJob.status == "running")).all()
@@ -246,6 +306,13 @@ def recover_interrupted_jobs() -> dict[str, int]:
             counts["renders"] += 1
         # An upload may have succeeded remotely before the worker crashed.
         # Mark it uncertain instead of risking duplicate uploads on restart.
+        agent_tasks = db.scalars(select(AgentTask).where(AgentTask.status == "running")).all()
+        for task in agent_tasks:
+            task.status = "failed"
+            task.error = "Worker restarted during task execution; submit a new task after reviewing side effects."
+            task.completed_at = now
+            task.updated_at = now
+            counts["agent_tasks"] += 1
         publish_jobs = db.scalars(select(PublishJob).where(PublishJob.status == "uploading")).all()
         for job in publish_jobs:
             job.status = "uncertain"
@@ -256,7 +323,7 @@ def recover_interrupted_jobs() -> dict[str, int]:
             job.updated_at = now
             counts["uploads_uncertain"] += 1
         db.commit()
-    if counts["renders"] or counts["uploads_uncertain"]:
+    if counts["renders"] or counts["agent_tasks"] or counts["uploads_uncertain"]:
         log.warning("Recovered interrupted jobs: %s", counts)
     return counts
 
@@ -272,6 +339,11 @@ def run_once() -> bool:
         publish_id = claim_publish_job(db)
     if publish_id is not None:
         process_publish_job(publish_id)
+        return True
+    with SessionLocal() as db:
+        task_id = claim_agent_task(db)
+    if task_id is not None:
+        process_agent_task(task_id)
         return True
     return False
 
