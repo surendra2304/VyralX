@@ -11,16 +11,16 @@ from sqlalchemy.engine import Engine
 ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
     "render_jobs": {
         "attempts": "INTEGER NOT NULL DEFAULT 0",
-        "started_at": "DATETIME",
-        "completed_at": "DATETIME",
-        "updated_at": "DATETIME",
+        "started_at": "TIMESTAMP",
+        "completed_at": "TIMESTAMP",
+        "updated_at": "TIMESTAMP",
     },
     "publish_jobs": {
         "attempts": "INTEGER NOT NULL DEFAULT 0",
-        "started_at": "DATETIME",
-        "completed_at": "DATETIME",
-        "updated_at": "DATETIME",
-        "approved_at": "DATETIME",
+        "started_at": "TIMESTAMP",
+        "completed_at": "TIMESTAMP",
+        "updated_at": "TIMESTAMP",
+        "approved_at": "TIMESTAMP",
     },
 }
 
