@@ -131,3 +131,7 @@ class AgentTaskRequest(BaseModel):
 
 class AgentTaskCancelRequest(BaseModel):
     reason: str = Field(default="cancelled_by_requester", max_length=200)
+
+
+class ContentVoiceoverRequest(BaseModel):
+    content_pack_id: int = Field(gt=0)
