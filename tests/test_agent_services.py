@@ -139,3 +139,76 @@ def test_additive_migrations_upgrade_existing_job_tables(tmp_path: Path):
         assert {"attempts", "approved_at", "started_at", "completed_at", "updated_at"} <= publish_columns
     finally:
         engine.dispose()
+
+
+def test_agent_task_schema_has_an_allowlisted_contract():
+    from app.schemas import AgentTaskRequest
+
+    request = AgentTaskRequest(
+        task_id="friday-task-001",
+        task_type="content.generate",
+        correlation_id="conversation-001",
+        input={"topic": "How solar power works"},
+    )
+    assert request.task_id == "friday-task-001"
+    assert request.task_type == "content.generate"
+    assert request.correlation_id == "conversation-001"
+    with pytest.raises(Exception):
+        AgentTaskRequest(task_type="run.shell", input={"command": "id"})
+
+
+def test_worker_claims_agent_task_and_increments_attempts():
+    from app.models import AgentTask
+    from app.worker import claim_agent_task
+
+    with SessionLocal() as db:
+        task = AgentTask(
+            task_id="test-agent-task-" + str(datetime.now(timezone.utc).timestamp()),
+            task_type="discover.youtube",
+            input_json='{"query":"test"}',
+            status="queued",
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        task_row_id = task.id
+    try:
+        with SessionLocal() as db:
+            assert claim_agent_task(db) == task_row_id
+        with SessionLocal() as db:
+            task = db.get(AgentTask, task_row_id)
+            assert task is not None
+            assert task.status == "running"
+            assert task.attempts == 1
+    finally:
+        with SessionLocal() as db:
+            db.query(AgentTask).filter(AgentTask.id == task_row_id).delete()
+            db.commit()
+
+
+def test_caption_writer_creates_valid_srt_and_rejects_reverse_cues(tmp_path: Path):
+    from app.services.captions import write_srt
+
+    output = write_srt(
+        [
+            {"start_seconds": 0, "end_seconds": 1.25, "text": "<b>Hello world</b>"},
+            {"start_seconds": 1.5, "end_seconds": 2.0, "text": "Second cue"},
+        ],
+        tmp_path / "captions.srt",
+    )
+    text_out = output.read_text(encoding="utf-8")
+    assert "00:00:00,000 --> 00:00:01,250" in text_out
+    assert "Hello world" in text_out
+    assert "<b>" not in text_out
+    with pytest.raises(ValueError, match="positive time range"):
+        write_srt([{"start_seconds": 3, "end_seconds": 2, "text": "wrong"}], tmp_path / "bad.srt")
+
+
+def test_pexels_media_url_allowlist_rejects_arbitrary_hosts():
+    from app.services.pexels import _safe_file_url
+
+    assert _safe_file_url("https://videos.pexels.com/video-files/123/clip.mp4")
+    assert _safe_file_url("https://player.vimeo.com/external/123.hd.mp4")
+    assert not _safe_file_url("http://videos.pexels.com/clip.mp4")
+    assert not _safe_file_url("https://example.invalid/clip.mp4")
+    assert not _safe_file_url("https://player.vimeo.com/evil/clip.mp4")
