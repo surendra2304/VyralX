@@ -59,3 +59,16 @@ class ContentGenerationRequest(BaseModel):
 
 class RetryJobRequest(BaseModel):
     reason: str = Field(default="operator_retry", max_length=200)
+
+
+class PexelsSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=200)
+    max_results: int = Field(default=10, ge=1, le=25)
+    orientation: Literal["portrait", "landscape", "square"] = "portrait"
+
+
+class PexelsImportRequest(BaseModel):
+    video_id: int = Field(gt=0)
+    video_file_id: int = Field(gt=0)
+    title: str = Field(default="", max_length=300)
+    confirm_license: bool = False
