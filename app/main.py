@@ -14,7 +14,7 @@ from starlette.concurrency import run_in_threadpool
 from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.migrations import run_additive_migrations
-from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, utcnow
+from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoMetric, utcnow
 from app.schemas import ContentGenerationRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, RenderRequest, SourceCreate, ThumbnailRequest
 from app.security import require_api_key
 from app.services.probe import probe_media
@@ -23,6 +23,7 @@ from app.services.trends import rank_candidates
 from app.services.content import generate_content_pack
 from app.services.voiceover import synthesize_voiceover
 from app.services.thumbnail import extract_thumbnail
+from app.services.youtube_analytics import fetch_video_metrics
 from app.services.peers import configured_peers, peer_health
 from app.services.pexels import import_video_file, search_videos
 from app.services.rights import source_is_publishable
@@ -377,6 +378,7 @@ def agent_manifest():
             {"id": "content.generate", "method": "POST", "path": "/api/content/generate"},
             {"id": "content.voiceover", "method": "POST", "path": "/api/content/{content_id}/voiceover"},
             {"id": "thumbnail.create", "method": "POST", "path": "/api/thumbnails"},
+            {"id": "youtube.analytics.refresh", "method": "POST", "path": "/api/analytics/refresh"},
             {"id": "source.register", "method": "POST", "path": "/api/sources"},
             {"id": "asset.import", "method": "POST", "path": "/api/assets/upload"},
             {"id": "video.render", "method": "POST", "path": "/api/render", "asynchronous": True},
@@ -596,3 +598,63 @@ def get_thumbnail(job_id: int):
     if not path.is_file():
         raise HTTPException(404, "Thumbnail not found; create it with POST /api/thumbnails")
     return FileResponse(path, media_type="image/jpeg", filename="vyralx-thumbnail-" + str(job_id) + ".jpg")
+
+
+@app.post("/api/analytics/refresh", dependencies=[Depends(require_api_key)])
+def refresh_analytics(db: Session = Depends(get_db)):
+    """Pull view/like/comment snapshots for VyralX-published videos via YouTube Data API."""
+    if not settings.youtube_analytics_enabled:
+        raise HTTPException(503, "Analytics is disabled; set YOUTUBE_ANALYTICS_ENABLED=true after configuration")
+    jobs = db.scalars(
+        select(PublishJob).where(PublishJob.status == "uploaded", PublishJob.youtube_video_id != "")
+        .order_by(PublishJob.id.desc()).limit(200)
+    ).all()
+    by_video = {job.youtube_video_id: job for job in jobs}
+    try:
+        metrics = fetch_video_metrics(list(by_video))
+    except Exception as exc:
+        log.error("YouTube analytics refresh failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(502, "Analytics refresh failed; check YouTube Data API configuration and logs") from None
+    snapshots = []
+    for metric in metrics:
+        job = by_video.get(metric["youtube_video_id"])
+        if job is None:
+            continue
+        record = VideoMetric(
+            publish_job_id=job.id,
+            youtube_video_id=metric["youtube_video_id"],
+            view_count=metric["view_count"],
+            like_count=metric["like_count"],
+            comment_count=metric["comment_count"],
+        )
+        db.add(record)
+        snapshots.append({
+            **metric,
+            "publish_job_id": job.id,
+            "engagements": metric["like_count"] + metric["comment_count"],
+            "engagement_per_view": round(
+                (metric["like_count"] + metric["comment_count"]) / max(1, metric["view_count"]), 6
+            ),
+        })
+    db.commit()
+    return {"snapshots_saved": len(snapshots), "items": snapshots}
+
+
+@app.get("/api/analytics", dependencies=[Depends(require_api_key)])
+def list_analytics(db: Session = Depends(get_db)):
+    rows = db.scalars(select(VideoMetric).order_by(VideoMetric.id.desc()).limit(500)).all()
+    return [
+        {
+            "publish_job_id": row.publish_job_id,
+            "youtube_video_id": row.youtube_video_id,
+            "view_count": row.view_count,
+            "like_count": row.like_count,
+            "comment_count": row.comment_count,
+            "engagements": row.like_count + row.comment_count,
+            "engagement_per_view": round(
+                (row.like_count + row.comment_count) / max(1, row.view_count), 6
+            ),
+            "fetched_at": row.fetched_at,
+        }
+        for row in rows
+    ]
