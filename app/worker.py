@@ -328,23 +328,32 @@ def recover_interrupted_jobs() -> dict[str, int]:
     return counts
 
 
+_queue_cursor = 0
+
+
 def run_once() -> bool:
-    """Claim at most one job; render jobs are prioritized over uploads."""
-    with SessionLocal() as db:
-        render_id = claim_render_job(db)
-    if render_id is not None:
-        process_render_job(render_id)
-        return True
-    with SessionLocal() as db:
-        publish_id = claim_publish_job(db)
-    if publish_id is not None:
-        process_publish_job(publish_id)
-        return True
-    with SessionLocal() as db:
-        task_id = claim_agent_task(db)
-    if task_id is not None:
-        process_agent_task(task_id)
-        return True
+    """Claim one item with rotating queue priority so no queue is starved."""
+    global _queue_cursor
+    queue_names = ("agent", "render", "publish")
+    for offset in range(len(queue_names)):
+        index = (_queue_cursor + offset) % len(queue_names)
+        queue_name = queue_names[index]
+        if queue_name == "agent":
+            with SessionLocal() as db:
+                job_id = claim_agent_task(db)
+            processor = process_agent_task
+        elif queue_name == "render":
+            with SessionLocal() as db:
+                job_id = claim_render_job(db)
+            processor = process_render_job
+        else:
+            with SessionLocal() as db:
+                job_id = claim_publish_job(db)
+            processor = process_publish_job
+        if job_id is not None:
+            _queue_cursor = (index + 1) % len(queue_names)
+            processor(job_id)
+            return True
     return False
 
 
