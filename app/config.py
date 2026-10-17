@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     app_name: str = "VyralX"
     app_env: str = "development"
     host: str = "0.0.0.0"
-    port: int = 8010
+    port: int = 8000
     log_level: str = "INFO"
     api_key: str = "development-only-change-me"
     database_url: str = "sqlite:///./data/vyralx.db"
