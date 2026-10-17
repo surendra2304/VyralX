@@ -21,6 +21,7 @@ from app.database import Base, SessionLocal, engine
 from app.migrations import run_additive_migrations
 from app.models import Asset, PublishJob, RenderJob, Source, utcnow
 from app.services.probe import probe_media
+from app.services.captions import write_srt
 from app.services.renderer import render_video
 from app.services.rights import source_is_publishable
 from app.services.youtube import upload_video
@@ -129,8 +130,22 @@ def process_render_job(job_id: int) -> None:
             f"asset-{asset.id}-job-{job.id}-{job.preset}.mp4"
         )
         _heartbeat("busy", f"render:{job.id}")
+        caption_path: Path | None = None
         try:
-            job.output_path = render_video(asset.file_path, output, job.preset)
+            options = json.loads(job.options_json or "{}")
+            segments = options.get("subtitle_segments") or []
+            if segments:
+                caption_path = write_srt(segments, settings.data_dir / f"captions-job-{job.id}.srt")
+            job.output_path = render_video(
+                asset.file_path,
+                output,
+                job.preset,
+                trim_start_seconds=float(options.get("trim_start_seconds", 0)),
+                trim_end_seconds=options.get("trim_end_seconds"),
+                fit_mode=str(options.get("fit_mode", "pad")),
+                subtitle_file=caption_path,
+                voiceover_path=options.get("voiceover_path") or None,
+            )
             # Probe the result before considering the job complete.
             probe_media(job.output_path)
             job.status = "completed"
@@ -142,6 +157,8 @@ def process_render_job(job_id: int) -> None:
             log.exception("Render failed job_id=%s", job.id)
             Path(output).unlink(missing_ok=True)
         finally:
+            if caption_path is not None:
+                caption_path.unlink(missing_ok=True)
             job.completed_at = utcnow()
             job.updated_at = utcnow()
             db.commit()
