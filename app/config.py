@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     inference_model: str = ""
     inference_generation_path: str = "/v1/task/execute"
     inference_timeout_seconds: int = 60
+    tts_provider: str = "espeak"
+    espeak_bin: str = "espeak-ng"
+    espeak_voice: str = "en-us"
+    espeak_rate: int = 165
     inference_tts_url: str = ""
     inference_tts_api_key: str = ""
     inference_tts_path: str = "/v1/audio/speech"
