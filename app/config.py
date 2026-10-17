@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     sentinel_required_for_publish: bool = False
     sentinel_policy_path: str = "/api/v1/policy/check"
     youtube_data_api_key: str = ""
+    pexels_api_key: str = ""
     youtube_client_secrets_file: Path = Path("./secrets/youtube-client-secret.json")
     youtube_token_file: Path = Path("./secrets/youtube-token.json")
     youtube_default_privacy: str = "private"
