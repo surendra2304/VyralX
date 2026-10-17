@@ -24,7 +24,7 @@ This file distinguishes implemented repository capability from external producti
 ## Track C — Editing and publish pipeline
 
 - [x] Durable render queue and separate single-worker process.
-- [x] Durable topic-to-video projects: Inference script, Pexels scene search/import, local narration, timed captions, montage, thumbnail and project polling/retry.
+- [x] Durable topic-to-video projects: optional YouTube trend seed, Inference script, Pexels scene search/import, local narration, timed captions, montage, thumbnail and project polling/retry.
 - [x] Shorts, long-form and square presets, pad/crop, trim, SRT captions and optional voiceover.
 - [x] Thumbnail extraction and persisted paths.
 - [x] Explicit publish request and separate approval before upload.
