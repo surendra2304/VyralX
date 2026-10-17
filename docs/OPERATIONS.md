@@ -8,13 +8,13 @@ This runbook describes the repository implementation; it does not claim that liv
     ruff check app tests scripts
     pytest
     docker build -t vyralx:local .
-    docker compose config
+    API_KEY=ci-only-not-a-real-secret docker compose config --quiet
 
 CI repeats Ruff, pytest and the Docker build. Verify the run for the latest commit rather than relying on an earlier run.
 
 ## Deployment topology
 
-The Compose file starts two services: vyralx (FastAPI control plane on port 8000) and vyralx-worker (durable queue consumer). They share the SQLite database, media, renders and secrets volumes, and join the pre-existing external friday_mesh network. No host port is published. Configure Dokploy's reverse proxy for the intended private ingress and do not expose SQLite or internal APIs publicly.
+The Compose file starts three services: vyralx-init runs additive schema setup once, vyralx serves FastAPI on port 8000, and vyralx-worker consumes durable queues. API and worker wait for successful initialization. They share the SQLite database, media, renders and secrets volumes, and join the pre-existing external friday_mesh network. No host port is published. Configure Dokploy's reverse proxy for the intended private ingress and do not expose SQLite or internal APIs publicly.
 
 The interim ~1 GB AMD VM has limited capacity. The stack restricts API RAM to 320 MB and worker RAM to 512 MB, uses one worker process and caps FFmpeg resources. Monitor container memory, queue depth, and render duration before raising limits. Do not use these limits as proof that an untested VM can sustain simultaneous heavy jobs.
 
@@ -29,7 +29,7 @@ The interim ~1 GB AMD VM has limited capacity. The stack restricts API RAM to 32
 - Mount OAuth client and refreshable token at the exact paths set by YOUTUBE_CLIENT_SECRETS_FILE and YOUTUBE_TOKEN_FILE; store those files in the protected secrets volume.
 - Set YOUTUBE_DATA_API_KEY only if YouTube discovery or public statistics are required.
 - Set PEXELS_API_KEY only if official Pexels search/import is wanted.
-- Set INFERENCE_URL, INFERENCE_API_KEY, INFERENCE_MODEL for script generation; set a compatible INFERENCE_TTS_MODEL for narration.
+- Set INFERENCE_URL and INFERENCE_API_KEY for script generation through the verified /v1/task/execute contract. Optionally set INFERENCE_TTS_URL, INFERENCE_TTS_MODEL and a separate TTS key for a separately verified compatible audio service.
 - Configure peer URLs and API keys only after verifying each deployed agent's real route and auth convention.
 - If Sentinel is made mandatory, configure and integration-test the policy endpoint/response schema first; an unrecognized/deny response blocks upload.
 
