@@ -230,6 +230,37 @@ def process_publish_job(job_id: int) -> None:
             _heartbeat("idle")
 
 
+
+
+def recover_interrupted_jobs() -> dict[str, int]:
+    """Do not auto-repeat external uploads after a crash; require reconciliation."""
+    counts = {"renders": 0, "uploads_uncertain": 0}
+    with SessionLocal() as db:
+        now = utcnow()
+        render_jobs = db.scalars(select(RenderJob).where(RenderJob.status == "running")).all()
+        for job in render_jobs:
+            job.status = "failed"
+            job.error = "Worker restarted during render; review the output and retry if needed."
+            job.completed_at = now
+            job.updated_at = now
+            counts["renders"] += 1
+        # An upload may have succeeded remotely before the worker crashed.
+        # Mark it uncertain instead of risking duplicate uploads on restart.
+        publish_jobs = db.scalars(select(PublishJob).where(PublishJob.status == "uploading")).all()
+        for job in publish_jobs:
+            job.status = "uncertain"
+            job.error = (
+                "Worker restarted while uploading. Check YouTube Studio/API state before resolving; "
+                "automatic retries are prohibited to prevent duplicate uploads."
+            )
+            job.updated_at = now
+            counts["uploads_uncertain"] += 1
+        db.commit()
+    if counts["renders"] or counts["uploads_uncertain"]:
+        log.warning("Recovered interrupted jobs: %s", counts)
+    return counts
+
+
 def run_once() -> bool:
     """Claim at most one job; render jobs are prioritized over uploads."""
     with SessionLocal() as db:
@@ -250,7 +281,9 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _handle_stop)
     signal.signal(signal.SIGINT, _handle_stop)
     log.info("VyralX worker started poll_seconds=%s", settings.worker_poll_seconds)
+    recovery = recover_interrupted_jobs()
     _heartbeat("idle")
+    log.info("Startup recovery complete: %s", recovery)
     while not _stopping:
         try:
             worked = run_once()
