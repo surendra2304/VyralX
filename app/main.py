@@ -74,8 +74,8 @@ def discover(payload: dict):
     try:
         items = discover_youtube_videos(query, payload.get("max_results", 10),
                                         payload.get("order", "viewCount"))
-    except Exception:
-        log.exception("YouTube discovery provider request failed")
+    except Exception as exc:
+        log.error("YouTube discovery failed (error_type=%s)", type(exc).__name__)
         raise HTTPException(502, "YouTube discovery failed; check server logs and provider configuration") from None
     # Results are leads only: no media is downloaded and rights remain unverified.
     return {"query": query, "count": len(items), "items": items}
@@ -168,7 +168,7 @@ def create_render(payload: RenderRequest, db: Session = Depends(get_db)):
         job.output_path = render_video(asset.file_path, output, payload.preset)
         job.status = "completed"
     except Exception as exc:
-        log.exception("Render failed; job_id=%s", job.id)
+        log.error("Render failed; job_id=%s error_type=%s", job.id, type(exc).__name__)
         job.status = "failed"
         job.error = str(exc)[:3000]
         db.commit()
@@ -246,7 +246,7 @@ def execute_publish(job_id: int, db: Session = Depends(get_db)):
         job.youtube_video_id = video_id
         job.status = "uploaded"
     except Exception as exc:
-        log.exception("YouTube upload failed; job_id=%s", job.id)
+        log.error("YouTube upload failed; job_id=%s error_type=%s", job.id, type(exc).__name__)
         job.status = "failed"
         job.error = str(exc)[:3000]
         db.commit()
