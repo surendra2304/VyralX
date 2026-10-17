@@ -425,3 +425,68 @@ def test_video_project_task_creates_durable_queued_project():
     with SessionLocal() as db:
         db.query(VideoProject).filter(VideoProject.project_key == project_key).delete()
         db.commit()
+
+
+def test_publish_rights_gate_checks_all_montage_assets(tmp_path: Path):
+    import json
+    from uuid import uuid4
+
+    from app.database import SessionLocal
+    from app.models import Asset, RenderJob, Source
+    from app.services.rights import append_stock_attribution, verified_render_sources
+
+    suffix = uuid4().hex[:12]
+    source_a = Source(
+        title="Stock clip A",
+        source_url=f"https://www.pexels.com/video/test-clip-{suffix}1/",
+        platform="pexels",
+        creator="Creator A",
+        license_name="Pexels Content License",
+        permission_reference="https://www.pexels.com/license/",
+        rights_verified=True,
+        status="licensed",
+    )
+    source_b = Source(
+        title="Stock clip B",
+        source_url=f"https://www.pexels.com/video/test-clip-{suffix}2/",
+        platform="pexels",
+        creator="Creator B",
+        license_name="Pexels Content License",
+        permission_reference="https://www.pexels.com/license/",
+        rights_verified=True,
+        status="licensed",
+    )
+    with SessionLocal() as db:
+        db.add_all([source_a, source_b])
+        db.flush()
+        asset_a = Asset(source_id=source_a.id, title="Clip A", file_path=str(tmp_path / "a.mp4"), rights_verified=True)
+        asset_b = Asset(source_id=source_b.id, title="Clip B", file_path=str(tmp_path / "b.mp4"), rights_verified=True)
+        db.add_all([asset_a, asset_b])
+        db.flush()
+        render = RenderJob(
+            asset_id=asset_a.id,
+            preset="shorts",
+            status="completed",
+            output_path=str(tmp_path / "render.mp4"),
+            options_json=json.dumps({"montage_asset_ids": [asset_a.id, asset_b.id]}),
+        )
+        db.add(render)
+        db.commit()
+        render_id, source_b_id = render.id, source_b.id
+        try:
+            render = db.get(RenderJob, render_id)
+            verified = verified_render_sources(render, db)
+            assert len(verified) == 2
+            description = append_stock_attribution("An educational video.", verified)
+            assert "Creator A" in description and "Creator B" in description
+            assert "https://www.pexels.com/license/" in description
+            source_b = db.get(Source, source_b_id)
+            source_b.permission_reference = ""
+            db.commit()
+            with pytest.raises(ValueError, match="lacks verified license evidence"):
+                verified_render_sources(db.get(RenderJob, render_id), db)
+        finally:
+            db.query(RenderJob).filter(RenderJob.id == render_id).delete()
+            db.query(Asset).filter(Asset.id.in_([asset_a.id, asset_b.id])).delete(synchronize_session=False)
+            db.query(Source).filter(Source.id.in_([source_a.id, source_b.id])).delete(synchronize_session=False)
+            db.commit()
