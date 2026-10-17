@@ -1,36 +1,81 @@
 # VyralX Architecture
 
-## Mission
-VyralX is the FRIDAY Universe video workflow agent: discover candidates, track provenance and rights, ingest authorized media, inspect media, render platform-specific variants, publish to YouTube with explicit controls, and record results.
+## Role in the FRIDAY Universe
 
-## Service boundaries
-- VyralX owns the source catalog, rights evidence references, media assets, render jobs, publish jobs, YouTube video IDs, and workflow status.
-- FRIDAY may delegate work to VyralX after authenticated mesh integration.
-- IntelX can supply research and source discovery metadata. Discovery never implies permission to download or republish.
-- Inference can assist with scripts, hooks, descriptions, captions and title variants when configured.
-- Memora is the long-term memory authority; VyralX should store references/outcomes there through approved APIs, not create parallel ecosystem memory.
-- Sentinel should review privileged operations once the mesh contract is integrated.
-- Dokploy remains the deployment controller.
+VyralX is an independent video discovery, production and distribution specialist (the tenth planned service). It owns operational data for source provenance, assets, render jobs, publish requests and outcome snapshots. It is not a replacement for FRIDAY orchestration or Memora's memory authority.
 
-## Initial data flow
-1. Register a source URL and provenance metadata.
-2. Verify a license or permission reference.
-3. Import an authorized local media file.
-4. Probe duration/dimensions using FFprobe.
-5. Render a Shorts (9:16), landscape (16:9), or square version using FFmpeg.
-6. Create a publish job. Publishing defaults to private and is disabled until explicitly enabled.
-7. Upload through the official YouTube Data API with OAuth and resumable upload.
-8. Persist YouTube video ID and status for later analytics.
+## Runtime topology
 
-## Security
-- All write endpoints require X-API-Key outside development mode.
-- Secrets belong in Dokploy environment variables or protected mounted secret files.
-- Database, media, and render volumes are persistent; never expose database ports publicly.
-- Do not execute shell text from user-controlled fields. FFmpeg is invoked with an argument array.
-- Source text and transcripts are untrusted content, never system instructions.
-- Rights evidence is required before rendering/publishing. A source URL alone is not proof of rights.
-- Public publishing is opt-in; private is the default.
-- Keep render concurrency low on small Oracle instances.
+- \`vyralx\`: FastAPI control plane, standard specialist port 8000.
+- \`vyralx-worker\`: one bounded worker process consuming persistent AgentTask, RenderJob and PublishJob queues.
+- A shared mounted data volume holds the SQLite database and worker heartbeat.
+- Shared media and render volumes hold uploaded/stock source files, narration, renders and thumbnails.
+- Both containers join the existing \`friday_mesh\` bridge; the Compose template has no host port mappings.
 
-## Initial limitations
-This is a foundation, not a claim of 100% production readiness. Automated third-party social scraping/downloading adapters, caption generation, music licensing, a durable asynchronous queue, channel analytics, and live FRIDAY/Memora/Sentinel contracts are subsequent milestones. Do not bypass platform access controls or copyright enforcement.
+The worker is single-process by design. This serializes CPU-heavy FFmpeg renders and avoids competing with FRIDAY's latency-sensitive voice service on the interim ~1 GB RAM VM. Resource limits are conservative and need adjustment only after measured profiling.
+
+## Major components
+
+### Control plane
+- \`app/main.py\`: authenticated APIs, operator dashboard, readiness, catalog and job lifecycle.
+- \`app/schemas.py\`: Pydantic request validation, including trim/caption ranges, timezone-aware publish schedules and task envelope.
+- \`app/security.py\`: supports the FRIDAY mesh's Bearer-token convention and \`X-API-Key\` for operator tooling.
+
+### Discovery and content
+- \`app/services/discovery.py\`: public YouTube Data API search and statistics; output is discovery-only.
+- \`app/services/trends.py\`: deterministic, bounded heuristic ranking using reach, engagement and recency. It is a prioritization score, not a promise of virality.
+- \`app/services/pexels.py\`: official Pexels search/details endpoint and size-limited import of API-returned media files. Source URL, creator, license references and attribution notice are retained.
+- \`app/services/content.py\`: Inference-compatible original script and scene-plan generation. Generated factual claims require review.
+- \`app/services/voiceover.py\`: optional Inference-compatible narration synthesis.
+- \`app/services/captions.py\`: SRT subtitle-file construction.
+- \`app/services/thumbnail.py\`: deterministic FFmpeg thumbnail extraction.
+
+### Media production and delivery
+- \`app/services/probe.py\`: FFprobe technical inspection.
+- \`app/services/renderer.py\`: FFmpeg rendering, trim, crop/pad, captions, voiceover and output validation.
+- \`app/services/youtube.py\`: official OAuth token loading and resumable uploads. Credentials are stored only in a private mounted file.
+- \`app/services/youtube_analytics.py\`: public video counter snapshots using YouTube Data API.
+- \`app/worker.py\`: atomic queue claiming, job processing, restart recovery, status reporting and optional pre-publish Sentinel policy call.
+
+### Task contract and ecosystem boundaries
+- \`POST /api/v1/tasks\` is the machine-to-machine task envelope. Caller IDs support idempotent replay; correlation IDs let FRIDAY join logs/steps.
+- \`GET /api/agent/manifest\` declares capabilities; \`GET /api/agents/health\` checks configured peers.
+- \`app/services/peers.py\` provides timeout-bounded authenticated clients. Actual URLs, routes, request/response models and keys must match the current deployed peer implementation before calling an integration "connected."
+- Memora remains the only long-term memory authority. VyralX does not create universal/shared memory copies. An explicit Memora API contract must be used for any future memory exchange.
+- Sentinel policy enforcement is disabled by default. When enabled, VyralX fails closed if the configured policy endpoint does not explicitly allow publication.
+
+## Main data path
+
+1. YouTube/Pexels discovery yields metadata leads; no rights are inferred.
+2. A local or approved Pexels asset enters the source catalog with creator and license/permission evidence.
+3. FFprobe verifies technical properties.
+4. Original script/scene plan and optional narration are generated through configured Inference endpoints.
+5. A durable render job is queued with JSON options (preset, trim, framing, captions, narration reference).
+6. Worker renders and probes output; failures become observable job states.
+7. A publish request binds one source asset to one exact completed render and remains pending approval.
+8. Approved publish jobs are claimed once and sent through official YouTube resumable upload. The worker rechecks provenance and optional Sentinel policy.
+9. YouTube video IDs and public view/like/comment counters persist for outcome evaluation.
+
+## State and failure semantics
+
+- Render: \`queued → running → completed|failed\`; explicit retries are bounded.
+- Agent task: \`queued → running → completed|failed\`; queued tasks may be cancelled.
+- Publish: \`pending_approval → queued → uploading → uploaded|failed\`.
+- If a render is interrupted by a worker crash, startup recovery marks it failed so it can be inspected/retried.
+- If a remote upload was interrupted while the provider may have accepted it, state becomes \`uncertain\`. No automatic retry is attempted because it could create a duplicate video. An operator reconciles provider state first.
+- \`/ready\` checks database connectivity and FFmpeg availability, and in required-worker mode checks a heartbeat freshness window.
+
+## Security and policy
+
+- Write/API endpoints require Bearer token or X-API-Key outside development mode.
+- The container runs as non-root, drops Linux capabilities, disables privilege escalation, and has explicit CPU/memory limits.
+- FFmpeg and FFprobe use argument lists, never a shell with user text.
+- Uploads have extension, size and path constraints; provider imports restrict media URLs to approved HTTPS provider domains.
+- Provider exceptions are not returned raw in API responses; logs include error types and job references.
+- Source text, transcripts, generated scripts and discovered pages are untrusted content, not system instructions.
+- No database port is published. Secrets belong in Dokploy protected environment variables or mounted secret files.
+- Publishing defaults to private, remains disabled unless explicitly configured, and requires a distinct approval step.
+
+## Limits not inferred as complete
+
+The code provides generic peer clients and a durable FRIDAY task contract, but the actual peer base URLs/routes/API keys, deployed Docker network name, OAuth/token validity, channel permissions, Inference model compatibility, and Sentinel response schema must be verified against live services. The Compose template targets the interim low-memory AMD host; the intended 2-OCPU/12-GB ARM instance is a separate target and must be tested on its own. Before sustained production operation, migrate SQLite schema management to Alembic and add automated backup/restore verification.
