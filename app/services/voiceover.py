@@ -1,6 +1,8 @@
-"""Optional OpenAI-compatible TTS adapter using an explicitly configured endpoint."""
+"""Voiceover providers: local eSpeak for zero-key operation, or external TTS."""
 from __future__ import annotations
 
+import shutil
+import subprocess
 from uuid import uuid4
 
 import httpx
@@ -8,23 +10,76 @@ import httpx
 from app.config import get_settings
 
 
-def synthesize_voiceover(text: str) -> dict[str, str | int]:
+def _store_audio(data: bytes, suffix: str) -> dict[str, str | int]:
     settings = get_settings()
+    audio_dir = settings.media_dir / "voiceovers"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    path = (audio_dir / (uuid4().hex + suffix)).resolve()
+    if audio_dir.resolve() not in path.parents:
+        raise RuntimeError("Invalid voiceover destination path")
+    path.write_bytes(data)
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return {
+        "file_path": str(path),
+        "bytes": len(data),
+        "content_type": "audio/wav" if suffix == ".wav" else "audio/mpeg",
+    }
+
+
+def synthesize_voiceover(text: str) -> dict[str, str | int]:
+    """Synthesize a script locally with eSpeak or use an explicitly configured TTS API."""
+    settings = get_settings()
+    normalized = " ".join(text.split())
+    if not normalized:
+        raise ValueError("Voiceover text must not be empty")
+    if len(normalized) > 20_000:
+        raise ValueError("Voiceover text exceeds the 20000-character limit")
+
+    provider = settings.tts_provider.strip().lower()
+    if provider == "espeak":
+        executable = shutil.which(settings.espeak_bin)
+        if not executable:
+            raise RuntimeError(
+                f"Local TTS provider is eSpeak but '{settings.espeak_bin}' is not installed"
+            )
+        audio_dir = settings.media_dir / "voiceovers"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        path = (audio_dir / (uuid4().hex + ".wav")).resolve()
+        if audio_dir.resolve() not in path.parents:
+            raise RuntimeError("Invalid voiceover destination path")
+        command = [
+            executable, "-w", str(path), "-v", settings.espeak_voice,
+            "-s", str(max(80, min(settings.espeak_rate, 300))), normalized,
+        ]
+        try:
+            result = subprocess.run(
+                command, capture_output=True, text=True, timeout=120, check=False
+            )
+        except subprocess.TimeoutExpired as exc:
+            path.unlink(missing_ok=True)
+            raise RuntimeError("Local voiceover synthesis exceeded 120 seconds") from exc
+        if result.returncode != 0 or not path.is_file() or path.stat().st_size == 0:
+            path.unlink(missing_ok=True)
+            raise RuntimeError("Local voiceover synthesis failed; check eSpeak installation")
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+        return {"file_path": str(path), "bytes": path.stat().st_size, "content_type": "audio/wav"}
+
+    if provider != "external":
+        raise ValueError("TTS_PROVIDER must be 'espeak' or 'external'")
     tts_base_url = settings.inference_tts_url.strip()
     if not tts_base_url:
-        raise RuntimeError(
-            "INFERENCE_TTS_URL must point to a separately verified TTS-compatible endpoint; "
-            "the standard Inference task API does not expose a TTS route"
-        )
+        raise RuntimeError("TTS_PROVIDER=external requires INFERENCE_TTS_URL")
     api_key = settings.inference_tts_api_key or settings.inference_api_key
     if not api_key:
         raise RuntimeError("INFERENCE_TTS_API_KEY or INFERENCE_API_KEY must be configured")
     if not settings.inference_tts_model:
-        raise RuntimeError("INFERENCE_TTS_MODEL must be configured for voiceover generation")
-    if not text.strip():
-        raise ValueError("Voiceover text must not be empty")
-    if len(text) > 20_000:
-        raise ValueError("Voiceover text exceeds the 20000-character limit")
+        raise RuntimeError("INFERENCE_TTS_MODEL must be configured for external voiceover generation")
     url = tts_base_url.rstrip("/") + settings.inference_tts_path
     try:
         response = httpx.post(
@@ -36,7 +91,7 @@ def synthesize_voiceover(text: str) -> dict[str, str | int]:
             },
             json={
                 "model": settings.inference_tts_model,
-                "input": text,
+                "input": normalized,
                 "voice": settings.inference_tts_voice,
                 "response_format": "mp3",
             },
@@ -53,14 +108,4 @@ def synthesize_voiceover(text: str) -> dict[str, str | int]:
         raise RuntimeError("TTS provider returned empty or oversized audio")
     if not any(value in content_type for value in ("audio/", "application/octet-stream")):
         raise RuntimeError("TTS response is not an audio media type")
-    audio_dir = settings.media_dir / "voiceovers"
-    audio_dir.mkdir(parents=True, exist_ok=True)
-    path = (audio_dir / (uuid4().hex + ".mp3")).resolve()
-    if audio_dir.resolve() not in path.parents:
-        raise RuntimeError("Invalid voiceover destination path")
-    path.write_bytes(response.content)
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
-    return {"file_path": str(path), "bytes": len(response.content), "content_type": content_type}
+    return _store_audio(response.content, ".mp3")
