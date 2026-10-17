@@ -82,7 +82,7 @@ def test_publish_schedule_requires_timezone_and_future_time():
     assert request.scheduled_at.utcoffset() == timedelta(0)
 
 
-def test_canonical_friday_task_contract_and_idempotent_replay():
+def test_canonical_friday_task_contract_and_idempotent_replay(monkeypatch):
     from uuid import uuid4
 
     from app.database import SessionLocal
@@ -118,6 +118,9 @@ def test_canonical_friday_task_contract_and_idempotent_replay():
         assert first_data["status"] == "PENDING"
         assert first_data["trace_id"] == "trace-test-001"
 
+        sync_payload = {**payload, "task_id": task_id + "-sync", "requested_mode": "sync"}
+        assert client.post("/v1/task/execute", json=sync_payload).status_code == 422
+
         replay = client.post("/v1/task/execute", json=payload)
         assert replay.status_code == 202
         assert replay.json()["idempotent_replay"] is True
@@ -135,6 +138,27 @@ def test_canonical_friday_task_contract_and_idempotent_replay():
             assert task.trace_id == "trace-test-001"
             assert "must-not-be-persisted" not in task.authorization_context_json
             assert "[REDACTED]" in task.authorization_context_json
+            task_row_id = task.id
+
+        # Exercise the worker path without calling any external service.
+        from app import worker
+        monkeypatch.setattr(worker, "dispatch_agent_task", lambda task_type, task_input, db: {"asset_id": 42, "status": "queued"})
+        worker.process_agent_task(task_row_id)
+
+        completed = client.get("/v1/task/" + task_id)
+        assert completed.status_code == 200
+        completed_data = completed.json()
+        assert completed_data["status"] == "SUCCESS"
+        assert completed_data["final_state"] == "SUCCESS"
+        receipt = completed_data["receipt"]
+        assert receipt["requested_action"] == "vyralx.content.generate"
+        assert receipt["target"] == "vyralx"
+        assert receipt["authorization_decision"] == "AUTHORIZED"
+        assert receipt["verification_evidence"]["task_row_id"] == task_row_id
+
+        changed_action = {**payload, "action": "vyralx.discover.youtube"}
+        action_conflict = client.post("/v1/task/execute", json=changed_action)
+        assert action_conflict.status_code == 409
     finally:
         with SessionLocal() as db:
             db.query(AgentTask).filter(AgentTask.task_id == task_id).delete()
