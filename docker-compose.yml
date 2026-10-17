@@ -6,7 +6,7 @@ x-vyralx-common: &vyralx-common
   init: true
   environment:
     APP_ENV: production
-    PORT: "8010"
+    PORT: "8000"
     API_KEY: ${API_KEY:?Set API_KEY in Dokploy environment}
     DATABASE_URL: sqlite:////app/data/vyralx.db
     DATA_DIR: /app/data
