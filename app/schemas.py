@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -113,8 +114,6 @@ class PublishResolutionRequest(BaseModel):
         return self
 
 
-from uuid import uuid4
-
 
 class AgentTaskRequest(BaseModel):
     task_id: str = Field(default_factory=lambda: uuid4().hex, min_length=1, max_length=120)
@@ -122,6 +121,7 @@ class AgentTaskRequest(BaseModel):
         "discover.youtube",
         "discover.pexels",
         "content.generate",
+        "content.voiceover",
         "render.create",
         "publish.request",
     ]
