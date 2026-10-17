@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     memora_api_key: str = ""
     sentinel_url: str = ""
     sentinel_api_key: str = ""
+    youtube_data_api_key: str = ""
     youtube_client_secrets_file: Path = Path("./secrets/youtube-client-secret.json")
     youtube_token_file: Path = Path("./secrets/youtube-token.json")
     youtube_default_privacy: str = "private"
