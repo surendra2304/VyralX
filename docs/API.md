@@ -65,7 +65,7 @@ Discovery results are leads only. A task can create a pending publish request, b
 | GET | \`/api/projects/{project_id}/thumbnail\` | Download a generated thumbnail |
 | GET | \`/api/render/{job_id}/download\` | Download a completed MP4 |
 
-Project creation asks for a topic, format, duration, scene count (2–4), audience/tone, whether narration is wanted, and explicit Pexels-license confirmation. It queues the work; it does not keep the API request open. The worker uses Inference for the script, official Pexels APIs for scene sourcing, local eSpeak or configured external TTS for narration, generated SRT captions, FFmpeg montage rendering and FFmpeg thumbnail extraction.
+Project creation asks for a topic, format, duration, scene count (2–4), audience/tone, whether narration is wanted, and explicit Pexels-license confirmation. With `auto_discover_trend=true`, it uses the configured YouTube Data API to choose a public-metadata trend from `trend_query`/`trend_max_results`, stores the seed video provenance, and uses only its title as a prompt topic—never its downloaded media or transcript. It queues the work; it does not keep the API request open. The worker uses Inference for the script, official Pexels APIs for scene sourcing, local eSpeak or configured external TTS for narration, generated SRT captions, FFmpeg montage rendering and FFmpeg thumbnail extraction.
 
 On completion, the project response supplies \`primary_asset_id\`, \`asset_ids\`, \`content_pack_id\`, \`render_job_id\` and authenticated download paths. The render's saved \`montage_asset_ids\` are checked individually for rights evidence both when a publish request is created and again immediately before upload. Pexels creator/source attribution is appended to the YouTube description.
 
