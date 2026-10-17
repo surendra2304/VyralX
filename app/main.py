@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -15,12 +15,14 @@ from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.migrations import run_additive_migrations
 from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, utcnow
-from app.schemas import ContentGenerationRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, RenderRequest, SourceCreate
+from app.schemas import ContentGenerationRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, RenderRequest, SourceCreate, ThumbnailRequest
 from app.security import require_api_key
 from app.services.probe import probe_media
 from app.services.discovery import discover_youtube_videos
 from app.services.trends import rank_candidates
 from app.services.content import generate_content_pack
+from app.services.voiceover import synthesize_voiceover
+from app.services.thumbnail import extract_thumbnail
 from app.services.peers import configured_peers, peer_health
 from app.services.pexels import import_video_file, search_videos
 from app.services.rights import source_is_publishable
@@ -189,7 +191,34 @@ def create_render(payload: RenderRequest, db: Session = Depends(get_db)):
     source = db.get(Source, asset.source_id) if asset.source_id else None
     if not asset.rights_verified or not source_is_publishable(source):
         raise HTTPException(403, "Asset requires a verified license or permission record")
-    job = RenderJob(asset_id=asset.id, preset=payload.preset, status="queued")
+    if asset.duration_seconds <= 0:
+        raise HTTPException(422, "Asset duration could not be verified by FFprobe")
+    clip_end = payload.trim_end_seconds if payload.trim_end_seconds is not None else asset.duration_seconds
+    if clip_end > asset.duration_seconds + 0.05:
+        raise HTTPException(422, "trim_end_seconds exceeds the source media duration")
+    clip_length = clip_end - payload.trim_start_seconds
+    if clip_length <= 0:
+        raise HTTPException(422, "Trim range has no positive duration")
+    for segment in payload.subtitle_segments:
+        if segment.end_seconds > clip_length:
+            raise HTTPException(422, "Subtitle times must fit inside the trimmed clip")
+    options = payload.model_dump(mode="json", exclude={"asset_id", "preset", "content_pack_id"})
+    if payload.content_pack_id is not None:
+        pack = db.get(ContentPack, payload.content_pack_id)
+        if pack is None:
+            raise HTTPException(404, "Content pack not found")
+        if pack.voiceover_status != "ready" or not pack.voiceover_path:
+            raise HTTPException(409, "Generate the content pack voiceover before attaching it to a render")
+        voice_path = Path(pack.voiceover_path).resolve()
+        if settings.media_dir.resolve() not in voice_path.parents or not voice_path.is_file():
+            raise HTTPException(409, "Generated voiceover is missing or outside media storage")
+        options["voiceover_path"] = str(voice_path)
+    job = RenderJob(
+        asset_id=asset.id,
+        preset=payload.preset,
+        status="queued",
+        options_json=json.dumps(options, ensure_ascii=False),
+    )
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -323,6 +352,7 @@ def list_content_packs(db: Session = Depends(get_db)):
     return [
         {"id": row.id, "topic": row.topic, "format": row.video_format,
          "status": row.status, "provider_model": row.provider_model,
+         "voiceover_status": row.voiceover_status,
          "content_pack": json.loads(row.pack_json), "created_at": row.created_at}
         for row in rows
     ]
@@ -345,6 +375,8 @@ def agent_manifest():
             {"id": "discover.pexels", "method": "POST", "path": "/api/discover/pexels"},
             {"id": "asset.import.pexels", "method": "POST", "path": "/api/assets/import/pexels"},
             {"id": "content.generate", "method": "POST", "path": "/api/content/generate"},
+            {"id": "content.voiceover", "method": "POST", "path": "/api/content/{content_id}/voiceover"},
+            {"id": "thumbnail.create", "method": "POST", "path": "/api/thumbnails"},
             {"id": "source.register", "method": "POST", "path": "/api/sources"},
             {"id": "asset.import", "method": "POST", "path": "/api/assets/upload"},
             {"id": "video.render", "method": "POST", "path": "/api/render", "asynchronous": True},
@@ -497,3 +529,70 @@ def import_pexels_asset(payload: PexelsImportRequest, db: Session = Depends(get_
             destination.unlink(missing_ok=True)
         log.error("Pexels import failed (error_type=%s)", type(exc).__name__)
         raise HTTPException(502, "Pexels import failed; check provider configuration and logs") from None
+
+@app.post("/api/content/{content_id}/voiceover", status_code=202, dependencies=[Depends(require_api_key)])
+def generate_content_voiceover(content_id: int, db: Session = Depends(get_db)):
+    """Synthesize the original script through the configured Inference TTS gateway."""
+    record = db.get(ContentPack, content_id)
+    if record is None:
+        raise HTTPException(404, "Content pack not found")
+    pack = json.loads(record.pack_json)
+    voiceover_text = str(pack.get("voiceover") or pack.get("script") or "").strip()
+    if not voiceover_text:
+        raise HTTPException(422, "Content pack contains no voiceover script")
+    try:
+        result = synthesize_voiceover(voiceover_text)
+        record.voiceover_path = str(result["file_path"])
+        record.voiceover_status = "ready"
+        db.commit()
+        return {
+            "content_pack_id": record.id,
+            "voiceover_status": record.voiceover_status,
+            "bytes": result["bytes"],
+            "message": "Voiceover ready; pass content_pack_id to POST /api/render",
+        }
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from None
+    except Exception as exc:
+        db.rollback()
+        record = db.get(ContentPack, content_id)
+        if record is not None:
+            record.voiceover_status = "failed"
+            db.commit()
+        log.error("Voiceover synthesis failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(502, "Voiceover synthesis failed; check Inference TTS configuration and logs") from None
+
+
+@app.post("/api/thumbnails", status_code=201, dependencies=[Depends(require_api_key)])
+def create_thumbnail(payload: ThumbnailRequest, db: Session = Depends(get_db)):
+    job = db.get(RenderJob, payload.render_job_id)
+    if job is None:
+        raise HTTPException(404, "Render job not found")
+    if job.status != "completed" or not job.output_path or not Path(job.output_path).is_file():
+        raise HTTPException(409, "Thumbnail extraction requires a completed render")
+    try:
+        metadata = probe_media(job.output_path)
+        duration = float(metadata.get("duration_seconds") or 0)
+        if duration <= 0 or payload.timestamp_seconds >= duration:
+            raise HTTPException(422, "timestamp_seconds must be earlier than the rendered video duration")
+        thumbnail_path = settings.render_dir / ("thumbnail-job-" + str(job.id) + ".jpg")
+        extract_thumbnail(job.output_path, thumbnail_path, payload.timestamp_seconds)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("Thumbnail extraction failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(502, "Thumbnail extraction failed; check FFmpeg and logs") from None
+    return {
+        "render_job_id": job.id,
+        "path": "/api/thumbnails/" + str(job.id),
+        "download_name": "vyralx-thumbnail-" + str(job.id) + ".jpg",
+    }
+
+
+@app.get("/api/thumbnails/{job_id}", dependencies=[Depends(require_api_key)])
+def get_thumbnail(job_id: int):
+    path = settings.render_dir / ("thumbnail-job-" + str(job_id) + ".jpg")
+    if not path.is_file():
+        raise HTTPException(404, "Thumbnail not found; create it with POST /api/thumbnails")
+    return FileResponse(path, media_type="image/jpeg", filename="vyralx-thumbnail-" + str(job_id) + ".jpg")
