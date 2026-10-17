@@ -17,3 +17,10 @@ client_secret*.json
 *.sqlite3
 *.db
 .DS_Store
+
+# Provider credentials and OAuth tokens
+/secrets/
+**/youtube-token*.json
+**/youtube-client-secret*.json
+**/client_secret*.json
+**/*service-account*.json
