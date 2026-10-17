@@ -200,10 +200,13 @@ def queue_publish(payload: PublishRequest, db: Session = Depends(get_db)):
         or not Path(render.output_path).is_file()
     ):
         raise HTTPException(409, "Select a completed render belonging to this asset")
+    privacy_status = payload.privacy_status or settings.youtube_default_privacy
+    if payload.scheduled_at and privacy_status != "private":
+        raise HTTPException(422, "Scheduled YouTube videos must use private privacy with publishAt")
+    scheduled_at = payload.scheduled_at.isoformat().replace("+00:00", "Z") if payload.scheduled_at else ""
     job = PublishJob(asset_id=asset.id, render_job_id=render.id, title=payload.title,
                      description=payload.description, tags_json=json.dumps(payload.tags[:30]),
-                     privacy_status=payload.privacy_status or settings.youtube_default_privacy,
-                     scheduled_at=payload.scheduled_at, status="queued")
+                     privacy_status=privacy_status, scheduled_at=scheduled_at, status="queued")
     db.add(job)
     db.commit()
     db.refresh(job)
