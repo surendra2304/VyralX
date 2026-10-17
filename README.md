@@ -41,6 +41,16 @@ Open `http://127.0.0.1:8010` for the dashboard and `http://127.0.0.1:8010/docs` 
 
 A public URL is a discovery lead, not permission to download or republish a creator's work. Platform download/access controls must not be bypassed. The code does not implement third-party social scraping or unauthorized ripping.
 
+## YouTube OAuth setup
+
+1. Download a **Desktop app** OAuth client JSON from Google Cloud Console and save it at the path configured by `YOUTUBE_CLIENT_SECRETS_FILE` (default: `./secrets/youtube-client-secret.json`).
+2. Install the project dependencies with `pip install -e ".[dev]"`.
+3. Run `python scripts/authorize_youtube.py` on a machine with a browser and complete consent for the intended channel.
+4. The helper writes the token to `YOUTUBE_TOKEN_FILE` (default: `./secrets/youtube-token.json`). Transfer it securely to the protected VyralX secrets volume when deploying.
+5. Keep `YOUTUBE_UPLOAD_ENABLED=false` until the private test upload and live account/channel have been verified.
+
+The client JSON and token are excluded from Git and from the Docker build context. Never paste either file's contents into an issue, pull request, or chat.
+
 ## FRIDAY Universe integration
 VyralX is intended to become the tenth service. Planned peers are FRIDAY (orchestration), IntelX (research), Inference (AI generation), Memora (the sole long-term memory authority), and Sentinel (policy/security). Peer integration is not enabled until authenticated contracts, timeouts, health checks and tests are added. Dokploy remains the deployment controller.
 
