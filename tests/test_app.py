@@ -2,8 +2,9 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.renderer import PRESETS
 from app.services.rights import source_is_publishable
-from app.models import Source
 from app.config import Settings
+from app.models import Source
+from app.schemas import PublishRequest
 import pytest
 
 client = TestClient(app)
@@ -44,3 +45,9 @@ def test_discovery_errors_do_not_leak_provider_secrets(monkeypatch):
 def test_production_rejects_default_api_key():
     with pytest.raises(ValueError, match="unique API_KEY"):
         Settings(app_env="production")
+
+
+def test_publish_request_binds_render_and_uses_configured_privacy_default():
+    request = PublishRequest(asset_id=4, render_job_id=12, title="Demo Short")
+    assert request.render_job_id == 12
+    assert request.privacy_status is None
