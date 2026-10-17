@@ -123,13 +123,11 @@ def upload_video(
     media = MediaFileUpload(str(path), chunksize=8 * 1024 * 1024, resumable=True, mimetype="video/*")
     request = service.videos().insert(part="snippet,status", body=body, media_body=media)
     response = None
-    started = False
     while response is None:
         try:
             # Google client internally retries transient responses; a failure after
             # earlier chunks may still represent an upload accepted by YouTube.
             _, response = request.next_chunk(num_retries=5)
-            started = True
         except HttpError as exc:
             status_code = int(getattr(getattr(exc, "resp", None), "status", 0) or 0)
             if 400 <= status_code < 500:
@@ -142,14 +140,11 @@ def upload_video(
                 f"YouTube upload outcome is uncertain after {type(exc).__name__}; reconcile before retrying"
             ) from None
         except Exception as exc:
-            # The resumable HTTP request may have reached Google even if the
-            # client raised a provider-specific exception.
-            if started:
-                raise UploadOutcomeUnknown(
-                    f"YouTube upload outcome is uncertain after {type(exc).__name__}; reconcile before retrying"
-                ) from None
-            raise RuntimeError(f"YouTube upload failed before confirmation ({type(exc).__name__})") from None
-        started = True
+            # Calling next_chunk means the request may have reached Google, even
+            # when the first chunk raises an unexpected provider/client exception.
+            raise UploadOutcomeUnknown(
+                f"YouTube upload outcome is uncertain after {type(exc).__name__}; reconcile before retrying"
+            ) from None
     video_id = response.get("id")
     if not video_id:
         raise UploadOutcomeUnknown("YouTube response lacked a video ID; reconcile provider state before retrying")
