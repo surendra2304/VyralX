@@ -25,6 +25,7 @@ from app.services.probe import probe_media
 from app.services.renderer import render_video
 from app.services.rights import source_is_publishable
 from app.services.youtube import upload_video
+from app.services.peers import post_peer_json
 
 settings = get_settings()
 settings.prepare_directories()
@@ -173,6 +174,22 @@ def process_publish_job(job_id: int) -> None:
             return
         _heartbeat("busy", f"publish:{job.id}")
         try:
+            if settings.sentinel_required_for_publish:
+                policy = post_peer_json(
+                    "sentinel",
+                    settings.sentinel_policy_path,
+                    {
+                        "action": "youtube.publish",
+                        "job_id": job.id,
+                        "asset_id": asset.id,
+                        "title": job.title,
+                        "privacy_status": job.privacy_status,
+                        "scheduled_at": job.scheduled_at,
+                    },
+                )
+                allowed = policy.get("allowed") is True or policy.get("decision") in {"allow", "approved"}
+                if not allowed:
+                    raise RuntimeError("Sentinel policy did not explicitly allow this publish request")
             video_id = upload_video(
                 render.output_path,
                 title=job.title,
