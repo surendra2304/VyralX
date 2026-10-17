@@ -1,6 +1,7 @@
+from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class DiscoveryRequest(BaseModel):
@@ -32,5 +33,17 @@ class PublishRequest(BaseModel):
     description: str = Field(default="", max_length=5000)
     tags: list[str] = Field(default_factory=list, max_length=30)
     privacy_status: str | None = Field(default=None, pattern="^(private|unlisted|public)$")
-    scheduled_at: str = ""
+    scheduled_at: datetime | None = None
     confirm_rights: bool = False
+
+    @field_validator("scheduled_at")
+    @classmethod
+    def validate_scheduled_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("scheduled_at must include a timezone")
+        value = value.astimezone(timezone.utc)
+        if value <= datetime.now(timezone.utc):
+            raise ValueError("scheduled_at must be in the future")
+        return value
