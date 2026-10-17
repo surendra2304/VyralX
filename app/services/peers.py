@@ -71,8 +71,10 @@ def post_peer_json(
     """Call an explicitly configured peer endpoint; do not follow arbitrary redirects."""
     if not path.startswith("/") or path.startswith("//"):
         raise ValueError("Peer endpoint path must be an absolute path")
-    if "://" in path or ".." in path:
-        raise ValueError("Peer endpoint path must not be a URL or traversal path")
+    if "://" in path:
+        raise ValueError("Peer endpoint path must not be a URL")
+    if any(segment == ".." for segment in path.split("/")):
+        raise ValueError("Peer endpoint path must not contain traversal segments")
     peer = configured_peers().get(name)
     if peer is None:
         raise RuntimeError(f"FRIDAY peer {name!r} is not configured")
