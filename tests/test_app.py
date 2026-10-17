@@ -80,3 +80,62 @@ def test_publish_schedule_requires_timezone_and_future_time():
     )
     assert request.scheduled_at is not None
     assert request.scheduled_at.utcoffset() == timedelta(0)
+
+
+def test_canonical_friday_task_contract_and_idempotent_replay():
+    from uuid import uuid4
+
+    from app.database import SessionLocal
+    from app.models import AgentTask
+
+    task_id = "test-friday-" + uuid4().hex
+    idempotency_key = "test-idem-" + uuid4().hex
+    payload = {
+        "task_id": task_id,
+        "trace_id": "trace-test-001",
+        "parent_task_id": "parent-test-001",
+        "request_id": "request-test-001",
+        "actor": "friday",
+        "capability": "content.generate",
+        "objective": "Create an original short about solar energy",
+        "inputs": {"topic": "How solar energy works", "video_format": "shorts"},
+        "trust_level": "operator_confirmed",
+        "authorization_context": {"scope": "video-create", "api_key": "must-not-be-persisted"},
+        "idempotency_key": idempotency_key,
+        "requested_mode": "async",
+        "source_agent": "friday",
+        "target_agent": "vyralx",
+        "action": "vyralx.content.generate",
+        "payload": {"topic": "How solar energy works", "video_format": "shorts"},
+        "priority": "high",
+    }
+    try:
+        first = client.post("/v1/task/execute", json=payload)
+        assert first.status_code == 202
+        first_data = first.json()
+        assert first_data["task_id"] == task_id
+        assert first_data["target_agent"] == "vyralx"
+        assert first_data["status"] == "PENDING"
+        assert first_data["trace_id"] == "trace-test-001"
+
+        replay = client.post("/v1/task/execute", json=payload)
+        assert replay.status_code == 202
+        assert replay.json()["idempotent_replay"] is True
+
+        changed = {**payload, "inputs": {"topic": "different topic"}}
+        conflict = client.post("/v1/task/execute", json=changed)
+        assert conflict.status_code == 409
+
+        polled = client.get("/v1/task/" + task_id)
+        assert polled.status_code == 200
+        assert polled.json()["status"] == "PENDING"
+
+        with SessionLocal() as db:
+            task = db.query(AgentTask).filter(AgentTask.task_id == task_id).one()
+            assert task.trace_id == "trace-test-001"
+            assert "must-not-be-persisted" not in task.authorization_context_json
+            assert "[REDACTED]" in task.authorization_context_json
+    finally:
+        with SessionLocal() as db:
+            db.query(AgentTask).filter(AgentTask.task_id == task_id).delete()
+            db.commit()
