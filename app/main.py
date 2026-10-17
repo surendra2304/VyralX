@@ -167,7 +167,11 @@ async def upload_asset(file: UploadFile = File(...), title: str = "Untitled asse
         meta = await run_in_threadpool(probe_media, destination)
     except Exception as exc:
         destination.unlink(missing_ok=True)
-        raise HTTPException(422, "Media probe failed: " + str(exc)[:300]) from exc
+        log.error("Media probe failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(422, "Media probe failed; upload a valid video file") from None
+    if meta["width"] <= 0 or meta["height"] <= 0 or meta["duration_seconds"] <= 0:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(422, "Uploaded file must contain a readable video stream with positive duration")
     asset = Asset(source_id=source_id, title=title[:300], file_path=str(destination),
                   rights_verified=bool(source and source_is_publishable(source)), **meta)
     db.add(asset)
@@ -200,6 +204,8 @@ def create_render(payload: RenderRequest, db: Session = Depends(get_db)):
     clip_length = clip_end - payload.trim_start_seconds
     if clip_length <= 0:
         raise HTTPException(422, "Trim range has no positive duration")
+    if clip_length > settings.max_render_seconds:
+        raise HTTPException(422, "Requested render exceeds MAX_RENDER_SECONDS")
     for segment in payload.subtitle_segments:
         if segment.end_seconds > clip_length:
             raise HTTPException(422, "Subtitle times must fit inside the trimmed clip")
