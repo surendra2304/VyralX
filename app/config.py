@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,6 +44,12 @@ class Settings(BaseSettings):
     youtube_category_id: str = "28"
     youtube_upload_enabled: bool = False
     youtube_analytics_enabled: bool = False
+
+    @model_validator(mode="after")
+    def validate_production_api_key(self) -> "Settings":
+        if self.app_env.lower() != "development" and (not self.api_key or self.api_key == "development-only-change-me"):
+            raise ValueError("Set a unique API_KEY outside development")
+        return self
 
     def prepare_directories(self) -> None:
         for directory in (self.data_dir, self.media_dir, self.render_dir):
