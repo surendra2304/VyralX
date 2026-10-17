@@ -212,3 +212,57 @@ def test_pexels_media_url_allowlist_rejects_arbitrary_hosts():
     assert not _safe_file_url("http://videos.pexels.com/clip.mp4")
     assert not _safe_file_url("https://example.invalid/clip.mp4")
     assert not _safe_file_url("https://player.vimeo.com/evil/clip.mp4")
+
+
+def test_content_generation_uses_actual_inference_task_contract(monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    from app.services import content as content_service
+
+    settings = SimpleNamespace(
+        inference_url="http://inference:8000",
+        inference_api_key="test-key",
+        inference_model="",
+        inference_generation_path="/v1/task/execute",
+        inference_timeout_seconds=3,
+    )
+    monkeypatch.setattr(content_service, "get_settings", lambda: settings)
+
+    result_pack = {
+        "hook": "A hook",
+        "script": "Original script",
+        "scene_plan": [{"timecode": "00:00-00:05", "visual": "Solar panels", "on_screen_text": "Solar"}],
+        "voiceover": "Original voiceover",
+        "caption": "Caption",
+        "title_options": ["A title"],
+        "description": "Description",
+        "tags": ["solar", "science"],
+        "thumbnail_brief": "Sunlit solar panels",
+    }
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"status": "SUCCESS", "result": {"response": json.dumps(result_pack), "model_used": "test-model"}}
+
+    calls = {}
+
+    def fake_post(url, **kwargs):
+        calls["url"] = url
+        calls["kwargs"] = kwargs
+        return FakeResponse()
+
+    monkeypatch.setattr(content_service.httpx, "post", fake_post)
+    actual = content_service.generate_content_pack("How solar panels work", target_seconds=45)
+
+    assert calls["url"] == "http://inference:8000/v1/task/execute"
+    assert calls["kwargs"]["json"]["target_agent"] == "inference"
+    assert calls["kwargs"]["json"]["source_agent"] == "vyralx"
+    assert "X-FRIDAY-API-Key" in calls["kwargs"]["headers"]
+    assert "Return one valid JSON object" in calls["kwargs"]["json"]["payload"]["prompt"]
+    assert actual["provider_model"] == "test-model"
+    assert actual["fact_check_passed"] is False
+    assert actual["requires_editor_review"] is True
