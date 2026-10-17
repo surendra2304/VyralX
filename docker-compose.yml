@@ -16,6 +16,7 @@ services:
       RENDER_DIR: /app/renders
       MAX_CONCURRENT_RENDERS: "1"
       MAX_UPLOAD_MB: "2048"
+      YOUTUBE_DATA_API_KEY: ${YOUTUBE_DATA_API_KEY:-}
       YOUTUBE_UPLOAD_ENABLED: ${YOUTUBE_UPLOAD_ENABLED:-false}
       YOUTUBE_DEFAULT_PRIVACY: ${YOUTUBE_DEFAULT_PRIVACY:-private}
       YOUTUBE_CLIENT_SECRETS_FILE: /app/secrets/youtube-client-secret.json
