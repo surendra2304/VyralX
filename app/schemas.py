@@ -22,13 +22,13 @@ class SourceCreate(BaseModel):
 
 
 class RenderRequest(BaseModel):
-    asset_id: int
+    asset_id: int = Field(gt=0)
     preset: str = Field(pattern="^(shorts|long|square)$")
 
 
 class PublishRequest(BaseModel):
-    asset_id: int
-    render_job_id: int
+    asset_id: int = Field(gt=0)
+    render_job_id: int = Field(gt=0)
     title: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=5000)
     tags: list[str] = Field(default_factory=list, max_length=30)
@@ -47,3 +47,15 @@ class PublishRequest(BaseModel):
         if value <= datetime.now(timezone.utc):
             raise ValueError("scheduled_at must be in the future")
         return value
+
+
+class ContentGenerationRequest(BaseModel):
+    topic: str = Field(min_length=3, max_length=500)
+    video_format: Literal["shorts", "long"] = "shorts"
+    audience: str = Field(default="general audience", max_length=200)
+    tone: str = Field(default="clear, energetic and factual", max_length=200)
+    target_seconds: int = Field(default=45, ge=15, le=1800)
+
+
+class RetryJobRequest(BaseModel):
+    reason: str = Field(default="operator_retry", max_length=200)
