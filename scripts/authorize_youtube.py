@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Create a local YouTube OAuth token without printing credentials."""
 
-from pathlib import Path
-
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from app.config import get_settings
