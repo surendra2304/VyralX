@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class DiscoveryRequest(BaseModel):
@@ -21,9 +21,32 @@ class SourceCreate(BaseModel):
     notes: str = ""
 
 
+class CaptionSegment(BaseModel):
+    start_seconds: float = Field(ge=0)
+    end_seconds: float = Field(gt=0)
+    text: str = Field(min_length=1, max_length=400)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "CaptionSegment":
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError("Caption end_seconds must be greater than start_seconds")
+        return self
+
+
 class RenderRequest(BaseModel):
     asset_id: int = Field(gt=0)
     preset: str = Field(pattern="^(shorts|long|square)$")
+    trim_start_seconds: float = Field(default=0, ge=0)
+    trim_end_seconds: float | None = Field(default=None, gt=0)
+    fit_mode: Literal["pad", "crop"] = "pad"
+    subtitle_segments: list[CaptionSegment] = Field(default_factory=list, max_length=100)
+    content_pack_id: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def validate_trim(self) -> "RenderRequest":
+        if self.trim_end_seconds is not None and self.trim_end_seconds <= self.trim_start_seconds:
+            raise ValueError("trim_end_seconds must be greater than trim_start_seconds")
+        return self
 
 
 class PublishRequest(BaseModel):
@@ -72,3 +95,8 @@ class PexelsImportRequest(BaseModel):
     video_file_id: int = Field(gt=0)
     title: str = Field(default="", max_length=300)
     confirm_license: bool = False
+
+
+class ThumbnailRequest(BaseModel):
+    render_job_id: int = Field(gt=0)
+    timestamp_seconds: float = Field(default=1.0, ge=0)
