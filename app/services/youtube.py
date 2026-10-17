@@ -32,7 +32,7 @@ def upload_video(file_path: str, *, title: str, description: str, tags: list[str
         raise ValueError("Invalid privacy status")
     body = {"snippet": {"title": title, "description": description, "tags": tags[:30],
                         "categoryId": category_id},
-            "status": {"privacyStatus": privacy_status, "selfDeclaredMadeForKids": False}}
+            "status": {"privacyStatus": privacy_status}}
     if scheduled_at:
         if privacy_status != "private":
             raise ValueError("Scheduled publishing must start with privacy_status=private")
