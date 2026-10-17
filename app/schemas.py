@@ -135,3 +135,50 @@ class AgentTaskCancelRequest(BaseModel):
 
 class ContentVoiceoverRequest(BaseModel):
     content_pack_id: int = Field(gt=0)
+
+
+class UniverseTaskEnvelope(BaseModel):
+    """Canonical FRIDAY Universe task envelope with the backward-compatible fields used by fleet_client."""
+
+    task_id: str = Field(default_factory=lambda: f"task_{uuid4().hex[:12]}", min_length=1, max_length=120)
+    trace_id: str = Field(default_factory=lambda: f"trace_{uuid4().hex[:8]}", max_length=120)
+    parent_task_id: str | None = Field(default=None, max_length=120)
+    request_id: str | None = Field(default=None, max_length=120)
+    actor: str = Field(default="operator", max_length=120)
+    capability: str = Field(default="general", max_length=120)
+    objective: str = Field(default="", max_length=500)
+    inputs: dict = Field(default_factory=dict)
+    trust_level: str = Field(default="untrusted", max_length=40)
+    authorization_context: dict = Field(default_factory=dict)
+    deadline: str | None = Field(default=None, max_length=80)
+    idempotency_key: str | None = Field(default=None, max_length=160)
+    requested_mode: Literal["sync", "async", "background"] = "async"
+    progress: float = Field(default=0.0, ge=0.0, le=1.0)
+    artifacts: list[dict] = Field(default_factory=list, max_length=100)
+    findings: list[dict] = Field(default_factory=list, max_length=100)
+    errors: list[dict] = Field(default_factory=list, max_length=100)
+    final_state: Literal["PENDING", "RUNNING", "SUCCESS", "ERROR", "DEGRADED", "CANCELLED", "BLOCKED"] = "PENDING"
+    source_agent: str = Field(default="friday", max_length=120)
+    target_agent: str = Field(default="vyralx", max_length=120)
+    action: str = Field(default="", max_length=120)
+    payload: dict = Field(default_factory=dict)
+    priority: Literal["low", "normal", "high", "urgent"] = "normal"
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    correlation_id: str = Field(default="", max_length=120)
+    task_type: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_legacy_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        if "payload" in data and "inputs" not in data:
+            data["inputs"] = data["payload"]
+        elif "inputs" in data and "payload" not in data:
+            data["payload"] = data["inputs"]
+        if "action" in data and not data.get("objective"):
+            data["objective"] = data["action"]
+        elif "objective" in data and not data.get("action"):
+            data["action"] = data["objective"]
+        return data
