@@ -1,19 +1,18 @@
 """Small additive migrations for installations using SQLite or PostgreSQL.
 
-The service has no destructive migrations. New columns are added when absent so
-an existing named volume can be upgraded without dropping the user's catalog.
-For larger schema changes, move this to Alembic before production rollout.
+New columns are added only when absent so named volumes survive upgrades. For
+larger schema changes, use Alembic migrations before a broad production rollout.
 """
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
-# table -> column -> SQL fragment. Keep fragments portable between SQLite and PostgreSQL.
 ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
     "render_jobs": {
         "attempts": "INTEGER NOT NULL DEFAULT 0",
         "started_at": "TIMESTAMP",
         "completed_at": "TIMESTAMP",
         "updated_at": "TIMESTAMP",
+        "options_json": "TEXT NOT NULL DEFAULT '{}'",
     },
     "publish_jobs": {
         "attempts": "INTEGER NOT NULL DEFAULT 0",
@@ -21,6 +20,10 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
         "completed_at": "TIMESTAMP",
         "updated_at": "TIMESTAMP",
         "approved_at": "TIMESTAMP",
+    },
+    "content_packs": {
+        "voiceover_path": "VARCHAR(2048) NOT NULL DEFAULT ''",
+        "voiceover_status": "VARCHAR(40) NOT NULL DEFAULT 'not_generated'",
     },
 }
 
