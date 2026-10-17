@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-ng ca-certificates \
     && rm -rf /var/lib/apt/lists/* && useradd --create-home --uid 10001 appuser
 WORKDIR /app
 COPY pyproject.toml README.md ./
