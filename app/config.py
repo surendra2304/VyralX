@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     inference_model: str = ""
     inference_generation_path: str = "/v1/chat/completions"
     inference_timeout_seconds: int = 60
+    inference_tts_path: str = "/v1/audio/speech"
+    inference_tts_model: str = ""
+    inference_tts_voice: str = "alloy"
+    inference_tts_timeout_seconds: int = 180
     intelx_url: str = ""
     intelx_api_key: str = ""
     memora_url: str = ""
@@ -46,8 +50,8 @@ class Settings(BaseSettings):
     sentinel_api_key: str = ""
     sentinel_required_for_publish: bool = False
     sentinel_policy_path: str = "/api/v1/policy/check"
-    youtube_data_api_key: str = ""
     pexels_api_key: str = ""
+    youtube_data_api_key: str = ""
     youtube_client_secrets_file: Path = Path("./secrets/youtube-client-secret.json")
     youtube_token_file: Path = Path("./secrets/youtube-token.json")
     youtube_default_privacy: str = "private"
