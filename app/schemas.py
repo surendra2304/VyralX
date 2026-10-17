@@ -100,3 +100,14 @@ class PexelsImportRequest(BaseModel):
 class ThumbnailRequest(BaseModel):
     render_job_id: int = Field(gt=0)
     timestamp_seconds: float = Field(default=1.0, ge=0)
+
+
+class PublishResolutionRequest(BaseModel):
+    decision: Literal["uploaded", "not_uploaded"]
+    youtube_video_id: str = Field(default="", max_length=100)
+
+    @model_validator(mode="after")
+    def require_video_id_for_uploaded(self) -> "PublishResolutionRequest":
+        if self.decision == "uploaded" and not self.youtube_video_id.strip():
+            raise ValueError("youtube_video_id is required when decision is uploaded")
+        return self
