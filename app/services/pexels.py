@@ -1,7 +1,6 @@
 """Official Pexels video search and authorized stock-footage import."""
 from __future__ import annotations
 
-from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
 
