@@ -4,6 +4,7 @@ import logging
 from app.config import get_settings
 from app.database import Base, engine
 from app.migrations import run_additive_migrations
+import app.models  # noqa: F401 — register all tables before create_all()
 
 settings = get_settings()
 settings.prepare_directories()
