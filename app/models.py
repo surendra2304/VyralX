@@ -52,6 +52,7 @@ class PublishJob(Base):
     __tablename__ = "publish_jobs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     asset_id: Mapped[int] = mapped_column(Integer)
+    render_job_id: Mapped[int] = mapped_column(Integer)
     title: Mapped[str] = mapped_column(String(100))
     description: Mapped[str] = mapped_column(Text, default="")
     tags_json: Mapped[str] = mapped_column(Text, default="[]")
