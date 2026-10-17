@@ -19,7 +19,7 @@ from app.schemas import (
 from app.services.content import generate_content_pack
 from app.services.discovery import discover_youtube_videos
 from app.services.pexels import search_videos
-from app.services.rights import source_is_publishable
+from app.services.rights import append_stock_attribution, source_is_publishable, verified_render_sources
 from app.services.trends import rank_candidates
 from app.services.voiceover import synthesize_voiceover
 
@@ -147,6 +147,8 @@ def dispatch_agent_task(task_type: str, raw_input: dict[str, Any], db: Session) 
             or not Path(render.output_path).is_file()
         ):
             raise ValueError("Select a completed render belonging to this asset")
+        render_sources = verified_render_sources(render, db)
+        publish_description = append_stock_attribution(request.description, render_sources)
         privacy = request.privacy_status or settings.youtube_default_privacy
         if request.scheduled_at and privacy != "private":
             raise ValueError("Scheduled YouTube uploads must use private privacy with publishAt")
@@ -158,7 +160,7 @@ def dispatch_agent_task(task_type: str, raw_input: dict[str, Any], db: Session) 
             asset_id=asset.id,
             render_job_id=render.id,
             title=request.title,
-            description=request.description,
+            description=publish_description,
             tags_json=json.dumps(request.tags[:30]),
             privacy_status=privacy,
             scheduled_at=scheduled_at,
