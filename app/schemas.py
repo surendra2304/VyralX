@@ -19,9 +19,10 @@ class RenderRequest(BaseModel):
 
 class PublishRequest(BaseModel):
     asset_id: int
+    render_job_id: int
     title: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=5000)
     tags: list[str] = Field(default_factory=list, max_length=30)
-    privacy_status: str = Field(default="private", pattern="^(private|unlisted|public)$")
+    privacy_status: str | None = Field(default=None, pattern="^(private|unlisted|public)$")
     scheduled_at: str = ""
     confirm_rights: bool = False
