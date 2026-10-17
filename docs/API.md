@@ -23,6 +23,6 @@ Outside development mode, send the X-API-Key header for all /api/* routes.
 4. Run uvicorn app.main:app --host 127.0.0.1 --port 8010.
 5. Visit /docs, check /health, and run pytest.
 
-Publish requests must include `asset_id` and `render_job_id` so the queued job remains bound to the reviewed rendition. Omit `privacy_status` to use `YOUTUBE_DEFAULT_PRIVACY` (defaults to `private`).
+Publish requests must include `asset_id` and `render_job_id` so the queued job remains bound to the reviewed rendition. Omit `privacy_status` to use `YOUTUBE_DEFAULT_PRIVACY` (defaults to `private`). Optional `scheduled_at` must be a future ISO 8601 timestamp with an explicit timezone; scheduled uploads must use `private` privacy so YouTube can apply `publishAt`.
 
 Production publishing remains disabled until OAuth is tested and YOUTUBE_UPLOAD_ENABLED=true is explicitly configured.
