@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+from datetime import datetime, timedelta, timezone
+
 from app.main import app
 from app.services.renderer import PRESETS
 from app.services.rights import source_is_publishable
@@ -64,3 +66,17 @@ def test_publish_request_binds_render_and_uses_configured_privacy_default():
 def test_discovery_rejects_invalid_request(payload):
     response = client.post("/api/discover", json=payload)
     assert response.status_code == 422
+
+
+def test_publish_schedule_requires_timezone_and_future_time():
+    with pytest.raises(ValueError, match="timezone"):
+        PublishRequest(asset_id=1, render_job_id=1, title="Demo", scheduled_at="2030-01-01T10:00:00")
+    scheduled = datetime.now(timezone.utc) + timedelta(days=1)
+    request = PublishRequest(
+        asset_id=1,
+        render_job_id=1,
+        title="Demo",
+        scheduled_at=scheduled.isoformat(),
+    )
+    assert request.scheduled_at is not None
+    assert request.scheduled_at.utcoffset() == timedelta(0)
