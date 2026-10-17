@@ -15,13 +15,14 @@ from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.migrations import run_additive_migrations
 from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, utcnow
-from app.schemas import ContentGenerationRequest, DiscoveryRequest, PublishRequest, RenderRequest, SourceCreate
+from app.schemas import ContentGenerationRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, RenderRequest, SourceCreate
 from app.security import require_api_key
 from app.services.probe import probe_media
 from app.services.discovery import discover_youtube_videos
 from app.services.trends import rank_candidates
 from app.services.content import generate_content_pack
 from app.services.peers import configured_peers, peer_health
+from app.services.pexels import import_video_file, search_videos
 from app.services.rights import source_is_publishable
 
 settings = get_settings()
@@ -124,7 +125,9 @@ def create_source(payload: SourceCreate, db: Session = Depends(get_db)):
 def list_sources(db: Session = Depends(get_db)):
     rows = db.scalars(select(Source).order_by(Source.id.desc()).limit(200)).all()
     return [{"id": s.id, "title": s.title, "source_url": s.source_url, "platform": s.platform,
-             "license_name": s.license_name, "rights_verified": s.rights_verified, "status": s.status}
+             "creator": s.creator, "license_name": s.license_name,
+             "permission_reference": s.permission_reference, "rights_verified": s.rights_verified,
+             "status": s.status, "notes": s.notes}
             for s in rows]
 
 
@@ -339,6 +342,8 @@ def agent_manifest():
         "authentication": {"scheme": "X-API-Key"},
         "capabilities": [
             {"id": "discover.youtube", "method": "POST", "path": "/api/discover"},
+            {"id": "discover.pexels", "method": "POST", "path": "/api/discover/pexels"},
+            {"id": "asset.import.pexels", "method": "POST", "path": "/api/assets/import/pexels"},
             {"id": "content.generate", "method": "POST", "path": "/api/content/generate"},
             {"id": "source.register", "method": "POST", "path": "/api/sources"},
             {"id": "asset.import", "method": "POST", "path": "/api/assets/upload"},
@@ -398,3 +403,97 @@ def retry_publish_job(job_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"job_id": job.id, "status": "pending_approval",
             "message": "Review the job and approve it again before an external upload"}
+
+
+@app.post("/api/discover/pexels", dependencies=[Depends(require_api_key)])
+def discover_pexels(payload: PexelsSearchRequest):
+    """Search official Pexels stock footage; candidates remain unverified until import confirmation."""
+    try:
+        items = search_videos(
+            payload.query,
+            max_results=payload.max_results,
+            orientation=payload.orientation,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except Exception as exc:
+        log.error("Pexels discovery failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(502, "Pexels discovery failed; check PEXELS_API_KEY and provider status") from None
+    return {
+        "provider": "Pexels",
+        "query": payload.query,
+        "count": len(items),
+        "items": items,
+        "attribution": "Credit the photographer where possible: https://www.pexels.com/",
+        "license_url": "https://www.pexels.com/license/",
+    }
+
+
+@app.post("/api/assets/import/pexels", status_code=201, dependencies=[Depends(require_api_key)])
+def import_pexels_asset(payload: PexelsImportRequest, db: Session = Depends(get_db)):
+    """Import from Pexels after the operator explicitly confirms license review."""
+    if not payload.confirm_license:
+        raise HTTPException(
+            403,
+            "Review https://www.pexels.com/license/ and set confirm_license=true to import this stock clip",
+        )
+    destination = None
+    try:
+        imported = import_video_file(
+            payload.video_id,
+            payload.video_file_id,
+            title=payload.title or f"Pexels video {payload.video_id}",
+            max_bytes=settings.max_upload_mb * 1024 * 1024,
+        )
+        destination = Path(imported["file_path"])
+        source_url = imported["source_url"]
+        source = Source(
+            title=imported["title"],
+            source_url=source_url,
+            platform="pexels",
+            creator=imported["creator"],
+            license_name="Pexels Content License",
+            permission_reference=source_url,
+            rights_verified=True,
+            status="licensed",
+            notes=(
+                "Imported via official Pexels API after explicit operator confirmation of the "
+                "Pexels license. Credit the creator when possible. Review provider terms for "
+                "limitations before publishing."
+            ),
+        )
+        db.add(source)
+        db.flush()
+        asset = Asset(
+            source_id=source.id,
+            title=imported["title"],
+            file_path=str(destination),
+            rights_verified=True,
+            **imported["metadata"],
+        )
+        db.add(asset)
+        db.commit()
+        db.refresh(asset)
+        return {
+            "asset_id": asset.id,
+            "source_id": source.id,
+            "title": asset.title,
+            "metadata": imported["metadata"],
+            "rights_verified": True,
+            "creator": imported["creator"],
+            "creator_url": imported["creator_url"],
+            "source_url": source_url,
+            "license_url": "https://www.pexels.com/license/",
+            "attribution_notice": "Credit the photographer where possible.",
+        }
+    except ValueError as exc:
+        db.rollback()
+        if destination:
+            destination.unlink(missing_ok=True)
+        raise HTTPException(422, str(exc)) from None
+    except Exception as exc:
+        db.rollback()
+        if destination:
+            destination.unlink(missing_ok=True)
+        log.error("Pexels import failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(502, "Pexels import failed; check provider configuration and logs") from None
