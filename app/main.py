@@ -35,7 +35,7 @@ run_additive_migrations(engine)
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("vyralx")
 
-app = FastAPI(title="VyralX", version="0.1.0",
+app = FastAPI(title="VyralX", version="0.2.0",
               description="Video discovery, editing, and YouTube publishing agent")
 
 
