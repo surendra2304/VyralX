@@ -25,11 +25,11 @@ python -m venv .venv
 pip install -e ".[dev]"
 cp .env.example .env
 # Set a unique API_KEY in .env before exposing the service.
-uvicorn app.main:app --host 127.0.0.1 --port 8010
+uvicorn app.main:app --host 127.0.0.1 --port 8000
 pytest
 ```
 
-Open `http://127.0.0.1:8010` for the dashboard and `http://127.0.0.1:8010/docs` for API docs.
+Open `http://127.0.0.1:8000` for the dashboard and `http://127.0.0.1:8010/docs` for API docs.
 
 ## Video workflow
 1. Register a candidate source with creator, source URL, license/permission reference and rights status.
