@@ -896,15 +896,24 @@ def _friday_result(task: AgentTask) -> dict:
         "task_id": task.task_id,
         "target_agent": task.target_agent or "vyralx",
         "status": status,
+        "final_state": status,
         "result": result_data,
         "summary": summary,
         "error": task.error or None,
         "execution_time_ms": execution_time_ms,
-        "completed_at": (task.completed_at or utcnow()).isoformat(),
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "started_at": task.started_at.isoformat() if task.started_at else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
         "receipt": receipt,
         "trace_id": task.trace_id,
         "parent_task_id": task.parent_task_id or None,
+        "request_id": task.request_id or None,
         "correlation_id": task.correlation_id,
+        "action": task.action,
+        "objective": task.objective,
+        "capability": task.capability,
+        "actor": task.actor,
+        "requested_mode": task.requested_mode,
         "progress": 1.0 if status in {"SUCCESS", "ERROR", "CANCELLED", "DEGRADED"} else 0.0,
     }
 
@@ -936,6 +945,8 @@ def execute_friday_universe_task(
     db: Session = Depends(get_db),
 ):
     """Implement FRIDAY's canonical POST /v1/task/execute task-envelope contract."""
+    if envelope.requested_mode == "sync":
+        raise HTTPException(422, "VyralX's durable task endpoint is asynchronous; use requested_mode='async' or 'background'")
     target = envelope.target_agent.strip().lower()
     if target != "vyralx":
         raise HTTPException(422, "target_agent must identify VyralX")
