@@ -15,6 +15,7 @@ from app.models import Asset, PublishJob, RenderJob, Source
 from app.schemas import PublishRequest, RenderRequest, SourceCreate
 from app.security import require_api_key
 from app.services.probe import probe_media
+from app.services.discovery import discover_youtube_videos
 from app.services.renderer import render_video
 from app.services.rights import source_is_publishable
 from app.services.youtube import upload_video
@@ -60,6 +61,20 @@ small{color:#aab6cf}pre{white-space:pre-wrap;word-break:break-word;color:#aee9c8
 <section class="card"><h2>Operator quick check</h2><p>Service status</p><pre id="details">Loading…</pre><button onclick="refresh()">Refresh status</button></section>
 <script>async function refresh(){try{const r=await fetch('/ready');const d=await r.json();document.getElementById('health').textContent=d.status;document.getElementById('details').textContent=JSON.stringify(d,null,2)}catch(e){document.getElementById('health').textContent='API unavailable';document.getElementById('details').textContent=String(e)}}refresh()</script>
 </body></html>""")
+
+
+@app.post("/api/discover", dependencies=[Depends(require_api_key)])
+def discover(payload: dict):
+    query = str(payload.get("query", "")).strip()
+    if not query:
+        raise HTTPException(422, "query is required")
+    try:
+        items = discover_youtube_videos(query, payload.get("max_results", 10),
+                                        payload.get("order", "viewCount"))
+    except Exception as exc:
+        raise HTTPException(502, "YouTube discovery failed: " + str(exc)[:300]) from exc
+    # Results are leads only: no media is downloaded and rights remain unverified.
+    return {"query": query, "count": len(items), "items": items}
 
 
 @app.post("/api/sources", dependencies=[Depends(require_api_key)])
