@@ -1,8 +1,9 @@
-"""Original video package generation via the configured Inference gateway."""
+"""Original content generation through FRIDAY's Inference task API."""
 from __future__ import annotations
 
 import json
 from typing import Any, Literal
+from uuid import uuid4
 
 import httpx
 
@@ -15,7 +16,10 @@ def _extract_json(raw: str) -> dict[str, Any]:
     value = json.loads(raw.strip())
     if not isinstance(value, dict):
         raise ValueError("Inference output must be one JSON object")
-    required = {"hook", "script", "scene_plan", "voiceover", "caption", "title_options", "description", "tags", "thumbnail_brief"}
+    required = {
+        "hook", "script", "scene_plan", "voiceover", "caption",
+        "title_options", "description", "tags", "thumbnail_brief",
+    }
     missing = required.difference(value)
     if missing:
         raise ValueError("Inference output missing fields: " + ", ".join(sorted(missing)))
@@ -25,6 +29,8 @@ def _extract_json(raw: str) -> dict[str, Any]:
         raise ValueError("tags must be an array")
     value["tags"] = [str(tag).strip()[:100] for tag in value["tags"][:30] if str(tag).strip()]
     value["title_options"] = [str(title).strip()[:100] for title in value["title_options"][:8] if str(title).strip()]
+    value.setdefault("fact_check_notes", [])
+    value.setdefault("rights_notes", "Review licensing for each third-party asset before publishing.")
     return value
 
 
@@ -36,7 +42,7 @@ def generate_content_pack(
     tone: str = "clear, energetic and factual",
     target_seconds: int = 45,
 ) -> dict[str, Any]:
-    """Ask Inference for a new script and production plan, never copied source text."""
+    """Use Inference /v1/task/execute to generate original scripts and scene plans."""
     settings = get_settings()
     if not settings.inference_url or not settings.inference_api_key:
         raise RuntimeError("INFERENCE_URL and INFERENCE_API_KEY must be configured")
@@ -46,80 +52,98 @@ def generate_content_pack(
         raise ValueError("video_format must be shorts or long")
     if not 15 <= target_seconds <= 1800:
         raise ValueError("target_seconds must be between 15 and 1800")
-    system_prompt = (
-        "You are VyralX, a video producer. Create original content only. Do not reproduce "
-        "or closely imitate a named creator, a copyrighted script, lyrics, or an existing "
-        "video transcript. Do not invent factual claims; mark uncertain factual claims for "
-        "editor verification. Return only valid JSON with the requested schema."
-    )
+
     schema = {
         "hook": "opening hook, one or two sentences",
         "script": "complete original spoken script",
         "scene_plan": [{"timecode": "00:00-00:05", "visual": "visual direction", "on_screen_text": "brief text"}],
-        "voiceover": "clean voiceover text",
+        "voiceover": "clean original voiceover text",
         "caption": "caption/subtitle text, plain text",
         "title_options": ["title one", "title two"],
         "description": "YouTube description; no fabricated links or claims",
         "tags": ["topic tag"],
         "thumbnail_brief": "original thumbnail composition brief",
-        "fact_check_notes": ["claims the editor should verify"],
+        "fact_check_notes": ["claims the operator should verify"],
         "rights_notes": "reminders about third-party assets and music",
     }
-    user_prompt = {
-        "topic": topic[:500],
+    context = {
+        "topic": topic.strip()[:500],
         "format": video_format,
         "target_duration_seconds": target_seconds,
         "audience": audience[:200],
         "tone": tone[:200],
-        "requirements": [
-            "Make the treatment original and specific to the topic.",
-            "Use a hook, clear progression and a concrete ending.",
-            "Avoid deceptive engagement bait and unverified statistics.",
-            "Scene plan must be feasible for a solo creator or an automated editor.",
-            "Do not assume third-party media, music or footage can be reused.",
-            "Return the following JSON shape, adapting detail to format.",
-            json.dumps(schema),
-        ],
     }
+    prompt = (
+        "You are VyralX, an original video producer. Create a new script and production plan "
+        "for the topic and constraints in the context. Never copy or closely imitate a named "
+        "creator's script, copyrighted transcript, lyrics, or an existing video. Do not invent "
+        "statistics or factual claims; list uncertain claims in fact_check_notes. Do not assume "
+        "that any third-party footage, music, images or clips can be reused. Prefer stock, owned "
+        "or explicitly permitted media. Build a compelling hook, clear progression and worthwhile "
+        "ending. Fit the target duration and audience. Return one valid JSON object, with no "
+        "extra text outside the JSON:\n"
+        + json.dumps(schema, ensure_ascii=False)
+        + "\nContext:\n"
+        + json.dumps(context, ensure_ascii=False)
+    )
     url = settings.inference_url.rstrip("/") + settings.inference_generation_path
+    envelope = {
+        "task_id": "vyralx-content-" + uuid4().hex[:16],
+        "source_agent": "vyralx",
+        "target_agent": "inference",
+        "action": "vyralx.content.generate",
+        "payload": {"prompt": prompt, "context": context},
+        "priority": "normal",
+        "trace_id": "vyralx-" + uuid4().hex[:12],
+    }
     try:
         response = httpx.post(
             url,
             headers={
                 "Authorization": f"Bearer {settings.inference_api_key}",
+                "X-FRIDAY-API-Key": settings.inference_api_key,
                 "X-API-Key": settings.inference_api_key,
                 "Content-Type": "application/json",
             },
-            json={
-                "model": settings.inference_model,
-                "temperature": 0.65,
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False)},
-                ],
-            },
+            json=envelope,
             timeout=settings.inference_timeout_seconds,
             follow_redirects=False,
         )
         response.raise_for_status()
         payload = response.json()
     except httpx.HTTPStatusError as exc:
-        raise RuntimeError(f"Inference returned HTTP {exc.response.status_code}") from None
+        raise RuntimeError(f"Inference task API returned HTTP {exc.response.status_code}") from None
     except httpx.RequestError as exc:
         raise RuntimeError(f"Inference request failed ({type(exc).__name__})") from None
     except ValueError:
-        raise RuntimeError("Inference returned an invalid JSON response") from None
+        raise RuntimeError("Inference returned an invalid JSON task response") from None
+
+    status = str(payload.get("status", "")).upper()
+    if status not in {"SUCCESS", "COMPLETED"}:
+        detail = payload.get("error") or f"Inference task status was {status or 'missing'}"
+        raise RuntimeError(str(detail)[:300])
+    result = payload.get("result")
+    raw_content = result.get("response") if isinstance(result, dict) else None
+    if not raw_content and isinstance(payload.get("choices"), list) and payload["choices"]:
+        try:
+            raw_content = payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            raw_content = None
+    if not isinstance(raw_content, str) or not raw_content.strip():
+        raise RuntimeError("Inference task succeeded without returning textual JSON content")
     try:
-        choices = payload.get("choices", [])
-        raw_content = choices[0]["message"]["content"]
         pack = _extract_json(raw_content)
-    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
-        raise RuntimeError(f"Inference response did not match the content-pack contract ({type(exc).__name__})") from None
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(f"Inference content did not satisfy the VyralX schema ({type(exc).__name__})") from None
+
     pack["topic"] = topic.strip()
     pack["format"] = video_format
     pack["target_seconds"] = target_seconds
-    pack["provider_model"] = payload.get("model", settings.inference_model)
+    pack["provider_model"] = (
+        str(result.get("model_used") or settings.inference_model)
+        if isinstance(result, dict) else settings.inference_model
+    )
     pack["generated_by"] = "inference"
     pack["requires_editor_review"] = True
+    pack["fact_check_passed"] = False
     return pack
