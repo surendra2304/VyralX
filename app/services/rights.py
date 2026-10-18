@@ -43,6 +43,20 @@ def source_is_publishable(source: Source | None) -> bool:
     return True
 
 
+
+def is_project_scene_publishable(asset: Asset | None, source: Source | None) -> bool:
+    """Validate a project's Pexels provenance before using it in a render.
+
+    This is a metadata/evidence check, not a legal ruling about the operator's use.
+    """
+    return bool(
+        asset is not None
+        and asset.rights_verified
+        and source is not None
+        and str(source.platform or "").strip().casefold() == "pexels"
+        and source_is_publishable(source)
+    )
+
 def verified_render_sources(render: RenderJob, db: Session) -> list[tuple[Asset, Source]]:
     """Resolve every source clip encoded in a render job, not only the primary asset."""
     try:

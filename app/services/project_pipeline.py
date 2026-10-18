@@ -21,6 +21,7 @@ from app.services.probe import probe_media
 from app.services.peers import configured_peers, get_peer_json, post_peer_json
 from app.services.renderer import PRESETS
 from app.services.thumbnail import extract_thumbnail
+from app.services.rights import is_project_scene_publishable
 from app.services.voiceover import synthesize_voiceover
 
 log = logging.getLogger("vyralx.projects")
@@ -258,8 +259,10 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
         raise RuntimeError("Video project could not assemble all requested stock scenes")
     for asset in assets:
         source = db.get(Source, asset.source_id) if asset.source_id else None
-        if not asset.rights_verified or source is None or source.platform != "pexels":
-            raise ValueError("Every project scene must retain its licensed Pexels source record")
+        if not is_project_scene_publishable(asset, source):
+            raise ValueError(
+                "Every project scene must retain a verified Pexels source record with valid official source and license evidence"
+            )
         if not Path(asset.file_path).is_file():
             raise FileNotFoundError("A project scene file disappeared from media storage")
     return assets[:needed]

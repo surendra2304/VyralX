@@ -27,7 +27,7 @@ from app.services.youtube_analytics import fetch_video_metrics
 from app.services.peers import configured_peers, peer_health
 from app.services.project_pipeline import sync_project_memory
 from app.services.pexels import import_video_file, search_videos
-from app.services.rights import append_stock_attribution, source_is_publishable, verified_render_sources
+from app.services.rights import append_stock_attribution, is_project_scene_publishable, source_is_publishable, verified_render_sources
 
 settings = get_settings()
 settings.prepare_directories()
@@ -162,6 +162,24 @@ async function loadProjects(button){
    const details=document.createElement('p');details.className='sub';details.textContent='Project #'+project.project_id+' · '+project.video_format+' · '+project.target_seconds+'s · '+(project.asset_ids||[]).length+' scene assets · attempt '+project.attempts;card.appendChild(details);
    const preview=project.content_preview||{};
    const research=document.createElement('p');research.className='sub';research.textContent='IntelX research: '+String(preview.research_status||'not_available').toUpperCase()+(preview.research_report_ids&&preview.research_report_ids.length?' · reports '+preview.research_report_ids.join(', '):'');card.appendChild(research);
+   const sceneSources=Array.isArray(project.scene_sources)?project.scene_sources:[];
+   if(sceneSources.length){
+    const rightsDetails=document.createElement('details');
+    const rightsSummary=document.createElement('summary');
+    const passed=sceneSources.filter(scene=>scene.rights_evidence_check==='passed').length;
+    rightsSummary.textContent='Scene provenance review ('+passed+'/'+sceneSources.length+' metadata checks passed)';
+    rightsDetails.appendChild(rightsSummary);
+    const rightsNote=document.createElement('p');rightsNote.className='notice';
+    rightsNote.textContent='Automated checks validate source-record shape and official Pexels URLs; they do not determine whether your specific use is legally permitted. Review the license and intended-use scope for every scene.';
+    rightsDetails.appendChild(rightsNote);
+    const sourceList=document.createElement('ul');
+    for(const scene of sceneSources){
+     const item=document.createElement('li');
+     item.textContent='#'+scene.asset_id+' · '+(scene.title||'Untitled scene')+' · '+(scene.creator||'Creator not recorded')+' · '+(scene.rights_evidence_check==='passed'?'METADATA CHECK PASSED':'REVIEW REQUIRED')+' · '+(scene.license_name||'License missing')+' · source: '+(scene.source_url||'missing')+' · evidence: '+(scene.permission_reference||'missing');
+     item.style.overflowWrap='anywhere';sourceList.appendChild(item);
+    }
+    rightsDetails.appendChild(sourceList);card.appendChild(rightsDetails);
+   }
    const memoryContext=document.createElement('p');memoryContext.className='sub';memoryContext.textContent='Memora context: '+String(preview.memora_context_status||'disabled').toUpperCase()+(preview.memora_context_ids&&preview.memora_context_ids.length?' · memories '+preview.memora_context_ids.join(', '):'');card.appendChild(memoryContext);
    const memoryWrite=document.createElement('p');memoryWrite.className='sub';memoryWrite.textContent='Memora completion memory: '+String(project.memora_memory_status||'disabled').toUpperCase()+(project.memora_memory_id?' · receipt '+project.memora_memory_id:'');card.appendChild(memoryWrite);
    if(preview.hook){const hook=document.createElement('p');hook.textContent='Hook: '+preview.hook;card.appendChild(hook)}
@@ -287,6 +305,28 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
                 ][:5],
                 "requires_editor_review": bool(pack.get("requires_editor_review", True)),
             }
+    scene_sources = []
+    if db is not None:
+        for raw_asset_id in asset_ids[:4]:
+            try:
+                asset_id = int(raw_asset_id)
+            except (TypeError, ValueError):
+                continue
+            asset = db.get(Asset, asset_id)
+            source = db.get(Source, asset.source_id) if asset and asset.source_id else None
+            asset_available = bool(asset and Path(asset.file_path).is_file())
+            check_passed = bool(asset_available and is_project_scene_publishable(asset, source))
+            scene_sources.append({
+                "asset_id": asset_id,
+                "title": str(asset.title or "")[:300] if asset else "Missing asset",
+                "creator": str(source.creator or "")[:300] if source else "",
+                "platform": str(source.platform or "")[:80] if source else "",
+                "source_url": str(source.source_url or "")[:2048] if source else "",
+                "license_name": str(source.license_name or "")[:200] if source else "",
+                "permission_reference": str(source.permission_reference or "")[:2048] if source else "",
+                "asset_available": asset_available,
+                "rights_evidence_check": "passed" if check_passed else "review_required",
+            })
     return {
         "project_id": project.id, "project_key": project.project_key, "topic": project.topic,
         "content_preview": content_preview,
@@ -298,6 +338,7 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
         "use_voiceover": project.use_voiceover, "status": project.status,
         "content_pack_id": project.content_pack_id, "asset_ids": asset_ids,
         "primary_asset_id": project.primary_asset_id, "render_job_id": project.render_job_id,
+        "scene_sources": scene_sources,
         "memora_memory_id": project.memora_memory_id or None,
         "memora_memory_status": project.memora_memory_status,
         "memora_write_enabled": settings.memora_write_enabled,
