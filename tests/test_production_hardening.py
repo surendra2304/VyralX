@@ -161,6 +161,31 @@ def test_srt_rejects_cues_that_collapse_to_zero_milliseconds(tmp_path: Path):
         )
 
 
+def test_friday_envelope_rejects_conflicting_inputs_and_payload():
+    from app.schemas import UniverseTaskEnvelope
+
+    with pytest.raises(ValueError, match="inputs and payload must match"):
+        UniverseTaskEnvelope(
+            task_id="friday-contract-conflict",
+            task_type="content.generate",
+            action="content.generate",
+            inputs={"topic": "How solar panels work"},
+            payload={"topic": "How basketball works"},
+        )
+
+
+def test_friday_envelope_accepts_legacy_payload_only():
+    from app.schemas import UniverseTaskEnvelope
+
+    envelope = UniverseTaskEnvelope(
+        task_id="friday-contract-payload-only",
+        action="content.generate",
+        payload={"topic": "How solar panels work"},
+    )
+
+    assert envelope.inputs == envelope.payload
+
+
 def test_intelx_normalization_requires_traceability_and_filters_irrelevant_reports():
     reports = normalize_intelx_reports({
         "items": [

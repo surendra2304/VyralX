@@ -174,6 +174,8 @@ class UniverseTaskEnvelope(BaseModel):
         if not isinstance(data, dict):
             return data
         data = dict(data)
+        if "inputs" in data and "payload" in data and data["inputs"] != data["payload"]:
+            raise ValueError("inputs and payload must match when both are provided")
         if "payload" in data and "inputs" not in data:
             data["inputs"] = data["payload"]
         elif "inputs" in data and "payload" not in data:
