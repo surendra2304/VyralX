@@ -23,7 +23,7 @@ from app.models import AgentTask, Asset, PublishJob, RenderJob, Source, VideoPro
 from app.services.probe import probe_media
 from app.services.captions import write_srt
 from app.services.renderer import render_video
-from app.services.rights import append_stock_attribution, source_is_publishable, verified_render_sources
+from app.services.rights import append_stock_attribution, find_repeat_use_blockers, source_is_publishable, verified_render_sources
 from app.services.youtube import (
     UploadOutcomeUnknown,
     clear_upload_success_checkpoint,
@@ -317,6 +317,17 @@ def process_publish_job(job_id: int) -> None:
             return
         try:
             render_sources = verified_render_sources(render, db)
+            repeat_use_blockers = find_repeat_use_blockers(
+                render_sources, db, exclude_publish_job_id=job.id
+            )
+            if repeat_use_blockers:
+                blocked_ids = ", ".join(
+                    str(item["source_id"]) for item in repeat_use_blockers
+                )
+                raise ValueError(
+                    "Repeat-use permission has not been reviewed for previously published "
+                    f"source ID(s): {blocked_ids}. Review the source evidence before publishing."
+                )
             refreshed_description = append_stock_attribution(job.description, render_sources)
         except ValueError as exc:
             job.status, job.error = "failed", str(exc)[:3000]

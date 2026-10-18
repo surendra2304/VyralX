@@ -22,7 +22,7 @@ This file distinguishes implemented repository capability from external producti
 - [x] Optional voiceover synthesis through a compatible configured TTS endpoint.
 - [x] Verify the source-level Inference task route, Universal Task Envelope, successful result fields, IntelX query route, and Memora search/write/auth contracts against the current peer repositories (see `docs/INTEGRATIONS.md`).
 - [ ] Validate live Inference runtime credentials/model/provider output and the configured TTS model on the deployed FRIDAY mesh.
-- [ ] Add source-specific repeat-use license checks.
+- [x] Add source-specific repeat-use safeguards: separate evidence-backed decision, timestamp/notes, tracking-parameter-normalized source identity, and publish-request plus pre-upload enforcement. This is a repeat-use review control, not an automated legal opinion.
 - [x] Add operator-configurable channel strategy with bounded editorial settings, generation-context integration, persisted strategy metadata, tests and operations documentation.
 
 ## Track C — Editing and publish pipeline

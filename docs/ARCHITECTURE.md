@@ -59,8 +59,8 @@ The completed \`RenderJob.options_json\` retains the montage asset IDs. Source-r
 4. Original script/scene plan and optional narration are generated through configured Inference endpoints.
 5. A durable render job is queued with JSON options (preset, trim, framing, captions, narration reference).
 6. Worker renders and probes output; failures become observable job states.
-7. A publish request binds one source asset to one exact completed render and remains pending approval.
-8. Approved publish jobs are claimed once and sent through official YouTube resumable upload. The worker rechecks provenance and optional Sentinel policy.
+7. A publish request binds one source asset to one exact completed render and remains pending approval. If a source identity occurs in a prior VyralX upload, repeat use is blocked until its explicit evidence-backed repeat-use decision is recorded.
+8. Approved publish jobs are claimed once and sent through official YouTube resumable upload. The worker rechecks provenance, repeat-use status and optional Sentinel policy immediately before upload.
 9. YouTube video IDs and public view/like/comment counters persist for outcome evaluation.
 
 ## State and failure semantics

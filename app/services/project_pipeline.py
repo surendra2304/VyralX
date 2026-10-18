@@ -370,6 +370,12 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
             license_name="Pexels Content License",
             permission_reference="https://www.pexels.com/license/",
             rights_verified=True,
+            repeat_use_allowed=bool(getattr(project, "confirm_pexels_repeat_use", False)),
+            repeat_use_reviewed_at=(utcnow() if getattr(project, "confirm_pexels_repeat_use", False) else None),
+            repeat_use_review_notes=(
+                "Operator confirmed the reviewed Pexels license permits reuse subject to its restrictions."
+                if getattr(project, "confirm_pexels_repeat_use", False) else ""
+            ),
             status="licensed",
             notes=(
                 "Imported by a project after explicit operator confirmation of Pexels licensing. "

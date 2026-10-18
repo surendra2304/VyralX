@@ -5,13 +5,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.models import Asset, Source
+from app.database import SessionLocal
+from app.models import Asset, PublishJob, RenderJob, Source
 from app.services.captions import segment_script, write_srt
 from app.services.content import _extract_json, generate_content_pack
 from app.services.intelx import normalize_intelx_reports
 from app.services.rights import (
     append_stock_attribution,
+    find_repeat_use_blockers,
     source_is_publishable,
+    source_reuse_identity,
     verified_render_sources,
 )
 
@@ -402,3 +405,85 @@ def test_inference_content_contract_rejects_malformed_scene_plan():
     }
     with pytest.raises(ValueError, match="usable scene"):
         _extract_json(json.dumps(payload))
+
+def test_source_reuse_identity_ignores_tracking_and_fragment():
+    first = Source(
+        id=1, title="License record", platform="manual",
+        source_url="https://media.example/license/video.mp4?utm_source=one&v=2#player",
+    )
+    second = Source(
+        id=2, title="Same licensed media", platform="manual",
+        source_url="https://MEDIA.example/license/video.mp4?v=2&utm_source=two",
+    )
+
+    assert source_reuse_identity(first) == source_reuse_identity(second)
+
+
+def test_repeat_use_blocker_detects_prior_upload_and_respects_explicit_review():
+    from uuid import uuid4
+
+    suffix = uuid4().hex[:12]
+    with SessionLocal() as db:
+        previously_used = Source(
+            title="Published source " + suffix,
+            source_url=f"https://media.example/licensed/{suffix}?utm_source=old",
+            platform="manual",
+            creator="Owner",
+            license_name="Written permission",
+            permission_reference="permission-reference-" + suffix,
+            rights_verified=True,
+            repeat_use_allowed=False,
+        )
+        current = Source(
+            title="Current source " + suffix,
+            source_url=f"https://media.example/licensed/{suffix}?utm_source=new#preview",
+            platform="manual",
+            creator="Owner",
+            license_name="Written permission",
+            permission_reference="permission-reference-" + suffix,
+            rights_verified=True,
+            repeat_use_allowed=False,
+        )
+        db.add_all([previously_used, current])
+        db.flush()
+        old_asset = Asset(
+            source_id=previously_used.id, title="Prior published asset " + suffix,
+            file_path="/tmp/not-used-" + suffix + ".mp4", rights_verified=True,
+        )
+        current_asset = Asset(
+            source_id=current.id, title="New reuse asset " + suffix,
+            file_path="/tmp/not-used-current-" + suffix + ".mp4", rights_verified=True,
+        )
+        db.add_all([old_asset, current_asset])
+        db.flush()
+        old_render = RenderJob(
+            asset_id=old_asset.id, preset="shorts", status="completed",
+            output_path="/tmp/not-rendered-" + suffix + ".mp4", options_json="{}",
+        )
+        db.add(old_render)
+        db.flush()
+        published = PublishJob(
+            asset_id=old_asset.id, render_job_id=old_render.id,
+            title="Prior uploaded " + suffix, status="uploaded",
+            youtube_video_id="video_" + suffix,
+        )
+        db.add(published)
+        db.flush()
+
+        blockers = find_repeat_use_blockers([(current_asset, current)], db)
+        assert len(blockers) == 1
+        assert blockers[0]["source_id"] == current.id
+
+        current.repeat_use_allowed = True
+        current.repeat_use_reviewed_at = current.created_at
+        current.repeat_use_review_notes = "Reviewed the applicable written permission for repeated use."
+        assert find_repeat_use_blockers([(current_asset, current)], db) == []
+
+        db.delete(published)
+        db.delete(old_render)
+        db.delete(old_asset)
+        db.delete(current_asset)
+        db.delete(previously_used)
+        db.delete(current)
+        db.commit()
+

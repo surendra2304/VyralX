@@ -49,6 +49,14 @@ VyralX can apply channel editorial settings to newly generated content without c
 
 Keep settings concise. Text is normalized and bounded before entering model context; list entries are deduplicated and capped. The selected strategy is saved with each generated content pack for auditability. Strategy settings influence editorial generation only: they do not validate facts, confer footage/music rights, bypass editor review or enable publishing. Request-level audience and tone still apply. Existing content packs are not rewritten when settings change.
 
+## Repeat-use source safeguards
+
+Repeat-use is tracked separately from the initial right to use a source. New source records and Pexels imports default to `repeat_use_allowed=false`. The first use follows the existing rights-evidence gate. If the same normalized source URL/source identity appears in a previous VyralX publish job with status `uploaded`, a new publish request is blocked until an operator records a separate repeat-use decision.
+
+For an existing source, use the dashboard's **Review repeat-use permission for an existing source** panel or call `POST /api/sources/{source_id}/repeat-use-review` with `repeat_use_allowed` and an evidence-based `review_notes` of at least 10 characters. The decision is also available when registering/importing a source, and VyralX records a timestamp. If evidence does not allow repeat use, record `repeat_use_allowed=false`; do not check the repeat-use box merely to bypass a block. A changed decision is enforced at publish request time and rechecked by the worker immediately before upload.
+
+The automated check detects prior uploads recorded by VyralX only, after deployment of this feature. It cannot enumerate older videos published outside VyralX or establish what a license legally permits. Operators must inspect the actual license/permission scope; the stored flag and notes are an auditable decision, not legal advice.
+
 ## API workflows
 
 ### FRIDAY asynchronous tasks

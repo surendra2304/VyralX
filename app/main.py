@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.migrations import run_additive_migrations
 from app.models import AgentTask, Asset, ContentPack, PublishJob, RenderJob, Source, VideoMetric, VideoProject, utcnow
-from app.schemas import AgentTaskCancelRequest, AgentTaskRequest, ContentGenerationRequest, ContentVoiceoverRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishApprovalRequest, PublishRequest, PublishResolutionRequest, RenderRequest, SourceCreate, ThumbnailRequest, UniverseTaskEnvelope, VideoProjectCreateRequest, VideoProjectRetryRequest
+from app.schemas import AgentTaskCancelRequest, AgentTaskRequest, ContentGenerationRequest, ContentVoiceoverRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishApprovalRequest, PublishRequest, PublishResolutionRequest, RenderRequest, RepeatUseReviewRequest, SourceCreate, ThumbnailRequest, UniverseTaskEnvelope, VideoProjectCreateRequest, VideoProjectRetryRequest
 from app.security import require_api_key
 from app.services.probe import probe_media
 from app.services.discovery import discover_youtube_videos
@@ -27,7 +27,7 @@ from app.services.youtube_analytics import fetch_video_metrics
 from app.services.peers import configured_peers, peer_health
 from app.services.project_pipeline import sync_project_memory
 from app.services.pexels import import_video_file, search_videos
-from app.services.rights import append_stock_attribution, is_project_scene_publishable, source_is_publishable, verified_render_sources
+from app.services.rights import append_stock_attribution, find_repeat_use_blockers, is_project_scene_publishable, source_is_publishable, verified_render_sources
 
 settings = get_settings()
 settings.prepare_directories()
@@ -94,13 +94,13 @@ label{display:block;color:#cbd7ef;font-size:.84rem;margin:10px 0 6px}input,selec
 <header><div><h1>VyralX <span style="color:var(--accent)">/ Control Room</span></h1><p>Discover, script, produce, review, publish and measure.</p></div><span class="pill" id="health">Checking service...</span></header>
 <section class="card" style="margin-top:16px"><h2>Service access</h2><div class="row2"><div><label for="apiKey">API key (kept only in this browser tab session)</label><input id="apiKey" type="password" autocomplete="off" placeholder="Required outside development mode"></div><div><label>&nbsp;</label><div class="actions"><button onclick="saveKey()">Use key</button><button class="secondary" onclick="refreshAll()">Refresh dashboard</button><button class="secondary" onclick="checkIntegrations(this)">Check integrations</button><button class="secondary" onclick="clearKey()">Clear key</button></div></div></div><p class="sub">The dashboard does not embed secrets in HTML. Do not use development mode on a public endpoint.</p><pre class="output" id="statusOut">Loading status...</pre><pre class="output" id="integrationOut">Integration configuration has not been checked.</pre></section>
 <div class="grid">
-<section class="card span" id="projectBuilder"><h2>Automatic topic-to-video project</h2><p>One request queues original script generation through Inference, licensed Pexels scene selection/import, local narration, timed captions, FFmpeg montage, thumbnail, and a completed render ready for manual review.</p><div class="row2"><div><label for="projectTopic">Topic</label><input id="projectTopic" value="How wind turbines generate electricity" maxlength="500"></div><div><label for="projectFormat">Format</label><select id="projectFormat"><option value="shorts">Shorts (9:16)</option><option value="long">Long form (16:9)</option></select></div></div><div class="row2"><div><label for="projectDuration">Target duration (seconds)</label><input id="projectDuration" type="number" value="45" min="15" max="600"></div><div><label for="projectScenes">Stock scenes</label><select id="projectScenes"><option value="2">2 scenes</option><option value="3">3 scenes</option><option value="4" selected>4 scenes</option></select></div></div><div class="row2"><div><label for="projectAudience">Audience</label><input id="projectAudience" value="general audience" maxlength="200"></div><div><label for="projectTone">Tone</label><input id="projectTone" value="clear, energetic and factual" maxlength="200"></div></div><label><input id="projectVoiceover" type="checkbox" checked> Generate narration (default: local eSpeak; optional external TTS)</label><label><input id="projectLicense" type="checkbox"> I have reviewed the Pexels Content License and confirm the intended use is permitted.</label><div class="actions"><button onclick="createVideoProject(this)">Create full video project</button><button class="secondary" onclick="loadProjects(this)">Refresh project jobs</button></div><p class="notice">This workflow searches and imports licensed stock clips; it does not download or reuse unrelated creators' YouTube/Instagram/TikTok videos.</p><div id="projectList"></div></section>
+<section class="card span" id="projectBuilder"><h2>Automatic topic-to-video project</h2><p>One request queues original script generation through Inference, licensed Pexels scene selection/import, local narration, timed captions, FFmpeg montage, thumbnail, and a completed render ready for manual review.</p><div class="row2"><div><label for="projectTopic">Topic</label><input id="projectTopic" value="How wind turbines generate electricity" maxlength="500"></div><div><label for="projectFormat">Format</label><select id="projectFormat"><option value="shorts">Shorts (9:16)</option><option value="long">Long form (16:9)</option></select></div></div><div class="row2"><div><label for="projectDuration">Target duration (seconds)</label><input id="projectDuration" type="number" value="45" min="15" max="600"></div><div><label for="projectScenes">Stock scenes</label><select id="projectScenes"><option value="2">2 scenes</option><option value="3">3 scenes</option><option value="4" selected>4 scenes</option></select></div></div><div class="row2"><div><label for="projectAudience">Audience</label><input id="projectAudience" value="general audience" maxlength="200"></div><div><label for="projectTone">Tone</label><input id="projectTone" value="clear, energetic and factual" maxlength="200"></div></div><label><input id="projectVoiceover" type="checkbox" checked> Generate narration (default: local eSpeak; optional external TTS)</label><label><input id="projectLicense" type="checkbox"> I have reviewed the Pexels Content License and confirm the intended use is permitted.</label><label><input id="projectRepeatUse" type="checkbox"> I separately confirmed that the license permits using these clips in future VyralX videos, subject to its restrictions.</label><div class="actions"><button onclick="createVideoProject(this)">Create full video project</button><button class="secondary" onclick="loadProjects(this)">Refresh project jobs</button></div><p class="notice">This workflow searches and imports licensed stock clips; it does not download or reuse unrelated creators' YouTube/Instagram/TikTok videos.</p><div id="projectList"></div></section>
 <section class="card"><h2>1. YouTube discovery</h2><label for="ytQuery">Topic or keyword</label><input id="ytQuery" value="AI productivity" maxlength="200"><div class="row2"><div><label>Sort</label><select id="ytOrder"><option value="viewCount">Views</option><option value="date">Newest</option><option value="relevance">Relevance</option><option value="rating">Rating</option></select></div><div><label>Results</label><select id="ytCount"><option>5</option><option selected>10</option><option>15</option><option>25</option></select></div></div><button onclick="discoverYouTube(this)">Find videos</button><p class="sub">Metadata only. Discovery does not grant permission to download or repost.</p></section>
 <section class="card"><h2>2. Pexels stock footage</h2><label for="pxQuery">Search stock clips</label><input id="pxQuery" value="technology workspace" maxlength="200"><div class="row2"><div><label>Orientation</label><select id="pxOrientation"><option value="portrait">Portrait</option><option value="landscape">Landscape</option><option value="square">Square</option></select></div><div><label>Results</label><select id="pxCount"><option>5</option><option selected>10</option><option>20</option><option>25</option></select></div></div><button onclick="discoverPexels(this)">Search licensed stock</button><p class="sub">Review Pexels terms and the source details before import.</p></section>
 <section class="card"><h2>3. Create original script</h2><label for="topic">Video topic</label><input id="topic" value="How solar panels work" maxlength="500"><div class="row2"><div><label>Format</label><select id="format"><option value="shorts">Shorts (vertical)</option><option value="long">Long form (landscape)</option></select></div><div><label>Target seconds</label><input id="duration" type="number" value="45" min="15" max="1800"></div></div><label for="audience">Audience</label><input id="audience" value="general audience" maxlength="200"><label for="tone">Tone</label><input id="tone" value="clear, energetic and factual" maxlength="200"><button onclick="generateContent(this)">Generate content pack</button><p class="sub">Uses the real Inference task API. Output requires editor and fact-check review.</p></section>
-<section class="card"><h2>4. Register a permitted source</h2><label>Title</label><input id="sourceTitle" placeholder="Source title" maxlength="300"><label>Source URL or permission record</label><input id="sourceUrl" placeholder="https://..." maxlength="2048"><div class="row2"><div><label>Platform</label><select id="sourcePlatform"><option value="manual">Manual / owned</option><option value="pexels">Pexels</option><option value="youtube">YouTube</option><option value="other">Other</option></select></div><div><label>Creator / owner</label><input id="sourceCreator" placeholder="Creator or owner" maxlength="300"></div></div><label>License name</label><input id="licenseName" placeholder="Owned / written permission / Pexels Content License" maxlength="200"><label>Permission evidence URL or reference</label><input id="permissionRef" placeholder="Link to the license or permission evidence" maxlength="2048"><label>Notes</label><textarea id="sourceNotes" placeholder="Record restrictions, attribution and reuse scope"></textarea><label><input id="rightsConfirm" type="checkbox"> I reviewed the rights evidence and confirm reuse is permitted.</label><button onclick="createSource(this)">Register source</button><p class="notice">Only mark this verified after reviewing real evidence and usage scope.</p></section>
+<section class="card"><h2>4. Register a permitted source</h2><label>Title</label><input id="sourceTitle" placeholder="Source title" maxlength="300"><label>Source URL or permission record</label><input id="sourceUrl" placeholder="https://..." maxlength="2048"><div class="row2"><div><label>Platform</label><select id="sourcePlatform"><option value="manual">Manual / owned</option><option value="pexels">Pexels</option><option value="youtube">YouTube</option><option value="other">Other</option></select></div><div><label>Creator / owner</label><input id="sourceCreator" placeholder="Creator or owner" maxlength="300"></div></div><label>License name</label><input id="licenseName" placeholder="Owned / written permission / Pexels Content License" maxlength="200"><label>Permission evidence URL or reference</label><input id="permissionRef" placeholder="Link to the license or permission evidence" maxlength="2048"><label>Notes</label><textarea id="sourceNotes" placeholder="Record restrictions, attribution and reuse scope"></textarea><label><input id="rightsConfirm" type="checkbox"> I reviewed the rights evidence and confirm this intended use is permitted.</label><label><input id="sourceRepeatUseAllowed" type="checkbox"> I separately reviewed the evidence and confirmed that this source may be reused in multiple VyralX videos.</label><label>Evidence-backed repeat-use review notes</label><textarea id="sourceRepeatUseNotes" maxlength="1000" placeholder="Required when repeat use is allowed: record the license clause or written permission scope"></textarea><button onclick="createSource(this)">Register source</button><p class="notice">First use requires verified rights evidence. Repeat use remains disabled unless its specific scope is reviewed.</p><hr style="border-color:var(--line);margin:16px 0"><h3>Review repeat-use permission for an existing source</h3><label>Existing source ID</label><input id="repeatSourceId" type="number" min="1" placeholder="Source ID from the sources list"><label><input id="reviewRepeatUseAllowed" type="checkbox"> Evidence explicitly permits repeat use</label><label>Review note</label><textarea id="reviewRepeatUseNotes" maxlength="1000" placeholder="Explain the license terms or permission evidence reviewed (at least 10 characters)"></textarea><button class="secondary" onclick="reviewSourceRepeatUse(this)">Save repeat-use review</button><p class="sub">Reviewing permission changes policy metadata only; it does not alter or grant the underlying rights.</p></section>
 <section class="card"><h2>5. Import local media</h2><label>Video file</label><input id="mediaFile" type="file" accept=".mp4,.mov,.mkv,.webm,.m4v,video/*"><label>Asset title</label><input id="assetTitle" placeholder="Asset title" maxlength="300"><label>Verified source ID</label><input id="assetSourceId" type="number" min="1" placeholder="Source ID (required for render rights gate)"><button onclick="uploadAsset(this)">Upload and inspect</button><p class="sub">Media size limit is configured by MAX_UPLOAD_MB. The upload is probed by FFprobe.</p></section>
-<section class="card"><h2>6. Import Pexels stock</h2><label>Pexels video ID</label><input id="pexelsVideoId" type="number" min="1" placeholder="Copy from search results"><label>Video file ID</label><input id="pexelsFileId" type="number" min="1" placeholder="Choose a returned MP4 file ID"><label>Asset title (optional)</label><input id="pexelsTitle" placeholder="Stock clip title" maxlength="300"><label><input id="pexelsConfirm" type="checkbox"> I reviewed the Pexels content license for this use.</label><button onclick="importPexels(this)">Import reviewed stock clip</button></section>
+<section class="card"><h2>6. Import Pexels stock</h2><label>Pexels video ID</label><input id="pexelsVideoId" type="number" min="1" placeholder="Copy from search results"><label>Video file ID</label><input id="pexelsFileId" type="number" min="1" placeholder="Choose a returned MP4 file ID"><label>Asset title (optional)</label><input id="pexelsTitle" placeholder="Stock clip title" maxlength="300"><label><input id="pexelsConfirm" type="checkbox"> I reviewed the Pexels Content License for this use.</label><label><input id="pexelsRepeatUse" type="checkbox"> I separately confirmed that the license permits reuse of this clip in future VyralX videos, subject to its restrictions.</label><button onclick="importPexels(this)">Import reviewed stock clip</button></section>
 <section class="card"><h2>7. Render video</h2><label>Asset ID</label><input id="renderAssetId" type="number" min="1" placeholder="Asset ID with verified source rights"><div class="row2"><div><label>Preset</label><select id="renderPreset"><option value="shorts">Shorts 9:16</option><option value="long">Landscape 16:9</option><option value="square">Square 1:1</option></select></div><div><label>Fit</label><select id="fitMode"><option value="pad">Pad</option><option value="crop">Crop</option></select></div></div><div class="row2"><div><label>Trim start (sec)</label><input id="trimStart" type="number" min="0" value="0"></div><div><label>Trim end (optional, sec)</label><input id="trimEnd" type="number" min="0" placeholder="End of source"></div></div><label>Subtitle cues (JSON array, optional)</label><textarea id="subtitleJson" placeholder='[{"start_seconds":0,"end_seconds":2.5,"text":"Opening caption"}]'></textarea><label>Content pack ID for voiceover (optional)</label><input id="voicePackId" type="number" min="1" placeholder="Generate TTS first"><button onclick="queueRender(this)">Queue render</button><p class="sub">Runs in the background. Poll the render jobs below for progress.</p></section>
 <section class="card" id="publishCard"><h2>8. Publish review</h2><label>Asset ID</label><input id="publishAssetId" type="number" min="1" placeholder="Source asset ID"><label>Completed render job ID</label><input id="publishRenderId" type="number" min="1" placeholder="Completed render ID"><label>YouTube title</label><input id="publishTitle" maxlength="100" placeholder="Video title"><label>Description</label><textarea id="publishDescription" maxlength="5000" placeholder="Video description and attribution"></textarea><label>Tags (comma separated)</label><input id="publishTags" placeholder="ai, technology, education"><div class="row2"><div><label>Privacy</label><select id="privacy"><option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></div><div><label>Schedule (optional)</label><input id="publishAt" type="datetime-local"></div></div><label><input id="publishRights" type="checkbox"> I verified rights and reviewed this rendered video and metadata.</label><button onclick="requestPublish(this)">Create review request</button><button class="secondary" onclick="refreshJobs(this)">Refresh jobs</button><p class="notice">The final upload requires API-side approval, a valid OAuth token and publishing enabled.</p></section>
 <section class="card"><h2>9. Content and voiceover</h2><label>Content pack ID</label><input id="voiceContentId" type="number" min="1" placeholder="Content pack ID"><button onclick="generateVoiceover(this)">Generate voiceover (optional)</button><p class="sub">Requires INFERENCE_TTS_URL, model and a verified compatible TTS service.</p><label>Render job ID for thumbnail</label><input id="thumbJobId" type="number" min="1" placeholder="Completed render ID"><label>Thumbnail timestamp (sec)</label><input id="thumbTime" type="number" min="0" value="1"><button onclick="createThumbnail(this)">Create thumbnail</button></section>
@@ -141,7 +141,7 @@ async function createVideoProject(button){
    topic:$('projectTopic').value,video_format:$('projectFormat').value,
    target_seconds:Number($('projectDuration').value),scene_count:Number($('projectScenes').value),
    audience:$('projectAudience').value,tone:$('projectTone').value,
-   confirm_pexels_license:true,use_voiceover:$('projectVoiceover').checked
+   confirm_pexels_license:true,confirm_pexels_repeat_use:$('projectRepeatUse').checked,use_voiceover:$('projectVoiceover').checked
   }});
  });
 }
@@ -233,7 +233,14 @@ async function generateContent(button){return run(button,async()=>api('/api/cont
 async function createSource(button){return run(button,async()=>{
  if(!$('rightsConfirm').checked)throw new Error('Review rights evidence and confirm it before registration');
  if(!$('licenseName').value.trim()||!$('permissionRef').value.trim())throw new Error('A license name and permission evidence reference are required');
- return api('/api/sources',{method:'POST',body:{title:$('sourceTitle').value||'Untitled source',source_url:$('sourceUrl').value,platform:$('sourcePlatform').value,creator:$('sourceCreator').value,license_name:$('licenseName').value,permission_reference:$('permissionRef').value,rights_verified:true,status:'licensed',notes:$('sourceNotes').value}});
+ if($('sourceRepeatUseAllowed').checked && $('sourceRepeatUseNotes').value.trim().length<10)throw new Error('Repeat-use permission requires evidence-backed notes of at least 10 characters');
+ return api('/api/sources',{method:'POST',body:{title:$('sourceTitle').value||'Untitled source',source_url:$('sourceUrl').value,platform:$('sourcePlatform').value,creator:$('sourceCreator').value,license_name:$('licenseName').value,permission_reference:$('permissionRef').value,rights_verified:true,status:'licensed',notes:$('sourceNotes').value,repeat_use_allowed:$('sourceRepeatUseAllowed').checked,repeat_use_review_notes:$('sourceRepeatUseNotes').value}});
+})}
+async function reviewSourceRepeatUse(button){return run(button,async()=>{
+ const sourceId=asInt('repeatSourceId');
+ const reviewNotes=$('reviewRepeatUseNotes').value.trim();
+ if(reviewNotes.length<10)throw new Error('Enter an evidence-backed review note of at least 10 characters');
+ return api('/api/sources/'+sourceId+'/repeat-use-review',{method:'POST',body:{repeat_use_allowed:$('reviewRepeatUseAllowed').checked,review_notes:reviewNotes}});
 })}
 async function uploadAsset(button){return run(button,async()=>{
  const file=$('mediaFile').files[0];if(!file)throw new Error('Select a video file');
@@ -244,7 +251,7 @@ async function uploadAsset(button){return run(button,async()=>{
 })}
 async function importPexels(button){return run(button,async()=>{
  if(!$('pexelsConfirm').checked)throw new Error('Confirm you reviewed the license');
- return api('/api/assets/import/pexels',{method:'POST',body:{video_id:asInt('pexelsVideoId'),video_file_id:asInt('pexelsFileId'),title:$('pexelsTitle').value,confirm_license:true}});
+ return api('/api/assets/import/pexels',{method:'POST',body:{video_id:asInt('pexelsVideoId'),video_file_id:asInt('pexelsFileId'),title:$('pexelsTitle').value,confirm_license:true,confirm_repeat_use:$('pexelsRepeatUse').checked}});
 })}
 async function queueRender(button){return run(button,async()=>{
  const body={asset_id:asInt('renderAssetId'),preset:$('renderPreset').value,fit_mode:$('fitMode').value,trim_start_seconds:Number($('trimStart').value||0)};
@@ -465,11 +472,11 @@ def create_video_project(payload: VideoProjectCreateRequest, db: Session = Depen
     existing = db.scalar(select(VideoProject).where(VideoProject.project_key == payload.project_key))
     if existing is not None:
         same = (payload.auto_discover_trend and existing.auto_discover_trend and existing.trend_query == payload.trend_query.strip()) or (not payload.auto_discover_trend and not existing.auto_discover_trend and existing.topic == payload.topic.strip())
-        same = same and existing.trend_max_results == payload.trend_max_results and existing.video_format == payload.video_format and existing.target_seconds == payload.target_seconds and existing.scene_count == payload.scene_count and existing.audience == payload.audience and existing.tone == payload.tone and existing.confirm_pexels_license == payload.confirm_pexels_license and existing.use_voiceover == payload.use_voiceover
+        same = same and existing.trend_max_results == payload.trend_max_results and existing.video_format == payload.video_format and existing.target_seconds == payload.target_seconds and existing.scene_count == payload.scene_count and existing.audience == payload.audience and existing.tone == payload.tone and existing.confirm_pexels_license == payload.confirm_pexels_license and existing.confirm_pexels_repeat_use == payload.confirm_pexels_repeat_use and existing.use_voiceover == payload.use_voiceover
         if not same:
             raise HTTPException(409, "project_key already exists with different settings")
         return {**_project_summary(existing, db), "idempotent_replay": True}
-    project = VideoProject(project_key=payload.project_key, topic=payload.topic.strip(), auto_discover_trend=payload.auto_discover_trend, trend_query=payload.trend_query.strip(), trend_max_results=payload.trend_max_results, video_format=payload.video_format, target_seconds=payload.target_seconds, audience=payload.audience, tone=payload.tone, scene_count=payload.scene_count, confirm_pexels_license=True, use_voiceover=payload.use_voiceover, status="queued")
+    project = VideoProject(project_key=payload.project_key, topic=payload.topic.strip(), auto_discover_trend=payload.auto_discover_trend, trend_query=payload.trend_query.strip(), trend_max_results=payload.trend_max_results, video_format=payload.video_format, target_seconds=payload.target_seconds, audience=payload.audience, tone=payload.tone, scene_count=payload.scene_count, confirm_pexels_license=True, confirm_pexels_repeat_use=payload.confirm_pexels_repeat_use, use_voiceover=payload.use_voiceover, status="queued")
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -571,6 +578,10 @@ def discover(payload: DiscoveryRequest):
 @app.post("/api/sources", dependencies=[Depends(require_api_key)])
 def create_source(payload: SourceCreate, db: Session = Depends(get_db)):
     source = Source(**payload.model_dump())
+    if source.repeat_use_allowed:
+        if not source_is_publishable(source):
+            raise HTTPException(422, "Repeat-use permission requires verified license/permission evidence")
+        source.repeat_use_reviewed_at = utcnow()
     db.add(source)
     db.commit()
     db.refresh(source)
@@ -583,8 +594,35 @@ def list_sources(db: Session = Depends(get_db)):
     return [{"id": s.id, "title": s.title, "source_url": s.source_url, "platform": s.platform,
              "creator": s.creator, "license_name": s.license_name,
              "permission_reference": s.permission_reference, "rights_verified": s.rights_verified,
+             "repeat_use_allowed": s.repeat_use_allowed,
+             "repeat_use_reviewed_at": s.repeat_use_reviewed_at,
+             "repeat_use_review_notes": s.repeat_use_review_notes,
              "status": s.status, "notes": s.notes}
             for s in rows]
+
+
+@app.post("/api/sources/{source_id}/repeat-use-review", dependencies=[Depends(require_api_key)])
+def review_source_repeat_use(
+    source_id: int,
+    payload: RepeatUseReviewRequest,
+    db: Session = Depends(get_db),
+):
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(404, "Source not found")
+    if payload.repeat_use_allowed and not source_is_publishable(source):
+        raise HTTPException(409, "Repeat-use permission requires an existing verified license/permission record")
+    source.repeat_use_allowed = payload.repeat_use_allowed
+    source.repeat_use_reviewed_at = utcnow()
+    source.repeat_use_review_notes = payload.review_notes
+    db.commit()
+    db.refresh(source)
+    return {
+        "source_id": source.id,
+        "repeat_use_allowed": source.repeat_use_allowed,
+        "repeat_use_reviewed_at": source.repeat_use_reviewed_at,
+        "repeat_use_review_notes": source.repeat_use_review_notes,
+    }
 
 
 @app.post("/api/assets/upload", dependencies=[Depends(require_api_key)])
@@ -734,6 +772,14 @@ def queue_publish(payload: PublishRequest, db: Session = Depends(get_db)):
         render_sources = verified_render_sources(render, db)
     except ValueError as exc:
         raise HTTPException(403, str(exc)) from None
+    blockers = find_repeat_use_blockers(render_sources, db)
+    if blockers:
+        blocked_ids = ", ".join(str(item["source_id"]) for item in blockers)
+        raise HTTPException(
+            409,
+            "Repeat-use permission has not been reviewed for previously published source ID(s): "
+            + blocked_ids + ". Review the source evidence and explicitly record the repeat-use decision first.",
+        )
     publish_description = append_stock_attribution(payload.description, render_sources)
     job = PublishJob(asset_id=asset.id, render_job_id=render.id, title=payload.title,
                      description=publish_description, tags_json=json.dumps(payload.tags[:30]),
@@ -921,6 +967,7 @@ def agent_manifest():
             {"id": "thumbnail.create", "method": "POST", "path": "/api/thumbnails"},
             {"id": "youtube.analytics.refresh", "method": "POST", "path": "/api/analytics/refresh"},
             {"id": "source.register", "method": "POST", "path": "/api/sources"},
+            {"id": "source.repeat_use.review", "method": "POST", "path": "/api/sources/{source_id}/repeat-use-review"},
             {"id": "asset.import", "method": "POST", "path": "/api/assets/upload"},
             {"id": "video.render", "method": "POST", "path": "/api/render", "asynchronous": True},
             {"id": "video.publish.request", "method": "POST", "path": "/api/publish"},
@@ -1031,6 +1078,12 @@ def import_pexels_asset(payload: PexelsImportRequest, db: Session = Depends(get_
             license_name="Pexels Content License",
             permission_reference="https://www.pexels.com/license/",
             rights_verified=True,
+            repeat_use_allowed=payload.confirm_repeat_use,
+            repeat_use_reviewed_at=utcnow() if payload.confirm_repeat_use else None,
+            repeat_use_review_notes=(
+                "Operator confirmed repeat use is allowed by the reviewed Pexels license."
+                if payload.confirm_repeat_use else ""
+            ),
             status="licensed",
             notes=(
                 "Imported via official Pexels API after explicit operator confirmation of the "
