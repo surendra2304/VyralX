@@ -67,7 +67,7 @@ def _resolve_trending_topic(project: VideoProject, db: Session) -> None:
     query = project.trend_query.strip() or project.topic.strip()
     if not query or query.lower() == "trending topic":
         query = "technology science education"
-    candidates = discover_youtube_videos(query, max(3, min(project.trend_max_results, 25)), "viewCount")
+    candidates = discover_youtube_videos(query, max(3, min(project.trend_max_results, 25)), "date")
     ranked = rank_candidates(candidates)
     if not ranked:
         raise RuntimeError("YouTube discovery returned no candidate trends for the configured query")
