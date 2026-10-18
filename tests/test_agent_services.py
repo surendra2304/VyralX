@@ -496,3 +496,45 @@ def test_publish_rights_gate_checks_all_montage_assets(tmp_path: Path):
             db.query(Asset).filter(Asset.id.in_([asset_a.id, asset_b.id])).delete(synchronize_session=False)
             db.query(Source).filter(Source.id.in_([source_a.id, source_b.id])).delete(synchronize_session=False)
             db.commit()
+
+
+def test_auto_trend_resolution_uses_public_metadata_as_topic_seed(monkeypatch):
+    from uuid import uuid4
+
+    from app.database import SessionLocal
+    from app.models import VideoProject
+    from app.services import project_pipeline
+
+    project_key = "trend-project-" + uuid4().hex[:12]
+    with SessionLocal() as db:
+        project = VideoProject(
+            project_key=project_key, topic="Trending topic", auto_discover_trend=True,
+            trend_query="renewable energy", trend_max_results=5, video_format="shorts",
+            target_seconds=30, confirm_pexels_license=True, use_voiceover=False, status="queued",
+        )
+        db.add(project)
+        db.commit()
+        project_id = project.id
+    try:
+        monkeypatch.setattr(project_pipeline, "discover_youtube_videos", lambda query, count, order: [
+            {"video_id": "abc123", "title": "Why wind turbines are changing cities",
+             "url": "https://www.youtube.com/watch?v=abc123", "view_count": 500000,
+             "like_count": 10000, "comment_count": 500, "published_at": "2026-10-17T10:00:00Z",
+             "channel_title": "Example Channel"}
+        ])
+        monkeypatch.setattr(project_pipeline, "rank_candidates", lambda items: [{**items[0], "trend_score": 9.5}])
+        with SessionLocal() as db:
+            project = db.get(VideoProject, project_id)
+            project_pipeline._resolve_trending_topic(project, db)
+            assert project.topic == "Why wind turbines are changing cities"
+            assert project.trend_source_video_id == "abc123"
+            assert project.trend_source_url == "https://www.youtube.com/watch?v=abc123"
+            assert project.trend_score == 9.5
+        with SessionLocal() as db:
+            project = db.get(VideoProject, project_id)
+            assert project.auto_discover_trend is True
+            assert project.topic == "Why wind turbines are changing cities"
+    finally:
+        with SessionLocal() as db:
+            db.query(VideoProject).filter(VideoProject.project_key == project_key).delete()
+            db.commit()
