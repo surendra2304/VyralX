@@ -161,7 +161,7 @@ async function loadProjects(button){
    const heading=document.createElement('h3');heading.textContent=project.topic+' — '+String(project.status).toUpperCase();card.appendChild(heading);
    const details=document.createElement('p');details.className='sub';details.textContent='Project #'+project.project_id+' · '+project.video_format+' · '+project.target_seconds+'s · '+(project.asset_ids||[]).length+' scene assets · attempt '+project.attempts;card.appendChild(details);
    const preview=project.content_preview||{};
-   const research=document.createElement('p');research.className='sub';research.textContent='IntelX research: '+String(preview.research_status||'not_available').toUpperCase()+(preview.research_report_ids&&preview.research_report_ids.length?' · reports '+preview.research_report_ids.join(', '):'');card.appendChild(research);
+   const research=document.createElement('p');research.className='sub';research.textContent='IntelX enrichment: '+String(preview.intelx_status||preview.research_status||'not_reported').replaceAll('_',' ').toUpperCase()+(preview.research_report_ids&&preview.research_report_ids.length?' · reports '+preview.research_report_ids.join(', '):'');card.appendChild(research);
    const qa=preview.production_qa||{};
    if(Array.isArray(qa.checks)&&qa.checks.length){
     const qaDetails=document.createElement('details');
@@ -354,6 +354,7 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
                 "tags": [str(value)[:100] for value in pack.get("tags", [])[:30]],
                 "fact_check_notes": [str(value)[:500] for value in pack.get("fact_check_notes", [])[:20]],
                 "research_status": str(pack.get("research_status") or "not_available"),
+                "intelx_status": str(pack.get("intelx_status") or "not_reported"),
                 "memora_context_status": str(pack.get("memora_context_status") or "disabled"),
                 "memora_context_ids": [str(item.get("id"))[:120] for item in pack.get("memora_private_context", []) if isinstance(item, dict) and item.get("id")][:5],
                 "research_report_ids": [

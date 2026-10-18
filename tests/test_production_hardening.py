@@ -259,6 +259,80 @@ def test_intelx_normalization_requires_traceability_and_filters_irrelevant_repor
     assert reports[0]["key_findings"] == ["Output changes with sunlight."]
 
 
+def test_intelx_normalization_unwraps_nested_provider_envelopes_and_rejects_no_signal():
+    reports = normalize_intelx_reports(
+        {
+            "status": "success",
+            "result": {
+                "reports": [
+                    {
+                        "report_id": "ix-solar-nested",
+                        "title": "Solar power market update",
+                        "summary": "Solar generation capacity expanded this year.",
+                    },
+                    {
+                        "report_id": "ix-no-signal",
+                        "title": "---",
+                        "summary": "!!!",
+                    },
+                ]
+            },
+        },
+        "solar power",
+    )
+
+    assert [item["report_id"] for item in reports] == ["ix-solar-nested"]
+
+
+def test_intelx_fetch_reports_and_status_from_live_style_envelope(monkeypatch):
+    from app.services import project_pipeline
+
+    monkeypatch.setattr(project_pipeline, "configured_peers", lambda: {"intelx"})
+    monkeypatch.setattr(
+        project_pipeline,
+        "get_peer_json",
+        lambda *args, **kwargs: {
+            "result": {
+                "reports": [
+                    {
+                        "report_id": "ix-solar-fetch",
+                        "title": "Solar power trends",
+                        "summary": "Solar capacity grew over the past year.",
+                        "source_url": "https://intelx.example/reports/ix-solar-fetch",
+                    },
+                    {
+                        "report_id": "ix-basketball-fetch",
+                        "title": "Basketball championship",
+                        "summary": "Teams competed in the finals.",
+                    },
+                ]
+            }
+        },
+    )
+
+    reports, status = project_pipeline._fetch_intelx_research(
+        SimpleNamespace(id=72, topic="Solar power")
+    )
+
+    assert status == "used"
+    assert [item["report_id"] for item in reports] == ["ix-solar-fetch"]
+    assert reports[0]["source_url"] == "https://intelx.example/reports/ix-solar-fetch"
+
+
+def test_intelx_fetch_reports_not_configured_and_unavailable(monkeypatch):
+    from app.services import project_pipeline
+
+    project = SimpleNamespace(id=73, topic="Solar power")
+    monkeypatch.setattr(project_pipeline, "configured_peers", lambda: set())
+    assert project_pipeline._fetch_intelx_research(project) == ([], "not_configured")
+
+    monkeypatch.setattr(project_pipeline, "configured_peers", lambda: {"intelx"})
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("provider exception must not be persisted")
+    monkeypatch.setattr(project_pipeline, "get_peer_json", unavailable)
+    assert project_pipeline._fetch_intelx_research(project) == ([], "unavailable")
+
+
 def test_intelx_normalization_accepts_live_sector_report_shape():
     reports = normalize_intelx_reports([
         {

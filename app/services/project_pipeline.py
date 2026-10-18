@@ -24,6 +24,7 @@ from app.services.renderer import PRESETS
 from app.services.thumbnail import extract_thumbnail
 from app.services.rights import is_project_scene_publishable
 from app.services.project_quality import build_project_quality_report
+from app.services.intelx import normalize_intelx_reports
 from app.services.voiceover import synthesize_voiceover
 
 log = logging.getLogger("vyralx.projects")
@@ -89,20 +90,30 @@ def _resolve_trending_topic(project: VideoProject, db: Session) -> None:
     log.info("Selected YouTube metadata trend project_id=%s video_id=%s score=%s; no source media is copied", project.id, video_id, project.trend_score)
 
 
-def _fetch_intelx_research(project: VideoProject) -> list[dict]:
-    """Fetch recent topic-relevant IntelX reports when that peer is configured."""
-    if "intelx" not in configured_peers():
-        return []
+def _fetch_intelx_research(project: VideoProject) -> tuple[list[dict], str]:
+    """Fetch and normalize topic-relevant reports with an auditable outcome status."""
     try:
-        result = get_peer_json("intelx", "/api/v1/research/query", {"sector": project.topic[:200], "limit": 5}, timeout_seconds=8.0)
-        if isinstance(result, list):
-            return [item for item in result[:5] if isinstance(item, dict)]
-        if isinstance(result, dict) and isinstance(result.get("items"), list):
-            return [item for item in result["items"][:5] if isinstance(item, dict)]
-        return []
+        if "intelx" not in configured_peers():
+            return [], "not_configured"
+        result = get_peer_json(
+            "intelx",
+            "/api/v1/research/query",
+            {"sector": project.topic[:200], "limit": 5},
+            timeout_seconds=8.0,
+        )
+        if isinstance(result, dict) and (
+            result.get("error")
+            or str(result.get("status") or "").casefold() in {"error", "failed", "failure"}
+        ):
+            log.warning("IntelX returned an error envelope project_id=%s", project.id)
+            return [], "provider_error"
+        if not isinstance(result, (list, dict)):
+            return [], "invalid_response"
+        reports = normalize_intelx_reports(result, project.topic)
+        return (reports, "used") if reports else ([], "no_relevant_reports")
     except Exception as exc:
         log.warning("Optional IntelX enrichment unavailable project_id=%s error_type=%s", project.id, type(exc).__name__)
-        return []
+        return [], "unavailable"
 
 
 def _fetch_memora_context(project: VideoProject) -> tuple[list[dict], str]:
@@ -148,7 +159,7 @@ def _get_or_generate_content(project: VideoProject, db: Session) -> ContentPack:
         existing = db.get(ContentPack, project.content_pack_id)
         if existing is not None:
             return existing
-    research = _fetch_intelx_research(project)
+    research, intelx_status = _fetch_intelx_research(project)
     memora_context, memora_context_status = _fetch_memora_context(project)
     data = generate_content_pack(
         project.topic,
@@ -160,6 +171,7 @@ def _get_or_generate_content(project: VideoProject, db: Session) -> ContentPack:
         memora_context=memora_context,
     )
     data["intelx_research_context"] = research
+    data["intelx_status"] = intelx_status
     data["memora_private_context"] = memora_context
     data["memora_context_status"] = memora_context_status
     data["research_status"] = "used" if research else "not_available"
@@ -322,6 +334,7 @@ def sync_project_memory(project_id: int, db: Session) -> dict:
         "asset_ids": asset_ids,
         "title_options": [str(value)[:100] for value in title_options[:5]],
         "research_status": str(pack.get("research_status") or "not_available"),
+        "intelx_status": str(pack.get("intelx_status") or "not_reported"),
         "research_report_ids": [
             str(item.get("report_id"))[:120]
             for item in research_items
@@ -352,6 +365,7 @@ def sync_project_memory(project_id: int, db: Session) -> dict:
             "project_id": project.id,
             "render_job_id": project.render_job_id,
             "research_status": summary["research_status"],
+            "intelx_status": summary["intelx_status"],
         },
         "confidence": 0.65,
         "importance": 0.35,

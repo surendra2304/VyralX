@@ -15,7 +15,18 @@ def normalize_intelx_reports(data: Any, topic: str) -> list[dict[str, Any]]:
     if isinstance(data, list):
         candidates = data
     elif isinstance(data, dict):
-        candidates = next((data[k] for k in ("items", "reports", "results", "data") if isinstance(data.get(k), list)), [])
+        candidates = next(
+            (data[key] for key in ("items", "reports", "results", "data") if isinstance(data.get(key), list)),
+            None,
+        )
+        if candidates is None:
+            nested = next(
+                (data[key] for key in ("result", "response", "payload") if isinstance(data.get(key), (dict, list))),
+                None,
+            )
+            if nested is None:
+                return []
+            return normalize_intelx_reports(nested, topic)
     else:
         return []
     topic_terms = _terms(topic)
@@ -35,7 +46,9 @@ def normalize_intelx_reports(data: Any, topic: str) -> list[dict[str, Any]]:
         if not report_id or not (title or summary or findings):
             continue
         terms = _terms(" ".join([title, summary, *findings, *tags]))
-        if topic_terms and terms and not (topic_terms & terms) and (title or len(terms) >= 2):
+        # When the topic contains searchable terms, reports with no searchable
+        # evidence or no overlap are excluded rather than treated as relevant.
+        if topic_terms and (not terms or not (topic_terms & terms)):
             continue
         reports.append({
             "report_id": report_id, "title": title,
