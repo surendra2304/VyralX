@@ -341,7 +341,7 @@ def integration_configuration():
                 "write_enabled": settings.memora_write_enabled,
             },
             "sentinel": {"peer_configured": "sentinel" in peers, "required_for_publish": settings.sentinel_required_for_publish},
-            "worker": {"required": settings.worker_required, "heartbeat": read_worker_status()},
+            "worker": {"required": settings.worker_required, "live_status_endpoint": "/ready"},
             "media_tools": {"ffmpeg": bool(shutil.which(settings.ffmpeg_bin)), "ffprobe": bool(shutil.which(settings.ffprobe_bin))},
         },
         "note": "Presence checks do not prove provider connectivity, credentials validity, quota, or live upload permissions.",
