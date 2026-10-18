@@ -126,3 +126,20 @@ Repository CI cannot prove live credentials, external APIs, Oracle resources, re
 ## Interrupted implementation sessions
 
 Use the [interruption recovery runbook](RECOVERY.md) to resume safely from the latest GitHub commit, inspect CI failures, and continue from an existing branch without duplicating work. The scheduled Recovery Watch workflow creates or updates one incident when main CI fails and closes it after a later green run; it does not resume ChatGPT execution or deploy code.
+
+## Read-only mesh preflight
+
+Run `python scripts/mesh_preflight.py` from the repository root before a deployment. The default invocation validates partial/invalid peer configuration and checks `/health` for each configured FRIDAY, Inference, IntelX, Memora, and Sentinel peer. Optional unconfigured peers are reported as skipped; configured optional peers that are unhealthy are warnings. Use `--require-peer NAME` for peers that must be available, and repeat it for multiple peers.
+
+Use active checks only when ready to contact the live service:
+
+```powershell
+python scripts/mesh_preflight.py --require-peer intelx --probe intelx
+python scripts/mesh_preflight.py --require-peer memora --probe memora
+python scripts/mesh_preflight.py --require-peer inference --probe-inference
+python scripts/mesh_preflight.py --json
+```
+
+The IntelX and Memora probes make authenticated reads only. Memora is queried in `memora://vyralx/private`; this preflight never writes a memory or modifies provider state. When Memora read or write is enabled in VyralX, Memora is automatically treated as required. `--probe-inference` actively generates a short test content pack and discards it, and may consume model/provider quota; it is deliberately opt-in. The report excludes keys, base URLs, response bodies and generated content. Exit code `1` means at least one required/configuration/active-contract check failed; optional peer health warnings do not fail the run.
+
+If `SENTINEL_REQUIRED_FOR_PUBLISH=true`, preflight fails because the currently documented Sentinel software-review endpoint does not satisfy VyralX's `youtube.publish` authorization contract. Keep this flag disabled until a dedicated publish-policy endpoint and its explicit deny/allow responses are implemented and verified. A successful preflight proves only the checks it ran at that time; it does not prove YouTube OAuth/upload permission, deploy correctness, database backup/restore, or end-to-end mesh behavior not explicitly probed.

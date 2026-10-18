@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -963,7 +964,9 @@ def test_youtube_success_checkpoint_is_private_and_attempt_scoped(tmp_path, monk
     assert youtube_service.write_upload_success_checkpoint(42, 3, "abcdefghijk") is True
     checkpoint = settings.youtube_token_file.parent / "upload-checkpoints" / "42.json"
     assert checkpoint.is_file()
-    assert checkpoint.stat().st_mode & 0o777 == 0o600
+    # POSIX mode bits are meaningful on Linux CI/production, not on Windows.
+    if os.name == "posix":
+        assert checkpoint.stat().st_mode & 0o777 == 0o600
     assert youtube_service.load_upload_success_checkpoint(42, 3) == "abcdefghijk"
     assert youtube_service.load_upload_success_checkpoint(42, 2) is None
 
@@ -1124,7 +1127,9 @@ def test_upload_session_checkpoint_is_private_and_attempt_scoped(tmp_path, monke
     )
     path = settings.youtube_token_file.parent / "upload-checkpoints" / "73.session.json"
     assert path.is_file()
-    assert path.stat().st_mode & 0o777 == 0o600
+    # POSIX mode bits are meaningful on Linux CI/production, not on Windows.
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o777 == 0o600
     loaded = youtube_service.load_upload_session_checkpoint(73, 5)
     assert loaded is not None
     assert loaded["confirmed_offset"] == 256

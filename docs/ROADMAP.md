@@ -63,6 +63,7 @@ This file distinguishes implemented repository capability from external producti
 - [x] Containerized API and worker with non-root user, dropped capabilities, resource caps and heartbeat health.
 - [x] CI workflow for Ruff, pytest and Docker build.
 - [x] Example environment file and API/architecture/operations documentation.
+- [x] Add read-only mesh preflight CLI with optional authenticated IntelX/Memora contract reads, explicit opt-in Inference generation probe, secret-free reports, and regression tests.
 - [x] Run and fix all CI checks on the latest branch head (Ruff, pytest, Docker image build, and Compose validation passed for the verified head; rerun after subsequent changes).
 - [x] Add a strict resolved-Python dependency vulnerability audit to CI; the first green run is required before merge.
 - [x] Add full-history Gitleaks secret scanning and Trivy HIGH/CRITICAL fixed-vulnerability scanning for the built image's OS and Python libraries; release candidates still require a green scan on the exact final commit.
