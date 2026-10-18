@@ -17,6 +17,7 @@ from app.services.trends import rank_candidates
 from app.services.montage import render_montage
 from app.services.pexels import import_video_file, search_videos
 from app.services.probe import probe_media
+from app.services.peers import configured_peers, get_peer_json
 from app.services.renderer import PRESETS
 from app.services.thumbnail import extract_thumbnail
 from app.services.voiceover import synthesize_voiceover
@@ -84,18 +85,38 @@ def _resolve_trending_topic(project: VideoProject, db: Session) -> None:
     log.info("Selected YouTube metadata trend project_id=%s video_id=%s score=%s; no source media is copied", project.id, video_id, project.trend_score)
 
 
+def _fetch_intelx_research(project: VideoProject) -> list[dict]:
+    """Fetch recent topic-relevant IntelX reports when that peer is configured."""
+    if "intelx" not in configured_peers():
+        return []
+    try:
+        result = get_peer_json("intelx", "/api/v1/research/query", {"sector": project.topic[:200], "limit": 5}, timeout_seconds=8.0)
+        if isinstance(result, list):
+            return [item for item in result[:5] if isinstance(item, dict)]
+        if isinstance(result, dict) and isinstance(result.get("items"), list):
+            return [item for item in result["items"][:5] if isinstance(item, dict)]
+        return []
+    except Exception as exc:
+        log.warning("Optional IntelX enrichment unavailable project_id=%s error_type=%s", project.id, type(exc).__name__)
+        return []
+
+
 def _get_or_generate_content(project: VideoProject, db: Session) -> ContentPack:
     if project.content_pack_id:
         existing = db.get(ContentPack, project.content_pack_id)
         if existing is not None:
             return existing
+    research = _fetch_intelx_research(project)
     data = generate_content_pack(
         project.topic,
         video_format=project.video_format,
         audience=project.audience,
         tone=project.tone,
         target_seconds=project.target_seconds,
+        research_context=research,
     )
+    data["intelx_research_context"] = research
+    data["research_status"] = "used" if research else "not_available"
     record = ContentPack(
         topic=project.topic,
         video_format=project.video_format,
