@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from scripts import mesh_preflight
+# Load the CLI by file path: `scripts` is intentionally not installed as an app package,
+# and GitHub Actions may run pytest with only the installed project on sys.path.
+_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "mesh_preflight.py"
+_SPEC = importlib.util.spec_from_file_location("vyralx_mesh_preflight", _SCRIPT_PATH)
+assert _SPEC is not None and _SPEC.loader is not None
+mesh_preflight = importlib.util.module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = mesh_preflight
+_SPEC.loader.exec_module(mesh_preflight)
 
 
 def _settings(**overrides):
