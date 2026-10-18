@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.migrations import run_additive_migrations
 from app.models import AgentTask, Asset, ContentPack, PublishJob, RenderJob, Source, VideoMetric, VideoProject, utcnow
-from app.schemas import AgentTaskCancelRequest, AgentTaskRequest, ContentGenerationRequest, ContentVoiceoverRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, PublishResolutionRequest, RenderRequest, SourceCreate, ThumbnailRequest, UniverseTaskEnvelope, VideoProjectCreateRequest, VideoProjectRetryRequest
+from app.schemas import AgentTaskCancelRequest, AgentTaskRequest, ContentGenerationRequest, ContentVoiceoverRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishApprovalRequest, PublishRequest, PublishResolutionRequest, RenderRequest, SourceCreate, ThumbnailRequest, UniverseTaskEnvelope, VideoProjectCreateRequest, VideoProjectRetryRequest
 from app.security import require_api_key
 from app.services.probe import probe_media
 from app.services.discovery import discover_youtube_videos
@@ -316,7 +316,7 @@ async function refreshJobs(button){
     };
     descriptionDetails.addEventListener('toggle',()=>{if(descriptionDetails.open){descriptionOpened=true;updateReviewAvailability()}});
     check.addEventListener('change',()=>{btn.disabled=!(check.checked&&descriptionOpened&&qaOpened)});
-    btn.onclick=async()=>{if(!check.checked||!descriptionOpened||!qaOpened)return;if(!confirm('Approve publish job '+job.id+' for render '+job.render_job_id+'? Upload only proceeds if YouTube is enabled.'))return;btn.disabled=true;try{show(await api('/api/publish/'+job.id+'/execute',{method:'POST'}));await refreshJobs()}catch(e){show({error:String(e)});await refreshJobs()}finally{btn.disabled=!(check.checked&&descriptionOpened&&qaOpened)}};
+    btn.onclick=async()=>{if(!check.checked||!descriptionOpened||!qaOpened)return;if(!confirm('Approve publish job '+job.id+' for render '+job.render_job_id+'? Upload only proceeds if YouTube is enabled.'))return;btn.disabled=true;try{show(await api('/api/publish/'+job.id+'/execute',{method:'POST',body:{confirm_review:true}}));await refreshJobs()}catch(e){show({error:String(e)});await refreshJobs()}finally{btn.disabled=!(check.checked&&descriptionOpened&&qaOpened)}};
     card.appendChild(btn);root.appendChild(card);
   }
   return {render_count:result.renders.length,publish_count:result.publishes.length,pending_approval:pending.length};
@@ -746,8 +746,14 @@ def queue_publish(payload: PublishRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/api/publish/{job_id}/execute", status_code=202, dependencies=[Depends(require_api_key)])
-def execute_publish(job_id: int, db: Session = Depends(get_db)):
-    """Approve a queued upload; the separate worker performs the network operation."""
+def execute_publish(
+    job_id: int,
+    payload: PublishApprovalRequest,
+    db: Session = Depends(get_db),
+):
+    """Approve a reviewed upload; the separate worker performs the network operation."""
+    if not payload.confirm_review:
+        raise HTTPException(422, "Explicit review acknowledgment is required before publishing")
     job = db.get(PublishJob, job_id)
     if job is None:
         raise HTTPException(404, "Publish job not found")

@@ -112,6 +112,12 @@ class PublishRequest(BaseModel):
         return value
 
 
+class PublishApprovalRequest(BaseModel):
+    """Explicit operator acknowledgement required by the publish approval endpoint."""
+
+    confirm_review: bool
+
+
 class ContentGenerationRequest(BaseModel):
     topic: str = Field(min_length=3, max_length=500)
     video_format: Literal["shorts", "long"] = "shorts"

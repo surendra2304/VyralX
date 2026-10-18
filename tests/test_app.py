@@ -6,7 +6,7 @@ from app.services.renderer import PRESETS
 from app.services.rights import source_is_publishable
 from app.config import Settings
 from app.models import ContentPack, PublishJob, RenderJob, Source, VideoProject
-from app.schemas import PublishRequest
+from app.schemas import PublishApprovalRequest, PublishRequest
 import pytest
 
 client = TestClient(app)
@@ -185,7 +185,10 @@ def test_publish_approval_refreshes_changed_attribution_before_queuing(tmp_path,
         source_id, asset_id, render_id, job_id = source.id, asset.id, render.id, job.id
 
     try:
-        response = client.post(f"/api/publish/{job_id}/execute")
+        response = client.post(
+            f"/api/publish/{job_id}/execute",
+            json={"confirm_review": True},
+        )
         assert response.status_code == 409
         assert "review the refreshed description" in response.json()["detail"].lower()
         with SessionLocal() as db:
@@ -200,6 +203,17 @@ def test_publish_approval_refreshes_changed_attribution_before_queuing(tmp_path,
             db.query(Asset).filter(Asset.id == asset_id).delete()
             db.query(Source).filter(Source.id == source_id).delete()
             db.commit()
+
+
+def test_publish_approval_requires_explicit_server_side_review_acknowledgment():
+    false_ack = client.post("/api/publish/987654321/execute", json={"confirm_review": False})
+    assert false_ack.status_code == 422
+    assert "review acknowledgment" in false_ack.json()["detail"].lower()
+
+    missing_ack = client.post("/api/publish/987654321/execute")
+    assert missing_ack.status_code == 422
+
+    assert PublishApprovalRequest(confirm_review=True).confirm_review is True
 
 
 def test_publish_metadata_obeys_youtube_title_description_and_tag_limits():
