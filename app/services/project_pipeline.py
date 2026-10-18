@@ -131,6 +131,9 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
                 if match:
                     used_video_ids.add(int(match.group(1)))
 
+    # Discard stale/missing IDs before adding new scene records during recovery.
+    asset_ids = [asset.id for asset in assets]
+    project.asset_ids_json = json.dumps(asset_ids)
     orientation = "portrait" if project.video_format == "shorts" else "landscape"
     needed = project.scene_count
     for index in range(len(assets), needed):
