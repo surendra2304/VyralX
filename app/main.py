@@ -795,7 +795,7 @@ def execute_publish(job_id: int, db: Session = Depends(get_db)):
     }
 
 
-def _publish_job_summary(job: PublishJob):
+def _publish_job_summary(job: PublishJob, db: Session):
     try:
         tags = json.loads(job.tags_json or "[]")
     except (TypeError, ValueError):
