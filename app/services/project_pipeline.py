@@ -564,7 +564,9 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
                     and pack.get("caption_alignment_status") in {"measured_chunk", "word_forced"}
                 ):
                     segments = cached_segments
-                    caption_alignment_status = "measured_chunk"
+                    caption_alignment_status = str(
+                        pack.get("caption_alignment_status") or "measured_chunk"
+                    )
             else:
                 provider = str(getattr(settings, "tts_provider", "espeak")).strip().lower()
                 if provider == "espeak":
