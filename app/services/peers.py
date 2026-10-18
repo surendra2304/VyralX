@@ -43,7 +43,7 @@ def peer_health(name: str, *, timeout_seconds: float = 3.0) -> dict[str, Any]:
         return {"name": name, "configured": False, "reachable": False, "status": "not_configured"}
     headers = {"Authorization": f"Bearer {peer.api_key}", "X-API-Key": peer.api_key, "X-Agent-Name": "vyralx"}
     try:
-        response = httpx.get(f"{peer.base_url}/health", headers=headers, timeout=timeout_seconds)
+        response = httpx.get(f"{peer.base_url.rstrip('/')}/health", headers=headers, timeout=timeout_seconds)
         return {
             "name": name,
             "configured": True,
@@ -80,7 +80,7 @@ def post_peer_json(
         raise RuntimeError(f"FRIDAY peer {name!r} is not configured")
     try:
         response = httpx.post(
-            peer.base_url + path,
+            peer.base_url.rstrip("/") + path,
             headers={"Authorization": f"Bearer {peer.api_key}", "X-API-Key": peer.api_key, "X-Agent-Name": "vyralx", "Content-Type": "application/json"},
             json=payload,
             timeout=timeout_seconds,
@@ -115,7 +115,7 @@ def get_peer_json(
         raise RuntimeError(f"FRIDAY peer {name!r} is not configured")
     try:
         response = httpx.get(
-            peer.base_url + path,
+            peer.base_url.rstrip("/") + path,
             headers={"Authorization": f"Bearer {peer.api_key}", "X-API-Key": peer.api_key, "X-Agent-Name": "vyralx"},
             params=params or {},
             timeout=timeout_seconds,
