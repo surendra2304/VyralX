@@ -1,4 +1,4 @@
-"""Signal-level FFmpeg checks for black frames and long silence intervals."""
+"""Signal-level FFmpeg checks for black frames, long silence, loudness and clipping."""
 from __future__ import annotations
 
 import math
@@ -18,8 +18,15 @@ _SILENCE_END_RE = re.compile(
     r"silence_end:\s*(-?\d+(?:\.\d+)?)\s*\|\s*"
     r"silence_duration:\s*(-?\d+(?:\.\d+)?)"
 )
+_LOUDNESS_RE = re.compile(r"\bI:\s*([-+]?\d+(?:\.\d+)?)\s*LUFS\b", re.IGNORECASE)
+_TRUE_PEAK_RE = re.compile(r"\bPeak:\s*([-+]?\d+(?:\.\d+)?)\s*dBFS\b", re.IGNORECASE)
+_CLIPPED_SAMPLES_RE = re.compile(r"Number of samples clipped:\s*(\d+)", re.IGNORECASE)
 _BLACK_FILTER = "blackdetect=d=0.5:pix_th=0.10"
 _SILENCE_FILTER = "silencedetect=n=-45dB:d=1.0"
+_AUDIO_FILTER = (
+    f"{_SILENCE_FILTER},astats=metadata=0:reset=0,"
+    "ebur128=peak=true:framelog=verbose"
+)
 
 
 def _finite_float(value: Any, default: float = 0.0) -> float:
@@ -30,6 +37,42 @@ def _finite_float(value: Any, default: float = 0.0) -> float:
     return number if math.isfinite(number) else default
 
 
+def _empty_audio_metrics(status: str) -> dict[str, Any]:
+    return {
+        "status": status,
+        "integrated_loudness_lufs": None,
+        "true_peak_dbfs": None,
+        "clipped_samples": None,
+    }
+
+
+def _parse_audio_metrics(log_text: str) -> dict[str, Any]:
+    """Parse FFmpeg ebur128/astats summaries without treating missing metrics as zero."""
+    loudness_values = [
+        _finite_float(match.group(1), math.nan)
+        for match in _LOUDNESS_RE.finditer(log_text)
+    ]
+    true_peak_values = [
+        _finite_float(match.group(1), math.nan)
+        for match in _TRUE_PEAK_RE.finditer(log_text)
+    ]
+    clipped_values = [
+        int(match.group(1))
+        for match in _CLIPPED_SAMPLES_RE.finditer(log_text)
+    ]
+
+    loudness = loudness_values[-1] if loudness_values and math.isfinite(loudness_values[-1]) else None
+    true_peak = true_peak_values[-1] if true_peak_values and math.isfinite(true_peak_values[-1]) else None
+    clipped_samples = clipped_values[-1] if clipped_values else None
+    fully_analyzed = loudness is not None and true_peak is not None and clipped_samples is not None
+    return {
+        "status": "analyzed" if fully_analyzed else "partial",
+        "integrated_loudness_lufs": round(loudness, 2) if loudness is not None else None,
+        "true_peak_dbfs": round(true_peak, 2) if true_peak is not None else None,
+        "clipped_samples": clipped_samples,
+    }
+
+
 def _unavailable(error_type: str, *, audio_analyzed: bool = False) -> dict[str, Any]:
     return {
         "status": "unavailable",
@@ -37,10 +80,15 @@ def _unavailable(error_type: str, *, audio_analyzed: bool = False) -> dict[str, 
         "black_intervals": [],
         "silence_intervals": [],
         "audio_analyzed": audio_analyzed,
+        "audio_metrics": _empty_audio_metrics("unavailable" if audio_analyzed else "not_applicable"),
         "thresholds": {
             "black_min_duration_seconds": 0.5,
             "silence_threshold_db": -45,
             "silence_min_duration_seconds": 1.0,
+            "loudness_min_lufs": -24.0,
+            "loudness_max_lufs": -10.0,
+            "true_peak_max_dbfs": -1.0,
+            "clipped_samples_max": 0,
         },
     }
 
@@ -53,10 +101,10 @@ def analyze_media_signals(
     audio_stream_count: int,
     timeout_seconds: int = 120,
 ) -> dict[str, Any]:
-    """Decode a completed render once with blackdetect/silencedetect filters.
+    """Decode a completed render once with bounded black, silence, loudness and clipping filters.
 
-    No output media is written. A failed or timed-out scan is reported as
-    unavailable so the production-QA layer can surface an operator warning.
+    No output media is written. A failed or timed-out scan is reported as unavailable
+    so production QA can surface an operator warning rather than silently passing.
     """
     path = Path(video_path)
     try:
@@ -82,7 +130,7 @@ def analyze_media_signals(
         "-vf", _BLACK_FILTER,
     ]
     if has_audio:
-        command.extend(["-map", "0:a:0", "-af", _SILENCE_FILTER])
+        command.extend(["-map", "0:a:0", "-af", _AUDIO_FILTER])
     command.extend(["-f", "null", "-"])
 
     try:
@@ -150,9 +198,14 @@ def analyze_media_signals(
         "black_intervals": black_intervals,
         "silence_intervals": silence_intervals,
         "audio_analyzed": has_audio,
+        "audio_metrics": _parse_audio_metrics(log_text) if has_audio else _empty_audio_metrics("not_applicable"),
         "thresholds": {
             "black_min_duration_seconds": 0.5,
             "silence_threshold_db": -45,
             "silence_min_duration_seconds": 1.0,
+            "loudness_min_lufs": -24.0,
+            "loudness_max_lufs": -10.0,
+            "true_peak_max_dbfs": -1.0,
+            "clipped_samples_max": 0,
         },
     }
