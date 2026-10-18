@@ -289,18 +289,18 @@ def create_video_project(payload: VideoProjectCreateRequest, db: Session = Depen
         same = same and existing.video_format == payload.video_format and existing.target_seconds == payload.target_seconds and existing.scene_count == payload.scene_count and existing.audience == payload.audience and existing.tone == payload.tone and existing.use_voiceover == payload.use_voiceover
         if not same:
             raise HTTPException(409, "project_key already exists with different settings")
-        return {**_project_summary(existing), "idempotent_replay": True}
+        return {**_project_summary(existing, db), "idempotent_replay": True}
     project = VideoProject(project_key=payload.project_key, topic=payload.topic.strip(), auto_discover_trend=payload.auto_discover_trend, trend_query=payload.trend_query.strip(), trend_max_results=payload.trend_max_results, video_format=payload.video_format, target_seconds=payload.target_seconds, audience=payload.audience, tone=payload.tone, scene_count=payload.scene_count, confirm_pexels_license=True, use_voiceover=payload.use_voiceover, status="queued")
     db.add(project)
     db.commit()
     db.refresh(project)
-    return {**_project_summary(project), "idempotent_replay": False}
+    return {**_project_summary(project, db), "idempotent_replay": False}
 
 
 @app.get("/api/projects", dependencies=[Depends(require_api_key)])
 def list_video_projects(db: Session = Depends(get_db), limit: int = 30):
     projects = db.scalars(select(VideoProject).order_by(VideoProject.id.desc()).limit(max(1, min(limit, 100)))).all()
-    return {"count": len(projects), "items": [_project_summary(p) for p in projects]}
+    return {"count": len(projects), "items": [_project_summary(p, db) for p in projects]}
 
 
 @app.get("/api/projects/{project_id}", dependencies=[Depends(require_api_key)])
