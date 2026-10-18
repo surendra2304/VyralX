@@ -538,3 +538,10 @@ def test_auto_trend_resolution_uses_public_metadata_as_topic_seed(monkeypatch):
         with SessionLocal() as db:
             db.query(VideoProject).filter(VideoProject.project_key == project_key).delete()
             db.commit()
+
+
+def test_pexels_uses_official_video_api_endpoints():
+    from app.services.pexels import PEXELS_SEARCH_URL, PEXELS_VIDEO_URL
+
+    assert PEXELS_SEARCH_URL == "https://api.pexels.com/videos/search"
+    assert PEXELS_VIDEO_URL == "https://api.pexels.com/videos/videos/{video_id}"
