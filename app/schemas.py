@@ -182,3 +182,22 @@ class UniverseTaskEnvelope(BaseModel):
         elif "objective" in data and not data.get("action"):
             data["action"] = data["objective"]
         return data
+
+
+class VideoProjectCreateRequest(BaseModel):
+    project_key: str = Field(default_factory=lambda: "project_" + uuid4().hex[:16], pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$")
+    topic: str = Field(default="Trending topic", min_length=3, max_length=500)
+    auto_discover_trend: bool = False
+    trend_query: str = Field(default="", max_length=200)
+    trend_max_results: int = Field(default=10, ge=3, le=25)
+    video_format: Literal["shorts", "long"] = "shorts"
+    target_seconds: int = Field(default=45, ge=15, le=600)
+    audience: str = Field(default="general audience", max_length=200)
+    tone: str = Field(default="clear, energetic and factual", max_length=200)
+    scene_count: int = Field(default=4, ge=2, le=4)
+    confirm_pexels_license: bool = False
+    use_voiceover: bool = True
+
+
+class VideoProjectRetryRequest(BaseModel):
+    reason: str = Field(default="operator_retry", max_length=200)
