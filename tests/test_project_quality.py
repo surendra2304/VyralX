@@ -26,6 +26,7 @@ def test_complete_project_report_is_ready_for_operator_review(tmp_path):
         caption_text="Hello world",
         thumbnail_path=thumbnail,
         scene_rights_checks=[True, True, True],
+        caption_alignment_status="measured_chunk",
         signal_analysis={
             "status": "analyzed",
             "black_intervals": [],
@@ -42,10 +43,11 @@ def test_complete_project_report_is_ready_for_operator_review(tmp_path):
 
     assert report["status"] == "ready_for_operator_review"
     assert report["warning_count"] == 0
+    assert {item["id"]: item["status"] for item in report["checks"]}["caption_sync"] == "passed"
     assert report["automatic_publish_approval"] is False
     assert {item["id"] for item in report["checks"]} >= {
         "duration", "dimensions", "audio_track", "narration_file", "voiceover_duration",
-        "caption_coverage", "caption_timing", "thumbnail", "scene_provenance",
+        "caption_coverage", "caption_timing", "caption_sync", "thumbnail", "scene_provenance",
         "black_frames", "silence_gaps", "audio_loudness", "audio_clipping",
     }
 
@@ -72,6 +74,7 @@ def test_quality_report_surfaces_caption_and_source_warnings(tmp_path):
         caption_text="Expected words",
         thumbnail_path=thumbnail,
         scene_rights_checks=[True, False],
+        caption_alignment_status="estimated",
     )
 
     assert report["status"] == "review_required"
@@ -126,3 +129,42 @@ def test_signal_level_qa_warns_on_black_frames_and_long_silence():
     assert checks["audio_clipping"]["status"] == "warning"
     assert checks["audio_clipping"]["actual"]["clipped_samples"] == 14
     assert report["automatic_publish_approval"] is False
+
+
+
+def test_caption_alignment_warning_distinguishes_estimated_and_not_applicable():
+    base = {
+        "target_seconds": 30,
+        "actual_duration": 30,
+        "expected_width": 1080,
+        "expected_height": 1920,
+        "actual_width": 1080,
+        "actual_height": 1920,
+        "audio_stream_count": 1,
+        "voiceover_requested": True,
+        "voiceover_path": None,
+        "voiceover_duration": 30,
+        "subtitle_path": None,
+        "subtitle_segments": [],
+        "caption_text": "Hello world",
+        "thumbnail_path": None,
+        "scene_rights_checks": [True],
+    }
+    estimated = build_project_quality_report(**base, caption_alignment_status="estimated")
+    measured = build_project_quality_report(
+        **base,
+        subtitle_segments=[{"start_seconds": 0, "end_seconds": 30, "text": "Hello world"}],
+        caption_alignment_status="measured_chunk",
+    )
+    no_voiceover = build_project_quality_report(
+        **{**base, "voiceover_requested": False, "voiceover_path": None, "voiceover_duration": None},
+        caption_alignment_status="not_applicable",
+    )
+
+    statuses = lambda report: {item["id"]: item["status"] for item in report["checks"]}
+    assert statuses(estimated)["caption_sync"] == "warning"
+    assert statuses(measured)["caption_sync"] == "passed"
+    assert statuses(no_voiceover)["caption_sync"] == "not_applicable"
+    assert "not word-level forced alignment" in next(
+        item["message"] for item in measured["checks"] if item["id"] == "caption_sync"
+    )
