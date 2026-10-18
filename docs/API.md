@@ -34,7 +34,8 @@ Discovery results are leads only. A task can create a pending publish request, b
 | POST | \`/api/discover\` | Search YouTube public metadata and compute heuristic trends |
 | POST | \`/api/discover/pexels\` | Search Pexels through its official API |
 | POST | \`/api/sources\` | Register source provenance and rights evidence |
-| GET | \`/api/sources\` | List the source catalog |
+| GET | \`/api/sources\` | List the source catalog, including repeat-use review state |
+| POST | \`/api/sources/{source_id}/repeat-use-review\` | Record or revoke an evidence-backed repeat-use decision with notes |
 | POST | \`/api/assets/upload\` | Import a local video file and probe it with FFprobe |
 | POST | \`/api/assets/import/pexels\` | Download an official Pexels result after license confirmation |
 | GET | \`/api/assets\` | List assets |
@@ -69,7 +70,7 @@ Project creation asks for a topic, format, duration, scene count (2–4), audien
 
 Project list/detail responses also return `content_preview.production_qa` after a project render. Its checks cover duration, dimensions, narration presence, caption word coverage and timing, thumbnail output, and scene provenance; warnings are shown in the operator dashboard and never grant automatic publish approval. They also return `scene_sources` for retained scenes, including creator, source URL, license reference, file availability and a server-derived `rights_evidence_check`. Project generation revalidates the official Pexels host/path and license URL before a scene is used in a montage. This is a provenance safeguard only; the operator must still review the actual license and intended-use scope.
 
-On completion, the project response supplies \`primary_asset_id\`, \`asset_ids\`, \`content_pack_id\`, \`render_job_id\` and authenticated download paths. The render's saved \`montage_asset_ids\` are checked individually for rights evidence both when a publish request is created and again immediately before upload. Pexels creator/source attribution is appended to the YouTube description.
+On completion, the project response supplies \`primary_asset_id\`, \`asset_ids\`, \`content_pack_id\`, \`render_job_id\` and authenticated download paths. The render's saved \`montage_asset_ids\` are checked individually for rights evidence both when a publish request is created and again immediately before upload. If a source appears in a previous VyralX \`uploaded\` publish job, another use is blocked until that source has a reviewed repeat-use decision, evidence notes, and reviewer timestamp. Matching uses normalized source URLs or source identity and strips common tracking parameters. Pexels creator/source attribution is appended to the YouTube description.
 
 Successful topic-to-video projects retain their generated SRT file and expose it through the authenticated `GET /api/projects/{project_id}/captions` endpoint and `captions_download_path` review field. Failed-attempt temporary subtitle files are cleaned up.
 
@@ -80,7 +81,7 @@ Successful topic-to-video projects retain their generated SRT file and expose it
 ## Main API flow
 
 1. Register or discover source metadata.
-2. For local media, upload a permitted file with \`source_id\`; for stock footage, review Pexels license and call import with \`confirm_license=true\`.
+2. For local media, upload a permitted file with \`source_id\`; for stock footage, review the Pexels license and call import with \`confirm_license=true\`. Repeat-use approval is a separate decision (\`confirm_repeat_use=true\`) and defaults off.
 3. Generate content and optional voiceover if desired.
 4. Queue a render. The API returns a job ID immediately; the worker renders, probes the output, persists the path/status and exposes errors.
 5. Create a publish request with both the asset and the exact completed render IDs. Confirm rights in the payload.
@@ -103,7 +104,7 @@ Use \`docker compose config\` to validate the Compose file after setting environ
 
 ## Privacy and rights
 
-No secret belongs in the request body, log or Git history. Public discovery never changes \`rights_verified\`. Pexels import requires an explicit operator license confirmation and retains creator/source metadata. VyralX does not implement unauthorized downloads of YouTube, Instagram, TikTok or other creators' work.
+No secret belongs in the request body, log or Git history. Public discovery never changes \`rights_verified\`. Pexels import requires an explicit operator license confirmation and retains creator/source metadata. Repeat-use decisions default to not reviewed; the operator must inspect evidence, separately record the decision, and add a review note. This is an auditable operator decision, not an automated legal determination or a grant of rights. The check covers prior uploads recorded by VyralX; it cannot discover uses made outside this system. VyralX does not implement unauthorized downloads of YouTube, Instagram, TikTok or other creators' work.
 
 ## Provider documentation
 

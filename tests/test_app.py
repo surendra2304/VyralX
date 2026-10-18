@@ -506,3 +506,75 @@ def test_integration_configuration_endpoint_never_exposes_credentials():
     assert {"inference", "pexels", "youtube_data_api", "youtube_upload", "tts", "intelx", "memora", "sentinel", "worker", "media_tools"} <= set(data["providers"])
     assert "api_key" not in str(data).lower()
     assert "secret_value" not in str(data).lower()
+
+def test_source_repeat_use_review_endpoint_is_explicit_and_auditable():
+    from uuid import uuid4
+    from app.database import SessionLocal
+
+    suffix = uuid4().hex[:10]
+    payload = {
+        "title": "Repeat review fixture " + suffix,
+        "source_url": "https://media.example/repeat-use/" + suffix,
+        "platform": "manual",
+        "creator": "Owner",
+        "license_name": "Written permission",
+        "permission_reference": "permission-reference-" + suffix,
+        "rights_verified": True,
+        "repeat_use_allowed": False,
+        "notes": "test fixture",
+    }
+    created = client.post("/api/sources", json=payload)
+    assert created.status_code == 200
+    source_id = created.json()["id"]
+    try:
+        listing = client.get("/api/sources")
+        row = next(item for item in listing.json() if item["id"] == source_id)
+        assert row["repeat_use_allowed"] is False
+        assert row["repeat_use_reviewed_at"] is None
+
+        allowed = client.post(
+            f"/api/sources/{source_id}/repeat-use-review",
+            json={
+                "repeat_use_allowed": True,
+                "review_notes": "Reviewed the evidence and confirmed repeat use is permitted.",
+            },
+        )
+        assert allowed.status_code == 200
+        assert allowed.json()["repeat_use_allowed"] is True
+        assert allowed.json()["repeat_use_reviewed_at"] is not None
+
+        denied = client.post(
+            f"/api/sources/{source_id}/repeat-use-review",
+            json={
+                "repeat_use_allowed": False,
+                "review_notes": "Evidence does not permit repeated reuse.",
+            },
+        )
+        assert denied.status_code == 200
+        assert denied.json()["repeat_use_allowed"] is False
+    finally:
+        with SessionLocal() as db:
+            db.query(Source).filter(Source.id == source_id).delete()
+            db.commit()
+
+
+def test_source_schema_requires_notes_when_repeat_use_is_claimed():
+    from app.schemas import SourceCreate
+
+    common = {
+        "title": "Repeat use schema fixture",
+        "source_url": "https://media.example/license",
+        "platform": "manual",
+        "license_name": "Written permission",
+        "permission_reference": "permission-reference-123",
+        "rights_verified": True,
+        "repeat_use_allowed": True,
+    }
+    with pytest.raises(ValueError, match="review note"):
+        SourceCreate(**common)
+    valid = SourceCreate(
+        **common,
+        repeat_use_review_notes="Reviewed written permission for multiple publication uses.",
+    )
+    assert valid.repeat_use_allowed is True
+

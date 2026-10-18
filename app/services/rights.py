@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import json
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Asset, RenderJob, Source
+from app.models import Asset, PublishJob, RenderJob, Source
 
 _PLACEHOLDERS = {"-", "n/a", "na", "none", "unknown", "tbd", "todo", "pending", "not provided"}
 
@@ -41,6 +42,117 @@ def source_is_publishable(source: Source | None) -> bool:
             and license_url.path.rstrip("/") == "/license"
         )
     return True
+
+
+def source_reuse_identity(source: Source | None) -> tuple[str, str] | None:
+    """Build a stable source identity; strip URL fragments and common tracking parameters."""
+    if source is None:
+        return None
+    raw_url = str(getattr(source, "source_url", "") or "").strip()
+    if raw_url:
+        parsed = urlsplit(raw_url)
+        if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
+            scheme = parsed.scheme.lower()
+            hostname = parsed.hostname.casefold()
+            try:
+                port = parsed.port
+            except ValueError:
+                port = None
+            if port and not (scheme == "https" and port == 443) and not (
+                scheme == "http" and port == 80
+            ):
+                hostname = f"{hostname}:{port}"
+            path = parsed.path.rstrip("/") or "/"
+            tracking = {"fbclid", "gclid", "dclid", "mc_cid", "mc_eid", "ref"}
+            query = urlencode(sorted(
+                (key, value)
+                for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+                if key.casefold() not in tracking and not key.casefold().startswith("utm_")
+            ))
+            return ("url", urlunsplit((scheme, hostname, path, query, "")))
+        return ("url", raw_url.split("#", 1)[0].rstrip("/"))
+    source_id = getattr(source, "id", None)
+    if source_id is None:
+        return None
+    platform = str(getattr(source, "platform", "unknown") or "unknown").strip().casefold()
+    return ("source_id", f"{platform}:{source_id}")
+
+
+def _render_asset_ids(render: RenderJob) -> list[int]:
+    """Extract source assets from old renders without letting corrupt metadata break history checks."""
+    ids: list[int] = []
+    primary = getattr(render, "asset_id", None)
+    if isinstance(primary, int) and not isinstance(primary, bool) and primary > 0:
+        ids.append(primary)
+    try:
+        options = json.loads(getattr(render, "options_json", "{}") or "{}")
+    except (TypeError, ValueError):
+        options = {}
+    raw_ids = options.get("montage_asset_ids", []) if isinstance(options, dict) else []
+    if isinstance(raw_ids, list):
+        for value in raw_ids:
+            if isinstance(value, bool) or isinstance(value, float) and not value.is_integer():
+                continue
+            try:
+                asset_id = int(value)
+            except (TypeError, ValueError):
+                continue
+            if asset_id > 0 and asset_id not in ids:
+                ids.append(asset_id)
+            if len(ids) >= 8:
+                break
+    return ids
+
+
+def find_repeat_use_blockers(
+    source_records: list[tuple[Asset, Source]],
+    db: Session,
+    *,
+    exclude_publish_job_id: int | None = None,
+) -> list[dict[str, int | str]]:
+    """Flag sources seen in an earlier successful upload without explicit repeat-use review.
+
+    The current source's repeat-use decision is an operator attestation backed by its
+    recorded license/permission evidence; this helper does not interpret legal terms.
+    """
+    previously_published: set[tuple[str, str]] = set()
+    history = db.scalars(select(PublishJob).where(PublishJob.status == "uploaded")).all()
+    for previous in history:
+        if exclude_publish_job_id is not None and previous.id == exclude_publish_job_id:
+            continue
+        render = db.get(RenderJob, previous.render_job_id)
+        if render is None:
+            continue
+        for asset_id in _render_asset_ids(render):
+            asset = db.get(Asset, asset_id)
+            if asset is None or not asset.source_id:
+                continue
+            source = db.get(Source, asset.source_id)
+            identity = source_reuse_identity(source)
+            if identity is not None:
+                previously_published.add(identity)
+
+    blockers: list[dict[str, int | str]] = []
+    seen: set[tuple[str, str]] = set()
+    for asset, source in source_records:
+        identity = source_reuse_identity(source)
+        if identity is None or identity not in previously_published:
+            continue
+        repeat_use_approved = (
+            bool(getattr(source, "repeat_use_allowed", False))
+            and getattr(source, "repeat_use_reviewed_at", None) is not None
+            and len(str(getattr(source, "repeat_use_review_notes", "") or "").strip()) >= 10
+        )
+        if repeat_use_approved or identity in seen:
+            continue
+        seen.add(identity)
+        blockers.append({
+            "asset_id": int(asset.id),
+            "source_id": int(source.id),
+            "title": str(source.title or asset.title)[:300],
+            "source_url": str(source.source_url or "")[:2048],
+        })
+    return blockers
 
 
 def is_project_scene_publishable(asset: Asset | None, source: Source | None) -> bool:

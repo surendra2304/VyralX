@@ -7,6 +7,11 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
 ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
+    "sources": {
+        "repeat_use_allowed": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "repeat_use_reviewed_at": "TIMESTAMP",
+        "repeat_use_review_notes": "TEXT NOT NULL DEFAULT ''",
+    },
     "render_jobs": {
         "attempts": "INTEGER NOT NULL DEFAULT 0",
         "started_at": "TIMESTAMP",
@@ -36,6 +41,7 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
         "trend_source_video_id": "VARCHAR(100) NOT NULL DEFAULT ''",
         "trend_source_url": "VARCHAR(2048) NOT NULL DEFAULT ''",
         "trend_score": "FLOAT NOT NULL DEFAULT 0",
+        "confirm_pexels_repeat_use": "BOOLEAN NOT NULL DEFAULT FALSE",
     },
     "agent_tasks": {
         "idempotency_key": "VARCHAR(160)",

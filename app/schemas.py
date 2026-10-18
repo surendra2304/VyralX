@@ -20,6 +20,32 @@ class SourceCreate(BaseModel):
     permission_reference: str = Field(default="", max_length=2048)
     rights_verified: bool = False
     notes: str = ""
+    repeat_use_allowed: bool = False
+    repeat_use_review_notes: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_repeat_use_review(self) -> "SourceCreate":
+        if self.repeat_use_allowed:
+            if not self.rights_verified:
+                raise ValueError("Repeat-use permission requires verified rights")
+            if len(self.license_name.strip()) < 5 or len(self.permission_reference.strip()) < 5:
+                raise ValueError("Repeat-use permission requires a license name and evidence reference")
+            if len(self.repeat_use_review_notes.strip()) < 10:
+                raise ValueError("Repeat-use permission requires a review note of at least 10 characters")
+        return self
+
+
+class RepeatUseReviewRequest(BaseModel):
+    repeat_use_allowed: bool
+    review_notes: str = Field(min_length=10, max_length=1000)
+
+    @field_validator("review_notes")
+    @classmethod
+    def normalize_review_notes(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if len(normalized) < 10:
+            raise ValueError("review_notes must contain at least 10 non-whitespace characters")
+        return normalized
 
 
 class CaptionSegment(BaseModel):
@@ -141,6 +167,7 @@ class PexelsImportRequest(BaseModel):
     video_file_id: int = Field(gt=0)
     title: str = Field(default="", max_length=300)
     confirm_license: bool = False
+    confirm_repeat_use: bool = False
 
 
 class ThumbnailRequest(BaseModel):
@@ -244,6 +271,7 @@ class VideoProjectCreateRequest(BaseModel):
     tone: str = Field(default="clear, energetic and factual", max_length=200)
     scene_count: int = Field(default=4, ge=2, le=4)
     confirm_pexels_license: bool = False
+    confirm_pexels_repeat_use: bool = False
     use_voiceover: bool = True
 
 
