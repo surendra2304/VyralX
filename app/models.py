@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -50,6 +50,7 @@ class RenderJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     options_json: Mapped[str] = mapped_column(Text, default="{}")
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -122,6 +123,38 @@ class AgentTask(Base):
     action: Mapped[str] = mapped_column(String(120), default="")
     status: Mapped[str] = mapped_column(String(40), default="queued", index=True)
     result_json: Mapped[str] = mapped_column(Text, default="{}")
+    error: Mapped[str] = mapped_column(Text, default="")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class VideoProject(Base):
+    __tablename__ = "video_projects"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_key: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    topic: Mapped[str] = mapped_column(String(500))
+    auto_discover_trend: Mapped[bool] = mapped_column(Boolean, default=False)
+    trend_query: Mapped[str] = mapped_column(String(200), default="")
+    trend_max_results: Mapped[int] = mapped_column(Integer, default=10)
+    trend_source_video_id: Mapped[str] = mapped_column(String(100), default="")
+    trend_source_url: Mapped[str] = mapped_column(String(2048), default="")
+    trend_score: Mapped[float] = mapped_column(Float, default=0.0)
+    video_format: Mapped[str] = mapped_column(String(20), default="shorts")
+    target_seconds: Mapped[int] = mapped_column(Integer, default=45)
+    audience: Mapped[str] = mapped_column(String(200), default="general audience")
+    tone: Mapped[str] = mapped_column(String(200), default="clear, energetic and factual")
+    scene_count: Mapped[int] = mapped_column(Integer, default=4)
+    confirm_pexels_license: Mapped[bool] = mapped_column(Boolean, default=False)
+    use_voiceover: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(40), default="queued", index=True)
+    content_pack_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    render_job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    primary_asset_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    thumbnail_path: Mapped[str] = mapped_column(String(2048), default="")
+    asset_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     error: Mapped[str] = mapped_column(Text, default="")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
