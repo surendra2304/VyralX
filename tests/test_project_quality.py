@@ -31,6 +31,12 @@ def test_complete_project_report_is_ready_for_operator_review(tmp_path):
             "black_intervals": [],
             "silence_intervals": [],
             "audio_analyzed": True,
+            "audio_metrics": {
+                "status": "analyzed",
+                "integrated_loudness_lufs": -16.0,
+                "true_peak_dbfs": -1.2,
+                "clipped_samples": 0,
+            },
         },
     )
 
@@ -40,7 +46,7 @@ def test_complete_project_report_is_ready_for_operator_review(tmp_path):
     assert {item["id"] for item in report["checks"]} >= {
         "duration", "dimensions", "audio_track", "narration_file", "voiceover_duration",
         "caption_coverage", "caption_timing", "thumbnail", "scene_provenance",
-        "black_frames", "silence_gaps",
+        "black_frames", "silence_gaps", "audio_loudness", "audio_clipping",
     }
 
 
@@ -102,6 +108,12 @@ def test_signal_level_qa_warns_on_black_frames_and_long_silence():
             "black_intervals": [{"start_seconds": 10, "end_seconds": 11, "duration_seconds": 1}],
             "silence_intervals": [{"start_seconds": 20, "end_seconds": 30, "duration_seconds": 10}],
             "audio_analyzed": True,
+            "audio_metrics": {
+                "status": "analyzed",
+                "integrated_loudness_lufs": -16.0,
+                "true_peak_dbfs": -0.2,
+                "clipped_samples": 14,
+            },
         },
     )
 
@@ -110,4 +122,7 @@ def test_signal_level_qa_warns_on_black_frames_and_long_silence():
     assert checks["silence_gaps"]["status"] == "warning"
     assert checks["black_frames"]["actual"]["count"] == 1
     assert checks["silence_gaps"]["actual"]["count"] == 1
+    assert checks["audio_loudness"]["status"] == "warning"
+    assert checks["audio_clipping"]["status"] == "warning"
+    assert checks["audio_clipping"]["actual"]["clipped_samples"] == 14
     assert report["automatic_publish_approval"] is False
