@@ -486,6 +486,11 @@ def test_publish_rights_gate_checks_all_montage_assets(tmp_path: Path):
             description = append_stock_attribution("An educational video.", verified)
             assert "Creator A" in description and "Creator B" in description
             assert "https://www.pexels.com/license/" in description
+            assert append_stock_attribution(description, verified) == description
+            # A user-supplied heading alone must not suppress missing credits.
+            heading_only = "Intro\\n\\nStock footage credits:"
+            completed_heading = append_stock_attribution(heading_only, verified)
+            assert "Creator A" in completed_heading and "Creator B" in completed_heading
             source_b = db.get(Source, source_b_id)
             source_b.permission_reference = ""
             db.commit()
