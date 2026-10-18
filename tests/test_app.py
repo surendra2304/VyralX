@@ -24,7 +24,7 @@ def test_rights_gate_fails_closed():
     assert not source_is_publishable(None)
     assert not source_is_publishable(Source(title="unverified", rights_verified=False))
     assert not source_is_publishable(Source(title="no evidence", rights_verified=True))
-    assert source_is_publishable(Source(title="licensed", rights_verified=True, license_name="CC BY 4.0"))
+    assert source_is_publishable(Source(title="licensed", rights_verified=True, license_name="CC BY 4.0", permission_reference="https://creativecommons.org/licenses/by/4.0/"))
 
 def test_invalid_source_rejected_without_auth_in_dev():
     response = client.post("/api/sources", json={"title": ""})
