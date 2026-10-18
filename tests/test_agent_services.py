@@ -545,3 +545,20 @@ def test_pexels_uses_official_video_api_endpoints():
 
     assert PEXELS_SEARCH_URL == "https://api.pexels.com/videos/search"
     assert PEXELS_VIDEO_URL == "https://api.pexels.com/videos/videos/{video_id}"
+
+
+def test_probe_reports_audio_stream_count(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import probe
+
+    media = tmp_path / "sample.mp4"
+    media.write_bytes(b"fixture")
+    monkeypatch.setattr(probe, "get_settings", lambda: SimpleNamespace(ffprobe_bin="ffprobe"))
+    monkeypatch.setattr(probe.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(
+        returncode=0, stderr="", stdout='{"format":{"duration":"12.0"},"streams":[{"codec_type":"video","width":1080,"height":1920},{"codec_type":"audio"}]}'
+    ))
+    metadata = probe.probe_media(media)
+    assert metadata["duration_seconds"] == 12.0
+    assert metadata["width"] == 1080 and metadata["height"] == 1920
+    assert metadata["audio_stream_count"] == 1
