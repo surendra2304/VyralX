@@ -9,6 +9,7 @@ import httpx
 
 from app.config import get_settings
 from app.services.intelx import normalize_intelx_reports
+from app.services.review_notes import attach_research_review_notes
 
 VideoFormat = Literal["shorts", "long"]
 
@@ -222,4 +223,5 @@ def generate_content_pack(
     pack["generated_by"] = "inference"
     pack["requires_editor_review"] = True
     pack["fact_check_passed"] = False
+    pack = attach_research_review_notes(pack, safe_research)
     return pack
