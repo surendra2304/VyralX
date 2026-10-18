@@ -5,7 +5,7 @@ from app.main import app
 from app.services.renderer import PRESETS
 from app.services.rights import source_is_publishable
 from app.config import Settings
-from app.models import PublishJob, Source
+from app.models import ContentPack, PublishJob, RenderJob, Source, VideoProject
 from app.schemas import PublishRequest
 import pytest
 
@@ -52,9 +52,79 @@ def test_pending_publish_listing_exposes_final_description_and_tags():
             db.commit()
 
 
+def test_publish_listing_includes_project_qa_snapshot():
+    from uuid import uuid4
+    from app.database import SessionLocal
+
+    project_key = "qa-review-" + uuid4().hex[:12]
+    with SessionLocal() as db:
+        pack = ContentPack(
+            topic="Test video topic",
+            video_format="shorts",
+            status="generated",
+            pack_json=json.dumps({
+                "production_qa": {
+                    "status": "review_required",
+                    "warning_count": 2,
+                    "passed_count": 5,
+                    "checks": [{"id": "caption_timing", "status": "warning"}],
+                    "automatic_publish_approval": False,
+                }
+            }),
+        )
+        db.add(pack)
+        db.flush()
+        project = VideoProject(
+            project_key=project_key,
+            topic="Test video topic",
+            video_format="shorts",
+            target_seconds=45,
+            status="completed",
+            content_pack_id=pack.id,
+        )
+        db.add(project)
+        db.flush()
+        render = RenderJob(
+            asset_id=987654,
+            preset="shorts",
+            status="completed",
+            output_path="/not-downloaded-by-this-list-test.mp4",
+            project_id=project.id,
+            options_json="{}",
+        )
+        db.add(render)
+        db.flush()
+        job = PublishJob(
+            asset_id=987654,
+            render_job_id=render.id,
+            title="Project QA review fixture " + uuid4().hex[:8],
+            description="Review test description",
+            status="pending_approval",
+        )
+        db.add(job)
+        db.commit()
+        job_id, render_id, project_id, pack_id = job.id, render.id, project.id, pack.id
+
+    try:
+        response = client.get("/api/publish")
+        assert response.status_code == 200
+        row = next(item for item in response.json() if item["id"] == job_id)
+        assert row["production_qa"]["status"] == "review_required"
+        assert row["production_qa"]["warning_count"] == 2
+        assert row["production_qa"]["checks"][0]["id"] == "caption_timing"
+    finally:
+        with SessionLocal() as db:
+            db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+            db.query(RenderJob).filter(RenderJob.id == render_id).delete()
+            db.query(VideoProject).filter(VideoProject.id == project_id).delete()
+            db.query(ContentPack).filter(ContentPack.id == pack_id).delete()
+            db.commit()
+
+
 def test_dashboard_requires_reviewing_final_publish_description():
     html = client.get("/").text
     assert "Review final description and stock attributions" in html
+    assert "Review production QA" in html
     assert "I reviewed the final render, title, description and creator credits" in html
     assert "Download MP4 for review" in html
 

@@ -285,19 +285,38 @@ async function refreshJobs(button){
     const descriptionSummary=document.createElement('summary');descriptionSummary.textContent='Review final description and stock attributions';descriptionDetails.appendChild(descriptionSummary);
     const description=document.createElement('pre');description.className='output';description.textContent=String(job.description||'(No description supplied)');descriptionDetails.appendChild(description);card.appendChild(descriptionDetails);
     const tags=document.createElement('p');tags.className='sub';tags.textContent='Tags: '+(Array.isArray(job.tags)&&job.tags.length?job.tags.join(', '):'(none)');card.appendChild(tags);
+    const qa=job.production_qa&&typeof job.production_qa==='object'?job.production_qa:null;
+    let qaOpened=!qa;
+    if(qa){
+      const qaDetails=document.createElement('details');
+      const qaSummary=document.createElement('summary');
+      const warningCount=Number(qa.warning_count||0);
+      qaSummary.textContent='Review production QA — '+warningCount+' warning(s), '+String(qa.status||'status unavailable');
+      qaDetails.appendChild(qaSummary);
+      const qaReport=document.createElement('pre');qaReport.className='output';qaReport.textContent=JSON.stringify(qa,null,2);qaDetails.appendChild(qaReport);
+      qaDetails.addEventListener('toggle',()=>{if(qaDetails.open){qaOpened=true;updateReviewAvailability()}});
+      card.appendChild(qaDetails);
+      if(warningCount>0){const qaWarning=document.createElement('p');qaWarning.className='notice';qaWarning.textContent='This project has QA warnings. Review the report and rendered MP4 before approving.';card.appendChild(qaWarning)}
+    }
     if(job.error){const warning=document.createElement('p');warning.className='notice';warning.textContent='Review required: '+job.error;card.appendChild(warning)}
     const renderDownload=document.createElement('button');renderDownload.className='secondary';renderDownload.textContent='Download MP4 for review';
     renderDownload.onclick=async()=>{renderDownload.disabled=true;try{await downloadAuthenticated('/api/render/'+job.render_job_id+'/download','vyralx-publish-review-'+job.id+'.mp4')}catch(e){show({error:String(e)})}finally{renderDownload.disabled=false}};
     card.appendChild(renderDownload);
     const acknowledgement=document.createElement('label');
     const check=document.createElement('input');check.type='checkbox';check.disabled=true;
-    acknowledgement.appendChild(check);acknowledgement.appendChild(document.createTextNode(' I reviewed the final render, title, description and creator credits, privacy, tags, and rights.'));
+    acknowledgement.appendChild(check);acknowledgement.appendChild(document.createTextNode(' I reviewed the final render, title, description and creator credits, privacy, tags, rights, and production QA (if available).'));
     card.appendChild(acknowledgement);
     const btn=document.createElement('button');btn.className='warn';btn.textContent='Approve upload job '+job.id;btn.disabled=true;
     let descriptionOpened=false;
-    descriptionDetails.addEventListener('toggle',()=>{if(descriptionDetails.open){descriptionOpened=true;check.disabled=false;btn.disabled=!check.checked}});
-    check.addEventListener('change',()=>{btn.disabled=!check.checked||!descriptionOpened});
-    btn.onclick=async()=>{if(!check.checked||!descriptionOpened)return;if(!confirm('Approve publish job '+job.id+' for render '+job.render_job_id+'? Upload only proceeds if YouTube is enabled.'))return;btn.disabled=true;try{show(await api('/api/publish/'+job.id+'/execute',{method:'POST'}));await refreshJobs()}catch(e){show({error:String(e)});await refreshJobs()}finally{btn.disabled=!check.checked||!descriptionOpened}};
+    const updateReviewAvailability=()=>{
+      const detailsReviewed=descriptionOpened&&qaOpened;
+      check.disabled=!detailsReviewed;
+      if(!detailsReviewed)check.checked=false;
+      btn.disabled=!detailsReviewed||!check.checked;
+    };
+    descriptionDetails.addEventListener('toggle',()=>{if(descriptionDetails.open){descriptionOpened=true;updateReviewAvailability()}});
+    check.addEventListener('change',()=>{btn.disabled=!(check.checked&&descriptionOpened&&qaOpened)});
+    btn.onclick=async()=>{if(!check.checked||!descriptionOpened||!qaOpened)return;if(!confirm('Approve publish job '+job.id+' for render '+job.render_job_id+'? Upload only proceeds if YouTube is enabled.'))return;btn.disabled=true;try{show(await api('/api/publish/'+job.id+'/execute',{method:'POST'}));await refreshJobs()}catch(e){show({error:String(e)});await refreshJobs()}finally{btn.disabled=!(check.checked&&descriptionOpened&&qaOpened)}};
     card.appendChild(btn);root.appendChild(card);
   }
   return {render_count:result.renders.length,publish_count:result.publishes.length,pending_approval:pending.length};
@@ -783,6 +802,18 @@ def _publish_job_summary(job: PublishJob):
         tags = []
     if not isinstance(tags, list):
         tags = []
+    production_qa = None
+    render = db.get(RenderJob, job.render_job_id)
+    if render is not None and render.project_id is not None:
+        project = db.get(VideoProject, render.project_id)
+        content_pack = db.get(ContentPack, project.content_pack_id) if project and project.content_pack_id else None
+        if content_pack is not None:
+            try:
+                pack = json.loads(content_pack.pack_json or "{}")
+            except (TypeError, ValueError):
+                pack = {}
+            if isinstance(pack, dict) and isinstance(pack.get("production_qa"), dict):
+                production_qa = pack["production_qa"]
     return {
         "id": job.id,
         "asset_id": job.asset_id,
@@ -790,6 +821,7 @@ def _publish_job_summary(job: PublishJob):
         "title": job.title,
         "description": str(job.description or ""),
         "tags": tags,
+        "production_qa": production_qa,
         "privacy_status": job.privacy_status,
         "scheduled_at": job.scheduled_at,
         "status": job.status,
@@ -805,7 +837,7 @@ def _publish_job_summary(job: PublishJob):
 @app.get("/api/publish", dependencies=[Depends(require_api_key)])
 def list_publish_jobs(db: Session = Depends(get_db)):
     rows = db.scalars(select(PublishJob).order_by(PublishJob.id.desc()).limit(100)).all()
-    return [_publish_job_summary(job) for job in rows]
+    return [_publish_job_summary(job, db) for job in rows]
 
 
 @app.post("/api/content/generate", dependencies=[Depends(require_api_key)])
