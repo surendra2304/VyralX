@@ -28,7 +28,7 @@ def _write_test_wave(path: Path, word_count: int) -> float:
         output.setnchannels(1)
         output.setsampwidth(2)
         output.setframerate(rate)
-        output.writeframes(b"\x00\x00" * frames)
+        output.writeframes(bytes(frames * 2))
     return frames / rate
 
 
@@ -40,10 +40,10 @@ def test_segmented_espeak_returns_caption_cues_timed_from_actual_wav_durations(t
     def fake_run(command, **kwargs):
         assert kwargs["timeout"] == 30
         assert kwargs["check"] is False
-        path = Path(command[command.index("-w") + 1])
+        output_path = Path(command[command.index("-w") + 1])
         text = command[-1]
-        duration = _write_test_wave(path, len(text.split()))
-        synthesized.append({"text": text, "duration": duration, "path": path})
+        duration = _write_test_wave(output_path, len(text.split()))
+        synthesized.append({"text": text, "duration": duration, "path": output_path})
         return SimpleNamespace(returncode=0, stderr="", stdout="")
 
     monkeypatch.setattr(voiceover.subprocess, "run", fake_run)
@@ -66,18 +66,17 @@ def test_segmented_espeak_returns_caption_cues_timed_from_actual_wav_durations(t
         cursor += chunk["duration"]
         assert cue["end_seconds"] == round(cursor, 3)
         assert cue["text"] == chunk["text"]
-    assert Path(str(result["file_path"])).is_file()
-    assert Path(str(result["file_path"])).parent == (tmp_path / "media" / "voiceovers")
-    with wave.open(str(result["file_path"]), "rb") as combined:
+    output_path = Path(str(result["file_path"]))
+    assert output_path.is_file()
+    assert output_path.parent == (tmp_path / "media" / "voiceovers").resolve()
+    with wave.open(str(output_path), "rb") as combined:
         assert combined.getnchannels() == 1
         assert combined.getsampwidth() == 2
         assert combined.getframerate() == 22050
         assert abs(combined.getnframes() / combined.getframerate() - cursor) < 0.002
 
     # Only the retained combined audio remains; temporary per-caption WAVs are removed.
-    assert list((tmp_path / "media" / "voiceovers").glob("*.wav")) == [
-        Path(str(result["file_path"]))
-    ]
+    assert list(output_path.parent.glob("*.wav")) == [output_path]
 
 
 def test_segmented_espeak_cleans_partial_chunks_when_a_chunk_fails(tmp_path, monkeypatch):
@@ -89,16 +88,20 @@ def test_segmented_espeak_cleans_partial_chunks_when_a_chunk_fails(tmp_path, mon
         nonlocal calls
         calls += 1
         if calls == 1:
-            path = Path(command[command.index("-w") + 1])
-            _write_test_wave(path, 4)
+            output_path = Path(command[command.index("-w") + 1])
+            _write_test_wave(output_path, 4)
             return SimpleNamespace(returncode=0, stderr="", stdout="")
         return SimpleNamespace(returncode=1, stderr="not persisted", stdout="")
 
     monkeypatch.setattr(voiceover.subprocess, "run", fake_run)
     with pytest.raises(RuntimeError, match="chunk synthesis failed"):
         voiceover.synthesize_voiceover_with_captions(
-            "The first short sentence. The second short sentence.",
+            (
+                "The first short sentence contains enough words to split into a separate caption. "
+                "The second short sentence contains more words to create another caption."
+            ),
             target_seconds=15,
+            max_chars=40,
         )
 
     audio_dir = tmp_path / "media" / "voiceovers"
