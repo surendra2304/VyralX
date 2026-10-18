@@ -10,7 +10,7 @@ This runbook describes the repository implementation; it does not claim that liv
     docker build -t vyralx:local .
     API_KEY=ci-only-not-a-real-secret docker compose config --quiet
 
-CI repeats Ruff, pytest and the Docker build. Verify the run for the latest commit rather than relying on an earlier run.
+CI repeats Ruff, pytest, the Docker build, Compose validation, and a strict audit of the installed third-party Python packages using a frozen, fully pinned requirements snapshot (excluding only editable local projects). Verify the run for the latest commit rather than relying on an earlier run. The Python audit does not replace base-image/OS-package scanning or a repository secret scan.
 
 ## Deployment topology
 

@@ -60,7 +60,8 @@ This file distinguishes implemented repository capability from external producti
 - [x] CI workflow for Ruff, pytest and Docker build.
 - [x] Example environment file and API/architecture/operations documentation.
 - [x] Run and fix all CI checks on the latest branch head (Ruff, pytest, Docker image build, and Compose validation passed for the verified head; rerun after subsequent changes).
-- [ ] Run dependency audit and secret scan; pin base image and dependencies before immutable production release.
+- [x] Add a strict resolved-Python dependency vulnerability audit to CI; the first green run is required before merge.
+- [ ] Run a repository secret scan and container/OS-package scan; pin base image and dependencies before immutable production release.
 - [ ] Validate the actual external Docker network and Dokploy stack before deploy.
 - [ ] Test persistence across recreation, encrypted backup and a successful restore.
 - [ ] Profile memory/CPU on the current AMD interim VM and separately on the target ARM VM.
