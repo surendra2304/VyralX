@@ -55,6 +55,8 @@ Discovery results are leads only. A task can create a pending publish request, b
 | POST | \`/api/analytics/refresh\` | Save public view/like/comment snapshots for VyralX videos |
 | GET | \`/api/analytics\` | List stored video performance snapshots |
 
+When a worker restarts during a resumable YouTube upload, a matching private session checkpoint restores an internal `resumable` state. The worker probes the saved YouTube session and continues from the provider-confirmed offset. Invalid or mismatched receipts remain `uncertain`; they are not automatically re-uploaded.
+
 ## End-to-end projects
 
 | Method | Route | Purpose |

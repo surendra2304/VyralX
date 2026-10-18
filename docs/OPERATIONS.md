@@ -100,8 +100,11 @@ The adapter does not install or host a speech-alignment model by itself. Keep th
 - /health only confirms the API process is responding.
 - /ready checks DB connectivity and FFmpeg; with WORKER_REQUIRED=true, it also verifies fresh worker heartbeat.
 - RenderJob left in running after a worker restart becomes failed. Inspect logs/output and use a bounded retry if safe.
-- If YouTube returned a video ID but the worker stopped before committing the job state, a private atomic checkpoint scoped to the publish-job ID and upload attempt lets startup recovery finalize that confirmed success. The checkpoint is removed after a successful database commit.
-- A PublishJob left in uploading without a matching success checkpoint becomes uncertain. Check YouTube Studio/API state, then resolve it as uploaded with a video ID or as not_uploaded only after confirming no video exists. The checkpoint does not resume an in-flight transfer; never blindly repeat an uncertain upload.
+- If YouTube returned a video ID but the worker stopped before committing the job state, the private success receipt scoped to the publish-job ID and attempt lets startup recovery finalize that confirmed success.
+- If the worker stopped during transfer, a valid private session receipt records the session URI, render-file hash, metadata fingerprint, and last server-confirmed byte offset. Startup recovery moves that job to `resumable`; the worker sends an empty status-probe request, follows YouTube's `Range` header, and continues the same upload attempt from the provider-confirmed offset. The session URI is treated as sensitive and stored with owner-only permissions. Recoverable transport failures retain the session and schedule another attempt after a 30-second cooldown so a stuck provider/network does not hot-loop or starve other jobs.
+- An invalid/mismatched checkpoint, changed render/metadata, or unresolved provider outcome remains `uncertain` and requires a check in YouTube Studio/API before resolution. If YouTube returns 404 for an expired session, VyralX starts a new session from byte zero; the official protocol returns the original final response for a completed session.
+- Both success and session receipts are removed after the database result is committed or an operator resolves the ambiguous job. Never blindly retry an uncertain upload.
+- Protocol reference: [YouTube Data API resumable uploads](https://developers.google.com/youtube/data/guides/using_resumable_upload_protocol).
 - A task left running after restart becomes failed; submit a new task after checking possible side effects.
 - Failed render/upload jobs retain an error description and attempt count.
 

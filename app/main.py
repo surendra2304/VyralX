@@ -26,6 +26,7 @@ from app.services.thumbnail import extract_thumbnail
 from app.services.youtube_analytics import fetch_video_metrics
 from app.services.peers import configured_peers, peer_health
 from app.services.project_pipeline import sync_project_memory
+from app.services.youtube import clear_upload_session_checkpoint, clear_upload_success_checkpoint
 from app.services.pexels import import_video_file, search_videos
 from app.services.rights import append_stock_attribution, find_repeat_use_blockers, is_project_scene_publishable, source_is_publishable, verified_render_sources
 
@@ -1274,6 +1275,8 @@ def resolve_uncertain_publish(
         job.completed_at = utcnow()
         job.updated_at = utcnow()
         db.commit()
+        clear_upload_success_checkpoint(job.id)
+        clear_upload_session_checkpoint(job.id)
         return {
             "job_id": job.id,
             "status": job.status,
@@ -1289,6 +1292,8 @@ def resolve_uncertain_publish(
     job.completed_at = None
     job.updated_at = utcnow()
     db.commit()
+    clear_upload_success_checkpoint(job.id)
+    clear_upload_session_checkpoint(job.id)
     return {
         "job_id": job.id,
         "status": job.status,
@@ -1317,6 +1322,7 @@ def _friday_state(internal_state: str) -> str:
         "pending_approval": "PENDING",
         "running": "RUNNING",
         "uploading": "RUNNING",
+        "resumable": "RUNNING",
         "completed": "SUCCESS",
         "uploaded": "SUCCESS",
         "failed": "ERROR",

@@ -34,7 +34,7 @@ This file distinguishes implemented repository capability from external producti
 - [x] Explicit publish request and separate approval before upload.
 - [x] Revalidate every montage asset's license evidence at request creation and immediately before upload; append Pexels creator/source credits.
 - [x] Official YouTube OAuth token loading and resumable upload path.
-- [x] Restart recovery that marks interrupted external uploads uncertain instead of blindly retrying.
+- [x] Restart recovery finalizes provider-confirmed successes, resumes valid YouTube sessions without incrementing the attempt, and leaves missing/mismatched sessions `uncertain` rather than blindly retrying.
 - [x] Public views/likes/comments snapshot history.
 - [ ] Verify OAuth scope/client, channel permission, quota, private test upload and scheduled publish in the real account.
 - [x] Add deterministic project QA for output duration/dimensions, requested audio, narration file/duration, caption file/word coverage/cue timing, thumbnail presence and scene provenance; QA warnings require operator review and never auto-approve.
@@ -44,7 +44,7 @@ This file distinguishes implemented repository capability from external producti
 - [x] Add an optional authenticated word-level forced-alignment adapter with transcript/timing validation and a QA-visible safe fallback; live aligner remains unverified.
 - [ ] Add phoneme-level alignment and confirm a channel-specific loudness standard against real rendered samples.
 - [x] Persist an atomic private upload-success receipt scoped to publish-job ID and attempt so restart recovery can commit a provider-confirmed video ID from the post-response/pre-database window.
-- [ ] Persist and restore resumable-session transfer progress and reconcile interrupted in-flight transfers with YouTube before retrying.
+- [x] Persist private, attempt-scoped YouTube session receipts with source-file and metadata fingerprints plus server-confirmed byte offsets; startup recovery probes YouTube and resumes the same attempt only when the saved session still matches the rendered file. Incomplete/mismatched outcomes remain fail-closed.
 
 ## Track D — FRIDAY Universe mesh
 

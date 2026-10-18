@@ -67,9 +67,9 @@ The completed \`RenderJob.options_json\` retains the montage asset IDs. Source-r
 
 - Render: \`queued → running → completed|failed\`; explicit retries are bounded.
 - Agent task: \`queued → running → completed|failed\`; queued tasks may be cancelled.
-- Publish: \`pending_approval → queued → uploading → uploaded|failed\`.
+- Publish: \`pending_approval → queued → uploading → uploaded|failed\`; a provider-validated in-flight session may move \`uploading → resumable → uploading\`, while missing/mismatched upload evidence goes to \`uncertain\` for operator reconciliation.
 - If a render is interrupted by a worker crash, startup recovery marks it failed so it can be inspected/retried.
-- Once YouTube returns a video ID, the worker records an atomic private success receipt tied to the publish-job ID and attempt before committing the uploaded state. On restart, a matching receipt finalizes the confirmed upload; absent a matching receipt the job becomes \`uncertain\`, and an operator reconciles provider state. In-flight resumable transfers are not automatically restarted.
+- Once YouTube returns a video ID, the worker records an atomic private success receipt tied to the publish-job ID and attempt before committing the uploaded state. On restart, a matching receipt finalizes the confirmed upload. If a worker crash happens mid-transfer, a valid attempt-scoped private session receipt and unchanged render/metadata restore the job to `resumable`; the worker queries YouTube's current `Range` and continues the same provider session. Missing or mismatched receipts remain `uncertain` and require reconciliation; uncertain uploads are never blindly repeated.
 - \`/ready\` checks database connectivity and FFmpeg availability, and in required-worker mode checks a heartbeat freshness window.
 
 ## Security and policy
