@@ -21,6 +21,11 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
         "completed_at": "TIMESTAMP",
         "updated_at": "TIMESTAMP",
         "approved_at": "TIMESTAMP",
+        "upload_session_url": "TEXT NOT NULL DEFAULT ''",
+        "upload_progress_bytes": "INTEGER NOT NULL DEFAULT 0",
+        "upload_file_fingerprint": "VARCHAR(64) NOT NULL DEFAULT ''",
+        "upload_metadata_fingerprint": "VARCHAR(64) NOT NULL DEFAULT ''",
+        "upload_session_updated_at": "TIMESTAMP",
     },
     "content_packs": {
         "voiceover_path": "VARCHAR(2048) NOT NULL DEFAULT ''",
