@@ -165,84 +165,121 @@ def synthesize_voiceover_with_captions(
     if root not in output_path.parents:
         raise RuntimeError("Invalid voiceover destination path")
 
-    rate = round(len(normalized.split()) * 60 / target_seconds)
-    rate = max(80, min(rate, 300))
+    initial_rate = round(len(normalized.split()) * 60 / target_seconds)
+    initial_rate = max(80, min(initial_rate, 300))
     segment_paths: list[Path] = []
-    frame_payloads: list[bytes] = []
-    caption_segments: list[dict[str, float | str]] = []
-    common_format: tuple[int, int, int, str, str] | None = None
-    cursor = 0.0
-    total_audio_bytes = 0
+
+    def synthesize_chunks(
+        selected_rate: int,
+    ) -> tuple[
+        list[Path],
+        list[bytes],
+        list[dict[str, float | str]],
+        tuple[int, int, int, str, str],
+        float,
+    ]:
+        paths: list[Path] = []
+        frame_payloads: list[bytes] = []
+        caption_segments: list[dict[str, float | str]] = []
+        common_format: tuple[int, int, int, str, str] | None = None
+        cursor = 0.0
+        total_audio_bytes = 0
+        try:
+            for draft in drafts:
+                chunk_text = str(draft.get("text") or "").strip()
+                if not chunk_text:
+                    continue
+                segment_path = (audio_dir / (uuid4().hex + ".wav")).resolve()
+                if root not in segment_path.parents:
+                    raise RuntimeError("Invalid voiceover segment destination path")
+                paths.append(segment_path)
+                command = [
+                    executable,
+                    "-w",
+                    str(segment_path),
+                    "-v",
+                    settings.espeak_voice,
+                    "-s",
+                    str(selected_rate),
+                    chunk_text,
+                ]
+                try:
+                    result = subprocess.run(
+                        command, capture_output=True, text=True, timeout=30, check=False
+                    )
+                except subprocess.TimeoutExpired:
+                    raise RuntimeError("Local voiceover chunk synthesis exceeded 30 seconds") from None
+                if (
+                    result.returncode != 0
+                    or not segment_path.is_file()
+                    or segment_path.stat().st_size <= 44
+                ):
+                    raise RuntimeError("Local voiceover chunk synthesis failed")
+
+                try:
+                    with wave.open(str(segment_path), "rb") as audio:
+                        sample_format = (
+                            audio.getnchannels(),
+                            audio.getsampwidth(),
+                            audio.getframerate(),
+                            audio.getcomptype(),
+                            audio.getcompname(),
+                        )
+                        frames_count = audio.getnframes()
+                        frame_data = audio.readframes(frames_count)
+                except (OSError, EOFError, wave.Error):
+                    raise RuntimeError("eSpeak returned invalid WAV audio for a caption chunk") from None
+
+                if (
+                    frames_count <= 0
+                    or sample_format[2] <= 0
+                    or sample_format[3] != "NONE"
+                    or len(frame_data) == 0
+                ):
+                    raise RuntimeError("eSpeak returned empty or unsupported WAV audio")
+                if common_format is None:
+                    common_format = sample_format
+                elif sample_format != common_format:
+                    raise RuntimeError("eSpeak returned inconsistent WAV formats across caption chunks")
+
+                total_audio_bytes += len(frame_data)
+                if total_audio_bytes > 50 * 1024 * 1024:
+                    raise RuntimeError("Segmented voiceover exceeds the 50 MiB audio limit")
+                duration = frames_count / sample_format[2]
+                start = cursor
+                cursor += duration
+                caption_segments.append({
+                    "start_seconds": round(start, 3),
+                    "end_seconds": round(cursor, 3),
+                    "text": chunk_text,
+                })
+                frame_payloads.append(frame_data)
+
+            if not frame_payloads or common_format is None:
+                raise RuntimeError("Local voiceover synthesis produced no usable audio chunks")
+            return paths, frame_payloads, caption_segments, common_format, cursor
+        except Exception:
+            for path in paths:
+                path.unlink(missing_ok=True)
+            raise
 
     try:
-        for index, draft in enumerate(drafts):
-            chunk_text = str(draft.get("text") or "").strip()
-            if not chunk_text:
-                continue
-            segment_path = (audio_dir / (uuid4().hex + ".wav")).resolve()
-            if root not in segment_path.parents:
-                raise RuntimeError("Invalid voiceover segment destination path")
-            segment_paths.append(segment_path)
-            command = [
-                executable,
-                "-w",
-                str(segment_path),
-                "-v",
-                settings.espeak_voice,
-                "-s",
-                str(rate),
-                chunk_text,
-            ]
-            try:
-                result = subprocess.run(
-                    command, capture_output=True, text=True, timeout=30, check=False
+        segment_paths, frame_payloads, caption_segments, common_format, cursor = synthesize_chunks(
+            initial_rate
+        )
+        rate = initial_rate
+        # Chunk-level synthesis adds natural pauses that a single long TTS call does
+        # not. If the first measured pass drifts from the target, adjust rate once and
+        # regenerate, retaining the per-chunk measured cue boundaries.
+        if abs(cursor - target_seconds) > 0.5:
+            adjusted_rate = max(80, min(round(initial_rate * cursor / target_seconds), 300))
+            if adjusted_rate != initial_rate:
+                for path in segment_paths:
+                    path.unlink(missing_ok=True)
+                segment_paths, frame_payloads, caption_segments, common_format, cursor = (
+                    synthesize_chunks(adjusted_rate)
                 )
-            except subprocess.TimeoutExpired:
-                raise RuntimeError("Local voiceover chunk synthesis exceeded 30 seconds") from None
-            if result.returncode != 0 or not segment_path.is_file() or segment_path.stat().st_size <= 44:
-                raise RuntimeError("Local voiceover chunk synthesis failed")
-
-            try:
-                with wave.open(str(segment_path), "rb") as audio:
-                    sample_format = (
-                        audio.getnchannels(),
-                        audio.getsampwidth(),
-                        audio.getframerate(),
-                        audio.getcomptype(),
-                        audio.getcompname(),
-                    )
-                    frames_count = audio.getnframes()
-                    frame_data = audio.readframes(frames_count)
-            except (OSError, EOFError, wave.Error):
-                raise RuntimeError("eSpeak returned invalid WAV audio for a caption chunk") from None
-
-            if (
-                frames_count <= 0
-                or sample_format[2] <= 0
-                or sample_format[3] != "NONE"
-                or len(frame_data) == 0
-            ):
-                raise RuntimeError("eSpeak returned empty or unsupported WAV audio")
-            if common_format is None:
-                common_format = sample_format
-            elif sample_format != common_format:
-                raise RuntimeError("eSpeak returned inconsistent WAV formats across caption chunks")
-
-            total_audio_bytes += len(frame_data)
-            if total_audio_bytes > 50 * 1024 * 1024:
-                raise RuntimeError("Segmented voiceover exceeds the 50 MiB audio limit")
-            duration = frames_count / sample_format[2]
-            start = cursor
-            cursor += duration
-            caption_segments.append({
-                "start_seconds": round(start, 3),
-                "end_seconds": round(cursor, 3),
-                "text": chunk_text,
-            })
-            frame_payloads.append(frame_data)
-
-        if not frame_payloads or common_format is None:
-            raise RuntimeError("Local voiceover synthesis produced no usable audio chunks")
+                rate = adjusted_rate
 
         channels, sample_width, sample_rate, _, _ = common_format
         try:
