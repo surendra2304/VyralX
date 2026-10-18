@@ -23,7 +23,7 @@ from app.models import AgentTask, Asset, PublishJob, RenderJob, Source, VideoPro
 from app.services.probe import probe_media
 from app.services.captions import write_srt
 from app.services.renderer import render_video
-from app.services.rights import source_is_publishable
+from app.services.rights import append_stock_attribution, source_is_publishable, verified_render_sources
 from app.services.youtube import UploadOutcomeUnknown, upload_video
 from app.services.peers import post_peer_json
 from app.services.task_dispatch import dispatch_agent_task
@@ -306,6 +306,15 @@ def process_publish_job(job_id: int) -> None:
             return
         if not asset.rights_verified or not source_is_publishable(source):
             job.status, job.error = "failed", "Verified source license/permission record is required"
+            job.completed_at = utcnow()
+            job.updated_at = utcnow()
+            db.commit()
+            return
+        try:
+            render_sources = verified_render_sources(render, db)
+            job.description = append_stock_attribution(job.description, render_sources)
+        except ValueError as exc:
+            job.status, job.error = "failed", str(exc)[:3000]
             job.completed_at = utcnow()
             job.updated_at = utcnow()
             db.commit()
