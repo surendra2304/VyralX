@@ -153,22 +153,38 @@ def build_project_quality_report(
         sum(bool(value) for value in scene_rights_checks), len(scene_rights_checks))
 
     if signal_analysis is None:
-        add("black_frames", "Black-frame scan", None, "Signal-level media analysis was not supplied.")
-        add("silence_gaps", "Silence-gap scan", None, "Signal-level media analysis was not supplied.")
+        add(
+            "black_frames", "Black-frame scan", False,
+            "Signal-level media analysis was not supplied; inspect the rendered video manually.",
+            "not supplied", "completed signal scan",
+        )
+        if int(audio_stream_count) > 0:
+            add("silence_gaps", "Silence-gap scan", False, "Signal-level audio analysis was not supplied.")
+            add("audio_loudness", "Loudness / true-peak scan", False, "Audio loudness measurements were not supplied.")
+            add("audio_clipping", "Clipping scan", False, "Audio clipping measurements were not supplied.")
+        else:
+            add("silence_gaps", "Silence-gap scan", None, "The render has no audio stream to analyze.")
+            add("audio_loudness", "Loudness / true-peak scan", None, "The render has no audio stream to analyze.")
+            add("audio_clipping", "Clipping scan", None, "The render has no audio stream to analyze.")
     elif signal_analysis.get("status") != "analyzed":
+        error_type = signal_analysis.get("error_type") or "unavailable"
         add(
             "black_frames", "Black-frame scan", False,
             "FFmpeg signal analysis was unavailable; inspect the video manually.",
-            signal_analysis.get("error_type") or "unavailable", "completed signal scan",
+            error_type, "completed signal scan",
         )
         if int(audio_stream_count) > 0:
             add(
                 "silence_gaps", "Silence-gap scan", False,
                 "FFmpeg audio analysis was unavailable; inspect narration and silence manually.",
-                signal_analysis.get("error_type") or "unavailable", "completed audio scan",
+                error_type, "completed audio scan",
             )
+            add("audio_loudness", "Loudness / true-peak scan", False, "FFmpeg audio loudness analysis was unavailable.", error_type, "complete audio metrics")
+            add("audio_clipping", "Clipping scan", False, "FFmpeg clipping analysis was unavailable.", error_type, "complete clipping metrics")
         else:
             add("silence_gaps", "Silence-gap scan", None, "The render has no audio stream to analyze.")
+            add("audio_loudness", "Loudness / true-peak scan", None, "The render has no audio stream to analyze.")
+            add("audio_clipping", "Clipping scan", None, "The render has no audio stream to analyze.")
     else:
         raw_black = signal_analysis.get("black_intervals")
         black_intervals = raw_black if isinstance(raw_black, list) else []
@@ -189,12 +205,16 @@ def build_project_quality_report(
 
         if int(audio_stream_count) <= 0:
             add("silence_gaps", "Silence-gap scan", None, "The render has no audio stream to analyze.")
+            add("audio_loudness", "Loudness / true-peak scan", None, "The render has no audio stream to analyze.")
+            add("audio_clipping", "Clipping scan", None, "The render has no audio stream to analyze.")
         elif not bool(signal_analysis.get("audio_analyzed")):
             add(
                 "silence_gaps", "Silence-gap scan", False,
                 "The signal analysis did not inspect the rendered audio stream.",
                 "not analyzed", "audio scan completed",
             )
+            add("audio_loudness", "Loudness / true-peak scan", False, "The signal analysis did not inspect the rendered audio stream.")
+            add("audio_clipping", "Clipping scan", False, "The signal analysis did not inspect the rendered audio stream.")
         else:
             raw_silence = signal_analysis.get("silence_intervals")
             silence_intervals = raw_silence if isinstance(raw_silence, list) else []
@@ -217,6 +237,54 @@ def build_project_quality_report(
                 {"count": len(long_silence), "longest_seconds": round(longest_silence, 3),
                  "intervals": long_silence[:20]},
                 f"no gaps > {silence_threshold:.1f} seconds",
+            )
+
+            raw_metrics = signal_analysis.get("audio_metrics")
+            metrics = raw_metrics if isinstance(raw_metrics, dict) else {}
+            integrated = _finite_number(metrics.get("integrated_loudness_lufs"))
+            true_peak = _finite_number(metrics.get("true_peak_dbfs"))
+            clipped_samples = _finite_number(metrics.get("clipped_samples"))
+            min_loudness = -24.0
+            max_loudness = -10.0
+            max_true_peak = -1.0
+            loudness_complete = integrated is not None and true_peak is not None
+            loudness_ok = (
+                loudness_complete
+                and min_loudness <= integrated <= max_loudness
+                and true_peak <= max_true_peak
+            )
+            if not loudness_complete:
+                loudness_message = "FFmpeg did not return complete integrated-loudness and true-peak measurements; review the audio manually."
+            elif loudness_ok:
+                loudness_message = "Integrated loudness and true peak are within the broad review thresholds."
+            else:
+                loudness_message = "Integrated loudness or true peak is outside the review thresholds; adjust levels and listen back."
+            add(
+                "audio_loudness", "Loudness / true-peak scan", bool(loudness_ok),
+                loudness_message,
+                {
+                    "integrated_loudness_lufs": integrated,
+                    "true_peak_dbfs": true_peak,
+                },
+                {
+                    "integrated_loudness_lufs": f"{min_loudness:.0f} to {max_loudness:.0f}",
+                    "true_peak_dbfs": f"<= {max_true_peak:.1f}",
+                },
+            )
+
+            clipping_known = clipped_samples is not None and clipped_samples >= 0
+            clipping_ok = clipping_known and clipped_samples == 0
+            if not clipping_known:
+                clipping_message = "FFmpeg did not return a clipping sample count; inspect the audio manually."
+            elif clipping_ok:
+                clipping_message = "No clipped audio samples were reported by FFmpeg."
+            else:
+                clipping_message = "Clipped audio samples were detected; adjust levels and listen back."
+            add(
+                "audio_clipping", "Clipping scan", bool(clipping_ok),
+                clipping_message,
+                {"clipped_samples": clipped_samples},
+                {"clipped_samples": 0},
             )
 
     warnings = [check["id"] for check in checks if check["status"] == "warning"]
