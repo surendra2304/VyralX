@@ -235,13 +235,30 @@ if(key())$('apiKey').value=key();
 refreshAll();
 </script></body></html>""")
 
-def _project_summary(project: VideoProject) -> dict:
+def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
     try:
         asset_ids = json.loads(project.asset_ids_json or "[]")
     except ValueError:
         asset_ids = []
+    content_preview = {}
+    if db is not None and project.content_pack_id:
+        content_record = db.get(ContentPack, project.content_pack_id)
+        if content_record is not None:
+            try:
+                pack = json.loads(content_record.pack_json or "{}")
+            except ValueError:
+                pack = {}
+            content_preview = {
+                "hook": str(pack.get("hook") or "")[:1000],
+                "title_options": [str(value)[:100] for value in pack.get("title_options", [])[:8]],
+                "description": str(pack.get("description") or "")[:4500],
+                "tags": [str(value)[:100] for value in pack.get("tags", [])[:30]],
+                "fact_check_notes": [str(value)[:500] for value in pack.get("fact_check_notes", [])[:20]],
+                "requires_editor_review": bool(pack.get("requires_editor_review", True)),
+            }
     return {
         "project_id": project.id, "project_key": project.project_key, "topic": project.topic,
+        "content_preview": content_preview,
         "auto_discover_trend": project.auto_discover_trend, "trend_query": project.trend_query,
         "trend_max_results": project.trend_max_results, "trend_source_video_id": project.trend_source_video_id,
         "trend_source_url": project.trend_source_url, "trend_score": project.trend_score,
@@ -622,6 +639,8 @@ def agent_manifest():
             {"id": "asset.import.pexels", "method": "POST", "path": "/api/assets/import/pexels"},
             {"id": "content.generate", "method": "POST", "path": "/api/content/generate"},
             {"id": "content.voiceover", "method": "POST", "path": "/api/content/{content_id}/voiceover"},
+            {"id": "project.create", "method": "POST", "path": "/api/projects"},
+            {"id": "project.status", "method": "GET", "path": "/api/projects/{project_id}"},
             {"id": "thumbnail.create", "method": "POST", "path": "/api/thumbnails"},
             {"id": "youtube.analytics.refresh", "method": "POST", "path": "/api/analytics/refresh"},
             {"id": "source.register", "method": "POST", "path": "/api/sources"},
