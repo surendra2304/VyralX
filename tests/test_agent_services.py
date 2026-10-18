@@ -572,3 +572,31 @@ def test_probe_reports_audio_stream_count(tmp_path: Path, monkeypatch):
     assert metadata["duration_seconds"] == 12.0
     assert metadata["width"] == 1080 and metadata["height"] == 1920
     assert metadata["audio_stream_count"] == 1
+
+
+def test_peer_get_json_uses_validated_path_and_query_params(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import peers
+
+    peer = peers.Peer(name="intelx", base_url="http://intelx:8000", api_key="peer-test-key")
+    monkeypatch.setattr(peers, "configured_peers", lambda: {"intelx": peer})
+    calls = {}
+    class FakeResponse:
+        content = b"[]"
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return [{"report_id": "report-1", "summary": "Research summary"}]
+    def fake_get(url, **kwargs):
+        calls["url"] = url
+        calls["kwargs"] = kwargs
+        return FakeResponse()
+    monkeypatch.setattr(peers.httpx, "get", fake_get)
+    result = peers.get_peer_json("intelx", "/api/v1/research/query", {"sector": "wind power", "limit": 5})
+    assert result[0]["report_id"] == "report-1"
+    assert calls["url"] == "http://intelx:8000/api/v1/research/query"
+    assert calls["kwargs"]["params"]["sector"] == "wind power"
+    assert calls["kwargs"]["headers"]["X-API-Key"] == "peer-test-key"
+    with pytest.raises(ValueError, match="traversal"):
+        peers.get_peer_json("intelx", "/api/v1/../secrets")
