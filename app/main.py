@@ -1139,6 +1139,18 @@ def execute_friday_universe_task(
             "Unsupported VyralX task action/capability; use the allowlisted names in GET /api/agent/manifest",
         )
     task_input = envelope.inputs if envelope.inputs else envelope.payload
+    if resolved_type == "project.create":
+        try:
+            project_request = VideoProjectCreateRequest.model_validate(task_input)
+        except Exception as exc:
+            from pydantic import ValidationError
+            if isinstance(exc, ValidationError):
+                raise HTTPException(422, detail=exc.errors()) from None
+            raise
+        if not project_request.confirm_pexels_license:
+            raise HTTPException(403, "Review the Pexels license and explicitly confirm before queuing a video project")
+        if project_request.auto_discover_trend and not settings.youtube_data_api_key:
+            raise HTTPException(422, "Automatic trend discovery requires YOUTUBE_DATA_API_KEY")
     normalized_input = json.dumps(task_input, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     idem_key = envelope.idempotency_key.strip() if envelope.idempotency_key else f"taskid:{envelope.task_id}"
     stored_action = envelope.action or envelope.objective
