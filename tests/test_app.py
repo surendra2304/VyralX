@@ -5,7 +5,7 @@ from app.main import app
 from app.services.renderer import PRESETS
 from app.services.rights import source_is_publishable
 from app.config import Settings
-from app.models import Source
+from app.models import PublishJob, Source
 from app.schemas import PublishRequest
 import pytest
 
@@ -14,6 +14,49 @@ client = TestClient(app)
 def test_health_and_dashboard():
     assert client.get("/health").json()["service"] == "vyralx"
     assert "VyralX Control Room" in client.get("/").text
+
+def test_pending_publish_listing_exposes_final_description_and_tags():
+    from app.database import SessionLocal
+    from uuid import uuid4
+
+    description = (
+        "An original video description.\n\nStock footage credits:\n"
+        "- Pexels creator (Pexels): https://www.pexels.com/video/123456/ "
+        "— License: https://www.pexels.com/license/"
+    )
+    with SessionLocal() as db:
+        job = PublishJob(
+            asset_id=987654,
+            render_job_id=987655,
+            title="Operator review fixture " + uuid4().hex[:8],
+            description=description,
+            tags_json='["solar", "education"]',
+            privacy_status="private",
+            status="pending_approval",
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        job_id = job.id
+
+    try:
+        response = client.get("/api/publish")
+        assert response.status_code == 200
+        row = next(item for item in response.json() if item["id"] == job_id)
+        assert row["description"] == description
+        assert row["tags"] == ["solar", "education"]
+        assert row["status"] == "pending_approval"
+    finally:
+        with SessionLocal() as db:
+            db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+            db.commit()
+
+
+def test_dashboard_requires_reviewing_final_publish_description():
+    html = client.get("/").text
+    assert "Review final description and stock attributions" in html
+    assert "I reviewed the final render, title, description and creator credits" in html
+
 
 def test_render_presets_are_defined():
     assert PRESETS["shorts"] == (1080, 1920)

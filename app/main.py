@@ -257,7 +257,9 @@ async function requestPublish(button){return run(button,async()=>{
  if(!$('publishRights').checked)throw new Error('Review the media and metadata and confirm rights');
  const body={asset_id:asInt('publishAssetId'),render_job_id:asInt('publishRenderId'),title:$('publishTitle').value,description:$('publishDescription').value,tags:$('publishTags').value.split(',').map(x=>x.trim()).filter(Boolean),privacy_status:$('privacy').value,confirm_rights:true};
  if($('publishAt').value){body.scheduled_at=new Date($('publishAt').value).toISOString();body.privacy_status='private'}
- return api('/api/publish',{method:'POST',body});
+ const result=await api('/api/publish',{method:'POST',body});
+ await refreshJobs();
+ return result;
 })}
 async function generateVoiceover(button){return run(button,async()=>api('/api/content/'+asInt('voiceContentId')+'/voiceover',{method:'POST'}))}
 async function createThumbnail(button){return run(button,async()=>api('/api/thumbnails',{method:'POST',body:{render_job_id:asInt('thumbJobId'),timestamp_seconds:Number($('thumbTime').value||0)}}))}
@@ -275,9 +277,23 @@ async function refreshJobs(button){
   const pubs=document.createElement('pre');pubs.className='output';pubs.textContent='PUBLISH JOBS\\n'+JSON.stringify(result.publishes,null,2);root.appendChild(pubs);
   const pending=result.publishes.filter(j=>j.status==='pending_approval');
   for(const job of pending){
-    const btn=document.createElement('button');btn.className='warn';btn.textContent='Approve upload job '+job.id;
-    btn.onclick=async()=>{if(!confirm('You reviewed render '+job.render_job_id+', title and rights for publish job '+job.id+'? Upload only proceeds if YouTube is enabled.'))return;btn.disabled=true;try{show(await api('/api/publish/'+job.id+'/execute',{method:'POST'}));await refreshJobs()}catch(e){show({error:String(e)})}finally{btn.disabled=false}};
-    root.appendChild(btn);
+    const card=document.createElement('div');card.className='card';card.style.marginTop='12px';card.style.background='#0a111c';
+    const heading=document.createElement('h3');heading.textContent='Pending approval #'+job.id+' — '+String(job.title||'Untitled');card.appendChild(heading);
+    const meta=document.createElement('p');meta.className='sub';meta.textContent='Render #'+job.render_job_id+' · '+String(job.privacy_status||'private')+' · '+(job.scheduled_at?'Scheduled '+job.scheduled_at:'Not scheduled');card.appendChild(meta);
+    const descriptionDetails=document.createElement('details');
+    const descriptionSummary=document.createElement('summary');descriptionSummary.textContent='Review final description and stock attributions';descriptionDetails.appendChild(descriptionSummary);
+    const description=document.createElement('pre');description.className='output';description.textContent=String(job.description||'(No description supplied)');descriptionDetails.appendChild(description);card.appendChild(descriptionDetails);
+    const tags=document.createElement('p');tags.className='sub';tags.textContent='Tags: '+(Array.isArray(job.tags)&&job.tags.length?job.tags.join(', '):'(none)');card.appendChild(tags);
+    const acknowledgement=document.createElement('label');
+    const check=document.createElement('input');check.type='checkbox';check.disabled=true;
+    acknowledgement.appendChild(check);acknowledgement.appendChild(document.createTextNode(' I reviewed the final render, title, description and creator credits, privacy, tags, and rights.'));
+    card.appendChild(acknowledgement);
+    const btn=document.createElement('button');btn.className='warn';btn.textContent='Approve upload job '+job.id;btn.disabled=true;
+    let descriptionOpened=false;
+    descriptionDetails.addEventListener('toggle',()=>{if(descriptionDetails.open){descriptionOpened=true;check.disabled=false;btn.disabled=!check.checked}});
+    check.addEventListener('change',()=>{btn.disabled=!check.checked||!descriptionOpened});
+    btn.onclick=async()=>{if(!check.checked||!descriptionOpened)return;if(!confirm('Approve publish job '+job.id+' for render '+job.render_job_id+'? Upload only proceeds if YouTube is enabled.'))return;btn.disabled=true;try{show(await api('/api/publish/'+job.id+'/execute',{method:'POST'}));await refreshJobs()}catch(e){show({error:String(e)})}finally{btn.disabled=!check.checked||!descriptionOpened}};
+    card.appendChild(btn);root.appendChild(card);
   }
   return {render_count:result.renders.length,publish_count:result.publishes.length,pending_approval:pending.length};
  };
@@ -740,14 +756,36 @@ def execute_publish(job_id: int, db: Session = Depends(get_db)):
     }
 
 
+def _publish_job_summary(job: PublishJob):
+    try:
+        tags = json.loads(job.tags_json or "[]")
+    except (TypeError, ValueError):
+        tags = []
+    if not isinstance(tags, list):
+        tags = []
+    return {
+        "id": job.id,
+        "asset_id": job.asset_id,
+        "render_job_id": job.render_job_id,
+        "title": job.title,
+        "description": str(job.description or ""),
+        "tags": tags,
+        "privacy_status": job.privacy_status,
+        "scheduled_at": job.scheduled_at,
+        "status": job.status,
+        "attempts": job.attempts,
+        "youtube_video_id": job.youtube_video_id,
+        "error": job.error,
+        "created_at": job.created_at,
+        "approved_at": job.approved_at,
+        "completed_at": job.completed_at,
+    }
+
+
 @app.get("/api/publish", dependencies=[Depends(require_api_key)])
 def list_publish_jobs(db: Session = Depends(get_db)):
     rows = db.scalars(select(PublishJob).order_by(PublishJob.id.desc()).limit(100)).all()
-    return [{"id": j.id, "asset_id": j.asset_id, "render_job_id": j.render_job_id,
-             "title": j.title, "privacy_status": j.privacy_status, "scheduled_at": j.scheduled_at,
-             "status": j.status, "attempts": j.attempts, "youtube_video_id": j.youtube_video_id,
-             "error": j.error, "created_at": j.created_at, "approved_at": j.approved_at,
-             "completed_at": j.completed_at} for j in rows]
+    return [_publish_job_summary(job) for job in rows]
 
 
 @app.post("/api/content/generate", dependencies=[Depends(require_api_key)])

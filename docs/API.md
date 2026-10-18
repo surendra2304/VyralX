@@ -25,7 +25,7 @@ Task types:
 - \`render.create\`: \`{asset_id, preset, trim_start_seconds?, trim_end_seconds?, fit_mode?, subtitle_segments?, content_pack_id?}\`
 - \`publish.request\`: \`{asset_id, render_job_id, title, description?, tags?, privacy_status?, scheduled_at?, confirm_rights}\`
 
-Discovery results are leads only. A task can create a pending publish request, but cannot auto-approve or bypass the explicit publish approval route.
+Discovery results are leads only. A task can create a pending publish request, but cannot auto-approve or bypass the explicit publish approval route. The authenticated `GET /api/publish` response includes the exact final description (including appended stock credits) and tags. The dashboard shows these details on pending jobs and keeps the approval button disabled until the operator opens the description and checks the review acknowledgement.
 
 ## Catalog and production API
 
@@ -47,7 +47,7 @@ Discovery results are leads only. A task can create a pending publish request, b
 | GET | \`/api/thumbnails/{job_id}\` | Download the extracted thumbnail |
 | POST | \`/api/publish\` | Create a pending publish request for a completed render |
 | POST | \`/api/publish/{job_id}/execute\` | Approve a reviewed request; worker then uploads if enabled |
-| GET | \`/api/publish\` | List publish jobs |
+| GET | \`/api/publish\` | List publish jobs, including final description and tags for operator review |
 | POST | \`/api/jobs/render/{job_id}/retry\` | Requeue a failed render within configured retry limits |
 | POST | \`/api/jobs/publish/{job_id}/retry\` | Return a failed upload to pending approval for review |
 | POST | \`/api/jobs/publish/{job_id}/resolve\` | Reconcile an upload interrupted in an uncertain state |

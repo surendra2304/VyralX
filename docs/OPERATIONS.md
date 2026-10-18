@@ -48,7 +48,7 @@ Never paste tokens into GitHub issues/PRs or chat. The Docker build context excl
 2. Register provenance, or import an authorized local media file. For Pexels, review the provider license and explicitly confirm it during import.
 3. Generate an original content pack through Inference and optionally synthesize a voiceover. Store output files on the shared media volume.
 4. Queue a render; poll render-job state. A render is only considered complete after FFmpeg exits successfully and FFprobe inspects the output.
-5. Create a publish request bound to the source asset and its exact render job. Inspect it before approval.
+5. Create a publish request bound to the source asset and its exact render job. In the pending-approval dashboard card, expand and review the final description with appended stock credits, verify tags/privacy and the rendered MP4, then check the review acknowledgement before approving.
 6. Approve via POST /api/publish/{job_id}/execute. Upload only occurs if YOUTUBE_UPLOAD_ENABLED=true, OAuth is valid and the optional Sentinel gate allows it.
 7. Refresh public performance snapshots when enabled.
 
