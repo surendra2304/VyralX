@@ -25,7 +25,7 @@ Task types:
 - \`render.create\`: \`{asset_id, preset, trim_start_seconds?, trim_end_seconds?, fit_mode?, subtitle_segments?, content_pack_id?}\`
 - \`publish.request\`: \`{asset_id, render_job_id, title, description?, tags?, privacy_status?, scheduled_at?, confirm_rights}\`
 
-Discovery results are leads only. A task can create a pending publish request, but cannot auto-approve or bypass the explicit publish approval route. The authenticated `GET /api/publish` response includes the exact final description (including appended stock credits), tags, and the linked project's production-QA snapshot when available. The dashboard shows these details on pending jobs and keeps the approval button disabled until the operator opens the description, opens any available QA report, and checks the review acknowledgement.
+Discovery results are leads only. A task can create a pending publish request, but cannot auto-approve or bypass the explicit publish approval route. The authenticated `GET /api/publish` response includes the exact final description (including appended stock credits), tags, and the linked project's production-QA snapshot when available. The dashboard shows these details on pending jobs and keeps the approval button disabled until the operator opens the description, opens any available QA report, and checks the review acknowledgement. The approval endpoint independently requires confirm_review=true; a dashboard-only checkbox is not sufficient.
 
 ## Catalog and production API
 
@@ -46,7 +46,7 @@ Discovery results are leads only. A task can create a pending publish request, b
 | POST | \`/api/thumbnails\` | Extract a thumbnail from a completed render |
 | GET | \`/api/thumbnails/{job_id}\` | Download the extracted thumbnail |
 | POST | \`/api/publish\` | Create a pending publish request for a completed render; validates YouTube title, description and tag limits before queueing |
-| POST | \`/api/publish/{job_id}/execute\` | Approve a reviewed request; worker then uploads if enabled |
+| POST | \`/api/publish/{job_id}/execute\` | Requires confirm_review=true after review of render, final metadata, rights and available QA; worker then uploads if enabled |
 | GET | \`/api/publish\` | List publish jobs with final description, tags and linked project QA for operator review |
 | POST | \`/api/jobs/render/{job_id}/retry\` | Requeue a failed render within configured retry limits |
 | POST | \`/api/jobs/publish/{job_id}/retry\` | Return a failed upload to pending approval for review |
