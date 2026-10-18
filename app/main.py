@@ -25,6 +25,7 @@ from app.services.voiceover import synthesize_voiceover
 from app.services.thumbnail import extract_thumbnail
 from app.services.youtube_analytics import fetch_video_metrics
 from app.services.peers import configured_peers, peer_health
+from app.services.project_pipeline import sync_project_memory
 from app.services.pexels import import_video_file, search_videos
 from app.services.rights import append_stock_attribution, source_is_publishable, verified_render_sources
 
@@ -160,6 +161,10 @@ async function loadProjects(button){
    if(project.error){const err=document.createElement('p');err.className='notice';err.textContent=project.error;card.appendChild(err)}
    const actions=document.createElement('div');actions.className='actions';
    if(project.status==='completed'&&project.render_job_id){
+    if(project.memora_write_enabled&&project.memora_memory_status!=='stored'){
+     const memory=document.createElement('button');memory.className='secondary';memory.textContent='Retry private Memora sync';
+     memory.onclick=async()=>{memory.disabled=true;try{show(await api('/api/projects/'+project.project_id+'/sync-memory',{method:'POST'}));await loadProjects()}catch(e){show({error:String(e)})}finally{memory.disabled=false}};actions.appendChild(memory);
+    }
     const download=document.createElement('button');download.textContent='Download MP4';
     download.onclick=async()=>{download.disabled=true;try{await downloadAuthenticated(project.render_download_path,'vyralx-project-'+project.project_id+'.mp4')}catch(e){show({error:String(e)})}finally{download.disabled=false}};actions.appendChild(download);
     if(project.thumbnail_path){const thumb=document.createElement('button');thumb.className='secondary';thumb.textContent='Preview thumbnail';
@@ -281,6 +286,9 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
         "use_voiceover": project.use_voiceover, "status": project.status,
         "content_pack_id": project.content_pack_id, "asset_ids": asset_ids,
         "primary_asset_id": project.primary_asset_id, "render_job_id": project.render_job_id,
+        "memora_memory_id": project.memora_memory_id or None,
+        "memora_memory_status": project.memora_memory_status,
+        "memora_write_enabled": settings.memora_write_enabled,
         "thumbnail_path": f"/api/projects/{project.id}/thumbnail" if project.thumbnail_path and Path(project.thumbnail_path).is_file() else None,
         "render_download_path": f"/api/render/{project.render_job_id}/download" if project.render_job_id else None,
         "error": project.error or None, "attempts": project.attempts,
@@ -343,6 +351,18 @@ def retry_video_project(project_id: int, payload: VideoProjectRetryRequest, db: 
     db.commit()
     db.refresh(project)
     return _project_summary(project, db)
+
+
+@app.post("/api/projects/{project_id}/sync-memory", dependencies=[Depends(require_api_key)])
+def sync_video_project_memory(project_id: int, db: Session = Depends(get_db)):
+    project = db.get(VideoProject, project_id)
+    if project is None:
+        raise HTTPException(404, "Video project not found")
+    if project.status != "completed":
+        raise HTTPException(409, "Only completed projects can be written to Memora")
+    result = sync_project_memory(project_id, db)
+    db.refresh(project)
+    return {**_project_summary(project, db), "memora_sync": result}
 
 
 @app.get("/api/projects/{project_id}/thumbnail", dependencies=[Depends(require_api_key)])
