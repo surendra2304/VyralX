@@ -369,31 +369,36 @@ def test_youtube_ambiguous_upload_is_flagged_for_reconciliation(tmp_path: Path, 
 
     video = tmp_path / "video.mp4"
     video.write_bytes(b"fake video bytes")
-    monkeypatch.setattr(
-        youtube_service,
-        "get_settings",
-        lambda: SimpleNamespace(youtube_upload_enabled=True),
+    settings = SimpleNamespace(
+        youtube_upload_enabled=True,
+        youtube_token_file=tmp_path / "secrets" / "youtube-token.json",
     )
+    monkeypatch.setattr(youtube_service, "get_settings", lambda: settings)
+    monkeypatch.setattr(youtube_service, "youtube_credentials", lambda: object())
 
-    class FakeUploadRequest:
-        def next_chunk(self, num_retries=0):
-            raise TimeoutError("network disconnected after sending chunk")
+    class FakeResponse:
+        status_code = 200
+        headers = {
+            "Location": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=test"
+        }
 
-    class FakeVideos:
-        def insert(self, **kwargs):
-            return FakeUploadRequest()
+        def json(self):
+            return {}
 
-    class FakeService:
-        def videos(self):
-            return FakeVideos()
+    class FakeSession:
+        def __enter__(self):
+            return self
 
-    monkeypatch.setattr(youtube_service, "youtube_service", lambda: FakeService())
-    monkeypatch.setattr(
-        youtube_service,
-        "MediaFileUpload",
-        lambda *args, **kwargs: object(),
-    )
+        def __exit__(self, *args):
+            return False
 
+        def post(self, *args, **kwargs):
+            return FakeResponse()
+
+        def put(self, *args, **kwargs):
+            raise TimeoutError("network disconnected during upload")
+
+    monkeypatch.setattr(youtube_service, "AuthorizedSession", lambda credentials: FakeSession())
     with pytest.raises(youtube_service.UploadOutcomeUnknown, match="reconcile before retrying"):
         youtube_service.upload_video(
             str(video),
@@ -402,7 +407,12 @@ def test_youtube_ambiguous_upload_is_flagged_for_reconciliation(tmp_path: Path, 
             tags=[],
             privacy_status="private",
             category_id="28",
+            publish_job_id=41,
+            upload_attempt=1,
         )
+    checkpoint = youtube_service.load_upload_session_checkpoint(41, 1)
+    assert checkpoint is not None
+    assert checkpoint["confirmed_offset"] == 0
 
 
 def test_caption_segmentation_spans_target_duration():
@@ -998,4 +1008,192 @@ def test_worker_recovers_upload_only_from_matching_success_checkpoint(tmp_path, 
             youtube_service.clear_upload_success_checkpoint(job_id)
             with SessionLocal() as db:
                 db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+                db.commit()
+
+
+def test_youtube_upload_resumes_from_server_confirmed_offset(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import youtube as youtube_service
+
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"0123456789")
+    settings = SimpleNamespace(
+        youtube_upload_enabled=True,
+        youtube_token_file=tmp_path / "secrets" / "youtube-token.json",
+    )
+    monkeypatch.setattr(youtube_service, "get_settings", lambda: settings)
+    monkeypatch.setattr(youtube_service, "youtube_credentials", lambda: object())
+    monkeypatch.setattr(youtube_service, "UPLOAD_CHUNK_BYTES", 4)
+    session_uri = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=resume-test"
+
+    class FakeResponse:
+        def __init__(self, status_code, headers=None, body=None):
+            self.status_code = status_code
+            self.headers = headers or {}
+            self.body = body or {}
+
+        def json(self):
+            return self.body
+
+    class InitialSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, *args, **kwargs):
+            return FakeResponse(200, {"Location": session_uri})
+
+        def put(self, url, *, data, headers, timeout):
+            content_range = headers["Content-Range"]
+            if content_range == "bytes 0-3/10":
+                return FakeResponse(308, {"Range": "bytes=0-3"})
+            if content_range == "bytes 4-7/10":
+                raise TimeoutError("connection lost after sending second chunk")
+            if content_range == "bytes */10":
+                raise TimeoutError("temporary failure while querying server offset")
+            raise AssertionError(f"Unexpected initial-session request: {content_range}")
+
+    class ResumeSession:
+        def __init__(self):
+            self.upload_ranges = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, *args, **kwargs):
+            raise AssertionError("A valid saved session must be resumed, not re-created")
+
+        def put(self, url, *, data, headers, timeout):
+            content_range = headers["Content-Range"]
+            if content_range == "bytes */10":
+                return FakeResponse(308, {"Range": "bytes=0-3"})
+            self.upload_ranges.append(content_range)
+            if content_range == "bytes 4-7/10":
+                return FakeResponse(308, {"Range": "bytes=0-7"})
+            if content_range == "bytes 8-9/10":
+                return FakeResponse(201, body={"id": "abcdefghijk"})
+            raise AssertionError(f"Unexpected resumed-session request: {content_range}")
+
+    resumed_session = ResumeSession()
+    sessions = iter([InitialSession(), resumed_session])
+    monkeypatch.setattr(youtube_service, "AuthorizedSession", lambda credentials: next(sessions))
+
+    with pytest.raises(youtube_service.UploadOutcomeUnknown, match="reconcile before retrying"):
+        youtube_service.upload_video(
+            str(video), title="Resume test", description="", tags=[],
+            privacy_status="private", category_id="28",
+            publish_job_id=42, upload_attempt=3,
+        )
+
+    saved = youtube_service.load_upload_session_checkpoint(42, 3)
+    assert saved is not None
+    assert saved["confirmed_offset"] == 4
+
+    assert youtube_service.upload_video(
+        str(video), title="Resume test", description="", tags=[],
+        privacy_status="private", category_id="28",
+        publish_job_id=42, upload_attempt=3,
+    ) == "abcdefghijk"
+
+    assert resumed_session.upload_ranges == ["bytes 4-7/10", "bytes 8-9/10"]
+    assert youtube_service.load_upload_success_checkpoint(42, 3) == "abcdefghijk"
+    assert youtube_service.load_upload_session_checkpoint(42, 3)["confirmed_offset"] == 8
+    youtube_service.clear_upload_success_checkpoint(42)
+    youtube_service.clear_upload_session_checkpoint(42)
+
+
+def test_upload_session_checkpoint_is_private_and_attempt_scoped(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import youtube as youtube_service
+
+    settings = SimpleNamespace(youtube_token_file=tmp_path / "secrets" / "youtube-token.json")
+    monkeypatch.setattr(youtube_service, "get_settings", lambda: settings)
+    session_uri = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=secure-test"
+    digest = "a" * 64
+    assert youtube_service.write_upload_session_checkpoint(
+        73, 5, session_uri=session_uri, file_path=str(tmp_path / "media.mp4"),
+        file_size=1024, file_sha256=digest, metadata_sha256="b" * 64,
+        confirmed_offset=256,
+    )
+    path = settings.youtube_token_file.parent / "upload-checkpoints" / "73.session.json"
+    assert path.is_file()
+    assert path.stat().st_mode & 0o777 == 0o600
+    loaded = youtube_service.load_upload_session_checkpoint(73, 5)
+    assert loaded is not None
+    assert loaded["confirmed_offset"] == 256
+    assert youtube_service.load_upload_session_checkpoint(73, 4) is None
+    assert not youtube_service.write_upload_session_checkpoint(
+        73, 5, session_uri="https://example.invalid/upload",
+        file_path=str(tmp_path / "media.mp4"), file_size=1024,
+        file_sha256=digest, metadata_sha256="b" * 64, confirmed_offset=256,
+    )
+    youtube_service.clear_upload_session_checkpoint(73)
+
+
+def test_worker_recovers_interrupted_upload_to_resumable_without_bumping_attempt(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import youtube as youtube_service
+
+    video = tmp_path / "recoverable.mp4"
+    video.write_bytes(b"0123456789")
+    settings = SimpleNamespace(youtube_token_file=tmp_path / "secrets" / "youtube-token.json")
+    monkeypatch.setattr(youtube_service, "get_settings", lambda: settings)
+    job_id = render_id = None
+    try:
+        with SessionLocal() as db:
+            render = RenderJob(
+                asset_id=9999,
+                preset="shorts",
+                status="completed",
+                output_path=str(video),
+                options_json="{}",
+            )
+            db.add(render)
+            db.flush()
+            job = PublishJob(
+                asset_id=9999,
+                render_job_id=render.id,
+                title="Resumable recovery",
+                status="uploading",
+                attempts=4,
+            )
+            db.add(job)
+            db.commit()
+            job_id, render_id = job.id, render.id
+
+        assert youtube_service.write_upload_session_checkpoint(
+            job_id, 4,
+            session_uri="https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=worker-recovery",
+            file_path=str(video), file_size=video.stat().st_size,
+            file_sha256=youtube_service._file_sha256(video),
+            metadata_sha256="c" * 64,
+            confirmed_offset=4,
+        )
+        counts = recover_interrupted_jobs()
+        with SessionLocal() as db:
+            recovered = db.get(PublishJob, job_id)
+            assert recovered is not None
+            assert recovered.status == "resumable"
+            assert recovered.attempts == 4
+            assert counts["uploads_resumable"] >= 1
+            assert claim_publish_job(db) == job_id
+            db.refresh(recovered)
+            assert recovered.status == "uploading"
+            assert recovered.attempts == 4
+    finally:
+        if job_id is not None:
+            youtube_service.clear_upload_session_checkpoint(job_id)
+            youtube_service.clear_upload_success_checkpoint(job_id)
+            with SessionLocal() as db:
+                db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+                if render_id is not None:
+                    db.query(RenderJob).filter(RenderJob.id == render_id).delete()
                 db.commit()

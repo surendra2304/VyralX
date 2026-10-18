@@ -26,8 +26,11 @@ from app.services.renderer import render_video
 from app.services.rights import append_stock_attribution, find_repeat_use_blockers, source_is_publishable, verified_render_sources
 from app.services.youtube import (
     UploadOutcomeUnknown,
+    clear_upload_session_checkpoint,
     clear_upload_success_checkpoint,
+    load_upload_session_checkpoint,
     load_upload_success_checkpoint,
+    upload_session_checkpoint_exists,
     upload_video,
 )
 from app.services.peers import post_peer_json
@@ -94,8 +97,15 @@ def claim_render_job(db: Session) -> int | None:
 def claim_publish_job(db: Session) -> int | None:
     candidate = db.scalar(
         select(PublishJob.id)
-        .where(PublishJob.status == "queued")
-        .order_by(PublishJob.id.asc())
+        .where(PublishJob.status.in_(("queued", "resumable")))
+        .order_by(
+            case(
+                (PublishJob.status == "resumable", 0),
+                (PublishJob.status == "queued", 1),
+                else_=2,
+            ),
+            PublishJob.id.asc(),
+        )
         .limit(1)
     )
     if candidate is None:
@@ -103,10 +113,16 @@ def claim_publish_job(db: Session) -> int | None:
     now = utcnow()
     result = db.execute(
         update(PublishJob)
-        .where(PublishJob.id == candidate, PublishJob.status == "queued")
+        .where(
+            PublishJob.id == candidate,
+            PublishJob.status.in_(("queued", "resumable")),
+        )
         .values(
             status="uploading",
-            attempts=PublishJob.attempts + 1,
+            attempts=case(
+                (PublishJob.status == "queued", PublishJob.attempts + 1),
+                else_=PublishJob.attempts,
+            ),
             started_at=now,
             updated_at=now,
             error="",
@@ -396,6 +412,7 @@ def process_publish_job(job_id: int) -> None:
             db.commit()
             if job.status == "uploaded":
                 clear_upload_success_checkpoint(job.id)
+                clear_upload_session_checkpoint(job.id)
             _heartbeat("idle")
 
 
@@ -409,6 +426,7 @@ def recover_interrupted_jobs() -> dict[str, int]:
         "projects": 0,
         "uploads_uncertain": 0,
         "uploads_recovered": 0,
+        "uploads_resumable": 0,
     }
     with SessionLocal() as db:
         now = utcnow()
@@ -438,7 +456,7 @@ def recover_interrupted_jobs() -> dict[str, int]:
             project.updated_at = now
             counts["projects"] += 1
         publish_jobs = db.scalars(select(PublishJob).where(PublishJob.status == "uploading")).all()
-        checkpoint_jobs: list[int] = []
+        completed_jobs: list[int] = []
         for job in publish_jobs:
             video_id = load_upload_success_checkpoint(job.id, job.attempts)
             if video_id:
@@ -447,20 +465,44 @@ def recover_interrupted_jobs() -> dict[str, int]:
                 job.error = ""
                 job.completed_at = now
                 job.updated_at = now
-                checkpoint_jobs.append(job.id)
+                completed_jobs.append(job.id)
                 counts["uploads_recovered"] += 1
+                continue
+
+            session_state = load_upload_session_checkpoint(job.id, job.attempts)
+            render = db.get(RenderJob, job.render_job_id)
+            render_path = Path(render.output_path).resolve() if render and render.output_path else None
+            media_still_matches = bool(
+                session_state
+                and render_path
+                and render_path.is_file()
+                and str(render_path) == session_state["file_path"]
+                and render_path.stat().st_size == session_state["file_size"]
+            )
+            if media_still_matches:
+                job.status = "resumable"
+                job.error = (
+                    "Worker restarted during a resumable YouTube upload. The worker will query "
+                    "the saved provider session and resume only from the server-confirmed byte offset."
+                )
+                job.updated_at = now
+                counts["uploads_resumable"] += 1
             else:
                 job.status = "uncertain"
+                if upload_session_checkpoint_exists(job.id):
+                    reason = "saved upload-session checkpoint is missing, corrupt, stale or no longer matches the render"
+                else:
+                    reason = "no resumable upload session was saved"
                 job.error = (
-                    "Worker restarted before a matching upload-success checkpoint was available. "
-                    "Check YouTube Studio/API state before resolving; automatic retries are prohibited "
-                    "to prevent duplicate uploads."
+                    f"Worker restarted while uploading and {reason}. Check YouTube Studio/API state "
+                    "before resolving; automatic new uploads are prohibited to prevent duplicates."
                 )
                 job.updated_at = now
                 counts["uploads_uncertain"] += 1
         db.commit()
-        for publish_job_id in checkpoint_jobs:
+        for publish_job_id in completed_jobs:
             clear_upload_success_checkpoint(publish_job_id)
+            clear_upload_session_checkpoint(publish_job_id)
     if any(counts.values()):
         log.warning("Recovered interrupted jobs: %s", counts)
     return counts

@@ -44,7 +44,7 @@ This file distinguishes implemented repository capability from external producti
 - [x] Add an optional authenticated word-level forced-alignment adapter with transcript/timing validation and a QA-visible safe fallback; live aligner remains unverified.
 - [ ] Add phoneme-level alignment and confirm a channel-specific loudness standard against real rendered samples.
 - [x] Persist an atomic private upload-success receipt scoped to publish-job ID and attempt so restart recovery can commit a provider-confirmed video ID from the post-response/pre-database window.
-- [ ] Persist and restore resumable-session transfer progress and reconcile interrupted in-flight transfers with YouTube before retrying.
+- [x] Persist private, attempt-scoped YouTube session receipts with source-file and metadata fingerprints plus server-confirmed byte offsets; startup recovery probes YouTube and resumes the same attempt only when the saved session still matches the rendered file. Incomplete/mismatched outcomes remain fail-closed.
 
 ## Track D — FRIDAY Universe mesh
 
