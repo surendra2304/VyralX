@@ -469,6 +469,23 @@ def sync_project_memory(project_id: int, db: Session) -> dict:
         "trend_source_url": project.trend_source_url or None,
         "completed_at": project.completed_at.isoformat() if project.completed_at else None,
     }
+    evidence_refs = list(dict.fromkeys(
+        source_urls
+        + ([project.trend_source_url] if project.trend_source_url else [])
+        + ["https://www.pexels.com/license/"]
+    ))[:20]
+    provenance = {
+        "project_key": project.project_key,
+        "project_id": project.id,
+        "render_job_id": project.render_job_id,
+        "research_status": summary["research_status"],
+        "intelx_status": summary["intelx_status"],
+        # Memora's v1 write endpoint reads source_type, trust_level and
+        # evidence_refs from this nested provenance object.
+        "source_type": "project_completion",
+        "trust_level": "unverified",
+        "evidence_refs": evidence_refs,
+    }
     payload = {
         "content_text": "VyralX completed a video project.\n" + json.dumps(summary, ensure_ascii=False, sort_keys=True),
         "user_id": "default_user",
@@ -481,18 +498,8 @@ def sync_project_memory(project_id: int, db: Session) -> dict:
         "source": "vyralx",
         "source_type": "project_completion",
         "trust_level": "unverified",
-        "evidence_refs": list(dict.fromkeys(
-            source_urls
-            + ([project.trend_source_url] if project.trend_source_url else [])
-            + ["https://www.pexels.com/license/"]
-        ))[:20],
-        "provenance": {
-            "project_key": project.project_key,
-            "project_id": project.id,
-            "render_job_id": project.render_job_id,
-            "research_status": summary["research_status"],
-            "intelx_status": summary["intelx_status"],
-        },
+        "evidence_refs": evidence_refs,
+        "provenance": provenance,
         "confidence": 0.65,
         "importance": 0.35,
     }
