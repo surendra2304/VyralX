@@ -742,7 +742,7 @@ def import_pexels_asset(payload: PexelsImportRequest, db: Session = Depends(get_
             payload.video_id,
             payload.video_file_id,
             title=payload.title or f"Pexels video {payload.video_id}",
-            max_bytes=settings.max_upload_mb * 1024 * 1024,
+            max_bytes=min(settings.max_upload_mb, settings.max_stock_clip_mb) * 1024 * 1024,
         )
         destination = Path(imported["file_path"])
         source_url = imported["source_url"]
@@ -752,7 +752,7 @@ def import_pexels_asset(payload: PexelsImportRequest, db: Session = Depends(get_
             platform="pexels",
             creator=imported["creator"],
             license_name="Pexels Content License",
-            permission_reference=source_url,
+            permission_reference="https://www.pexels.com/license/",
             rights_verified=True,
             status="licensed",
             notes=(
