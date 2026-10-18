@@ -12,6 +12,8 @@ from app.config import get_settings
 from app.models import Asset, ContentPack, RenderJob, Source, VideoProject, utcnow
 from app.services.captions import segment_script, write_srt
 from app.services.content import generate_content_pack
+from app.services.discovery import discover_youtube_videos
+from app.services.trends import rank_candidates
 from app.services.montage import render_montage
 from app.services.pexels import import_video_file, search_videos
 from app.services.probe import probe_media
@@ -55,6 +57,30 @@ def _choose_candidate(items: list[dict], used_ids: set[int]) -> tuple[dict, dict
         )
         candidates.append((item, files[0]))
     return candidates[0] if candidates else None
+
+
+def _resolve_trending_topic(project: VideoProject, db: Session) -> None:
+    if not project.auto_discover_trend or project.trend_source_video_id:
+        return
+    query = project.trend_query.strip() or project.topic.strip()
+    if not query or query.lower() == "trending topic":
+        query = "technology science education"
+    candidates = discover_youtube_videos(query, max(3, min(project.trend_max_results, 25)), "viewCount")
+    ranked = rank_candidates(candidates)
+    if not ranked:
+        raise RuntimeError("YouTube discovery returned no candidate trends for the configured query")
+    chosen = ranked[0]
+    title = str(chosen.get("title") or "").strip()
+    video_id = str(chosen.get("video_id") or "").strip()
+    if not title or not video_id:
+        raise RuntimeError("Top trend candidate lacked a title or video ID")
+    project.topic = title[:500]
+    project.trend_source_video_id = video_id[:100]
+    project.trend_source_url = str(chosen.get("url") or ("https://www.youtube.com/watch?v=" + video_id))[:2048]
+    project.trend_score = float(chosen.get("trend_score") or 0.0)
+    project.updated_at = utcnow()
+    db.commit()
+    log.info("Selected YouTube metadata trend project_id=%s video_id=%s score=%s; no source media is copied", project.id, video_id, project.trend_score)
 
 
 def _get_or_generate_content(project: VideoProject, db: Session) -> ContentPack:
@@ -132,7 +158,7 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
             platform="pexels",
             creator=imported["creator"],
             license_name="Pexels Content License",
-            permission_reference=source_url,
+            permission_reference="https://www.pexels.com/license/",
             rights_verified=True,
             status="licensed",
             notes=(
@@ -187,6 +213,7 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
         project.error = ""
         db.commit()
 
+        _resolve_trending_topic(project, db)
         content_record = _get_or_generate_content(project, db)
         pack = json.loads(content_record.pack_json)
         script = str(pack.get("script") or pack.get("voiceover") or "").strip()
