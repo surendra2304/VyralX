@@ -342,7 +342,7 @@ def retry_video_project(project_id: int, payload: VideoProjectRetryRequest, db: 
     project.updated_at = utcnow()
     db.commit()
     db.refresh(project)
-    return _project_summary(project)
+    return _project_summary(project, db)
 
 
 @app.get("/api/projects/{project_id}/thumbnail", dependencies=[Depends(require_api_key)])
