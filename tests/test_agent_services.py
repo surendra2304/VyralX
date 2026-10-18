@@ -392,7 +392,7 @@ def test_montage_renderer_builds_concat_and_voiceover_command(tmp_path: Path, mo
     )
     command = calls["command"]
     assert result == str(output.resolve())
-    assert "concat=n=2:v=1:a=0[outv]" in command[command.index("-filter_complex") + 1]
+    assert "concat=n=2:v=1:a=0[joined]" in command[command.index("-filter_complex") + 1]
     assert "-stream_loop" in command
     assert "[2:a:0]" in command or "2:a:0" in command
     assert output.read_bytes() == b"rendered"
