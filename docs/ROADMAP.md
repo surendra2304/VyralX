@@ -69,7 +69,8 @@ This file distinguishes implemented repository capability from external producti
 - [x] Add full-history Gitleaks secret scanning and Trivy HIGH/CRITICAL fixed-vulnerability scanning for the built image's OS and Python libraries; release candidates still require a green scan on the exact final commit.
 - [x] Pin the Python base image to its immutable multi-platform index digest; refresh only through a reviewed update and a green container scan.
 - [x] Lock resolved application and development dependencies in `uv.lock`; use frozen sync for CI and production container installs.
-- [ ] Pin Debian OS packages against a reviewed immutable snapshot/repository before claiming full image reproducibility.
+- [x] Pin Debian package indexes to an immutable dated Snapshot archive and run the container vulnerability scan before updating its timestamp.
+- [ ] Lock PEP 517 build-isolation dependencies (`setuptools` and `wheel`) separately before claiming bit-for-bit image reproducibility.
 - [ ] Investigate and rotate any historical credentials if secret-scanning evidence indicates confirmed exposure.
 - [ ] Validate the actual external Docker network and Dokploy stack before deploy.
 - [ ] Test persistence across recreation, encrypted backup and a successful restore.

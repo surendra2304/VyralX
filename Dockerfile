@@ -2,8 +2,28 @@
 # Refresh only through a reviewed base-image update and the container vulnerability scan.
 FROM python:3.11.17-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-ng ca-certificates \
-    && rm -rf /var/lib/apt/lists/* && useradd --create-home --uid 10001 appuser
+# Use a fixed Debian archive snapshot so apt does not resolve newer package versions on each build.
+# Move this timestamp only in a reviewed update followed by the full container vulnerability scan.
+RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources \
+    && printf '%s\n' \
+        'Types: deb' \
+        'URIs: https://snapshot.debian.org/archive/debian/20261017T000000Z' \
+        'Suites: bookworm bookworm-updates' \
+        'Components: main' \
+        'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' \
+        'Check-Valid-Until: no' \
+        '' \
+        'Types: deb' \
+        'URIs: https://snapshot.debian.org/archive/debian-security/20261017T000000Z' \
+        'Suites: bookworm-security' \
+        'Components: main' \
+        'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' \
+        'Check-Valid-Until: no' \
+        > /etc/apt/sources.list.d/debian-snapshot.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg espeak-ng ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 appuser
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY app ./app
