@@ -38,6 +38,7 @@ def build_project_quality_report(
     caption_text: str,
     thumbnail_path: str | Path | None,
     scene_rights_checks: list[bool],
+    signal_analysis: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return a QA snapshot. Warnings require operator attention, never auto-approval."""
     checks: list[dict[str, Any]] = []
@@ -142,6 +143,73 @@ def build_project_quality_report(
     add("scene_provenance", "Scene provenance", rights_ok,
         "Every scene passed automated provenance checks." if rights_ok else "At least one scene lacks a passing source-evidence check.",
         sum(bool(value) for value in scene_rights_checks), len(scene_rights_checks))
+
+    if signal_analysis is None:
+        add("black_frames", "Black-frame scan", None, "Signal-level media analysis was not supplied.")
+        add("silence_gaps", "Silence-gap scan", None, "Signal-level media analysis was not supplied.")
+    elif signal_analysis.get("status") != "analyzed":
+        add(
+            "black_frames", "Black-frame scan", False,
+            "FFmpeg signal analysis was unavailable; inspect the video manually.",
+            signal_analysis.get("error_type") or "unavailable", "completed signal scan",
+        )
+        if int(audio_stream_count) > 0:
+            add(
+                "silence_gaps", "Silence-gap scan", False,
+                "FFmpeg audio analysis was unavailable; inspect narration and silence manually.",
+                signal_analysis.get("error_type") or "unavailable", "completed audio scan",
+            )
+        else:
+            add("silence_gaps", "Silence-gap scan", None, "The render has no audio stream to analyze.")
+    else:
+        raw_black = signal_analysis.get("black_intervals")
+        black_intervals = raw_black if isinstance(raw_black, list) else []
+        valid_black = []
+        for interval in black_intervals[:200]:
+            if not isinstance(interval, dict):
+                continue
+            duration = float(interval.get("duration_seconds") or 0)
+            if math.isfinite(duration) and duration >= 0.5:
+                valid_black.append(interval)
+        add(
+            "black_frames", "Black-frame scan", not valid_black,
+            "No sustained black frames were detected." if not valid_black
+            else "Sustained black-frame intervals were detected; inspect the rendered video.",
+            {"count": len(valid_black), "intervals": valid_black[:20]},
+            "no intervals >= 0.5 seconds",
+        )
+
+        if int(audio_stream_count) <= 0:
+            add("silence_gaps", "Silence-gap scan", None, "The render has no audio stream to analyze.")
+        elif not bool(signal_analysis.get("audio_analyzed")):
+            add(
+                "silence_gaps", "Silence-gap scan", False,
+                "The signal analysis did not inspect the rendered audio stream.",
+                "not analyzed", "audio scan completed",
+            )
+        else:
+            raw_silence = signal_analysis.get("silence_intervals")
+            silence_intervals = raw_silence if isinstance(raw_silence, list) else []
+            silence_threshold = max(2.0, int(target_seconds) * 0.08)
+            long_silence = []
+            longest_silence = 0.0
+            for interval in silence_intervals[:200]:
+                if not isinstance(interval, dict):
+                    continue
+                duration = float(interval.get("duration_seconds") or 0)
+                if not math.isfinite(duration) or duration < 0:
+                    continue
+                longest_silence = max(longest_silence, duration)
+                if duration > silence_threshold:
+                    long_silence.append(interval)
+            add(
+                "silence_gaps", "Silence-gap scan", not long_silence,
+                "No unusually long silence gaps were detected." if not long_silence
+                else "Long silence gaps were detected; confirm that pauses and narration match the intended edit.",
+                {"count": len(long_silence), "longest_seconds": round(longest_silence, 3),
+                 "intervals": long_silence[:20]},
+                f"no gaps > {silence_threshold:.1f} seconds",
+            )
 
     warnings = [check["id"] for check in checks if check["status"] == "warning"]
     return {

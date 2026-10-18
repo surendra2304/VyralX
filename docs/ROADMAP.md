@@ -36,7 +36,8 @@ This file distinguishes implemented repository capability from external producti
 - [x] Public views/likes/comments snapshot history.
 - [ ] Verify OAuth scope/client, channel permission, quota, private test upload and scheduled publish in the real account.
 - [x] Add deterministic project QA for output duration/dimensions, requested audio, narration file/duration, caption file/word coverage/cue timing, thumbnail presence and scene provenance; QA warnings require operator review and never auto-approve.
-- [ ] Add signal-level output analysis for black frames, silence gaps, perceptual caption-to-speech synchronization and audio clipping/loudness.
+- [x] Add FFmpeg signal-level scans for sustained black frames and long silence gaps; analysis failures become operator-QA warnings and never auto-approve.
+- [ ] Add perceptual caption-to-speech synchronization and audio clipping/loudness analysis.
 - [ ] Add upload session checkpoint/idempotency support to narrow the uncertain state window further.
 
 ## Track D — FRIDAY Universe mesh
