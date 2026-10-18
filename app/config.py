@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     memora_url: str = ""
     memora_api_key: str = ""
     memora_write_enabled: bool = False
+    memora_read_enabled: bool = False
     sentinel_url: str = ""
     sentinel_api_key: str = ""
     sentinel_required_for_publish: bool = False
