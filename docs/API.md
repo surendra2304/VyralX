@@ -45,7 +45,7 @@ Discovery results are leads only. A task can create a pending publish request, b
 | POST | \`/api/content/{content_id}/voiceover\` | Generate a narration audio file using configured Inference TTS |
 | POST | \`/api/thumbnails\` | Extract a thumbnail from a completed render |
 | GET | \`/api/thumbnails/{job_id}\` | Download the extracted thumbnail |
-| POST | \`/api/publish\` | Create a pending publish request for a completed render |
+| POST | \`/api/publish\` | Create a pending publish request for a completed render; validates YouTube title, description and tag limits before queueing |
 | POST | \`/api/publish/{job_id}/execute\` | Approve a reviewed request; worker then uploads if enabled |
 | GET | \`/api/publish\` | List publish jobs, including final description and tags for operator review |
 | POST | \`/api/jobs/render/{job_id}/retry\` | Requeue a failed render within configured retry limits |

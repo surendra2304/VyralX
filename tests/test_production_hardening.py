@@ -64,6 +64,21 @@ def test_stock_credits_fail_closed_when_full_urls_do_not_fit():
         append_stock_attribution("Short intro", [(SimpleNamespace(id=1), source)])
 
 
+def test_stock_attribution_respects_utf8_byte_budget():
+    source = SimpleNamespace(
+        platform="pexels",
+        source_url="https://www.pexels.com/video/123456/",
+        creator="Creator",
+        permission_reference="https://www.pexels.com/license/",
+    )
+    description = append_stock_attribution("é" * 2490, [(SimpleNamespace(id=1), source)])
+
+    assert len(description.encode("utf-8")) <= 5000
+    assert "Stock footage credits:" in description
+    assert "- Creator (Pexels): https://www.pexels.com/video/123456/" in description
+    assert "�" not in description
+
+
 def test_stock_attribution_normalizes_platform_whitespace():
     source = SimpleNamespace(
         platform=" Pexels ",

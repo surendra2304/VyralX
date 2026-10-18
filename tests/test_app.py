@@ -131,6 +131,44 @@ def test_publish_approval_refreshes_changed_attribution_before_queuing(tmp_path,
             db.commit()
 
 
+def test_publish_metadata_obeys_youtube_title_description_and_tag_limits():
+    with pytest.raises(ValueError, match="cannot contain"):
+        PublishRequest(asset_id=1, render_job_id=1, title="Invalid <title>")
+
+    with pytest.raises(ValueError, match="UTF-8 bytes"):
+        PublishRequest(
+            asset_id=1,
+            render_job_id=1,
+            title="Unicode description",
+            description="é" * 2501,
+        )
+
+    exact_budget = PublishRequest(
+        asset_id=1,
+        render_job_id=1,
+        title="Valid title",
+        tags=["a" * 250, "b" * 249],
+    )
+    assert exact_budget.tags == ["a" * 250, "b" * 249]
+
+    with pytest.raises(ValueError, match="500-character API limit"):
+        PublishRequest(
+            asset_id=1,
+            render_job_id=1,
+            title="Tag overflow",
+            tags=["a" * 251, "b" * 249],
+        )
+
+    normalized = PublishRequest(
+        asset_id=1,
+        render_job_id=1,
+        title="  Clean title  ",
+        tags=[" solar ", "solar", "wind energy", ""],
+    )
+    assert normalized.title == "Clean title"
+    assert normalized.tags == ["solar", "wind energy"]
+
+
 def test_render_presets_are_defined():
     assert PRESETS["shorts"] == (1080, 1920)
     assert PRESETS["long"] == (1920, 1080)

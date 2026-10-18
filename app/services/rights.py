@@ -117,8 +117,8 @@ def append_stock_attribution(description: str, source_records: list[tuple[Asset,
     if limit < 1:
         raise ValueError("Description limit must be positive")
     description = str(description or "").strip()
-    if len(description) > limit:
-        raise ValueError("Description exceeds the limit; shorten it before publishing")
+    if len(description.encode("utf-8")) > limit:
+        raise ValueError("Description exceeds the 5000-byte limit; shorten it before publishing")
     lines: list[str] = []
     seen: set[str] = set()
     for _, source in source_records:
@@ -148,13 +148,16 @@ def append_stock_attribution(description: str, source_records: list[tuple[Asset,
     else:
         block = heading + "\n" + "\n".join(lines)
         separator = "\n\n" if description else ""
-    available = limit - len(separator) - len(block)
-    if available < 0:
+    separator_bytes = len(separator.encode("utf-8"))
+    block_bytes = len(block.encode("utf-8"))
+    available_bytes = limit - separator_bytes - block_bytes
+    if available_bytes < 0:
         raise ValueError("Required stock attribution exceeds the description limit")
-    intro = description[:available].rstrip()
+    encoded_intro = description.encode("utf-8")[:available_bytes]
+    intro = encoded_intro.decode("utf-8", errors="ignore").rstrip()
     if len(intro) < len(description) and " " in intro:
         intro = intro[:intro.rfind(" ")].rstrip()
     result = (intro + separator + block).strip()
-    if len(block) > limit or len(result) > limit:
+    if block_bytes > limit or len(result.encode("utf-8")) > limit:
         raise ValueError("Required stock attribution exceeds the description limit")
     return result
