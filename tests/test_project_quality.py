@@ -151,9 +151,12 @@ def test_caption_alignment_warning_distinguishes_estimated_and_not_applicable():
         "scene_rights_checks": [True],
     }
     estimated = build_project_quality_report(**base, caption_alignment_status="estimated")
-    measured = build_project_quality_report(
+    measured_args = {
         **base,
-        subtitle_segments=[{"start_seconds": 0, "end_seconds": 30, "text": "Hello world"}],
+        "subtitle_segments": [{"start_seconds": 0, "end_seconds": 30, "text": "Hello world"}],
+    }
+    measured = build_project_quality_report(
+        **measured_args,
         caption_alignment_status="measured_chunk",
     )
     no_voiceover = build_project_quality_report(
