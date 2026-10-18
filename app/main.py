@@ -300,7 +300,7 @@ def create_video_project(payload: VideoProjectCreateRequest, db: Session = Depen
     existing = db.scalar(select(VideoProject).where(VideoProject.project_key == payload.project_key))
     if existing is not None:
         same = (payload.auto_discover_trend and existing.auto_discover_trend and existing.trend_query == payload.trend_query.strip()) or (not payload.auto_discover_trend and not existing.auto_discover_trend and existing.topic == payload.topic.strip())
-        same = same and existing.video_format == payload.video_format and existing.target_seconds == payload.target_seconds and existing.scene_count == payload.scene_count and existing.audience == payload.audience and existing.tone == payload.tone and existing.use_voiceover == payload.use_voiceover
+        same = same and existing.trend_max_results == payload.trend_max_results and existing.video_format == payload.video_format and existing.target_seconds == payload.target_seconds and existing.scene_count == payload.scene_count and existing.audience == payload.audience and existing.tone == payload.tone and existing.confirm_pexels_license == payload.confirm_pexels_license and existing.use_voiceover == payload.use_voiceover
         if not same:
             raise HTTPException(409, "project_key already exists with different settings")
         return {**_project_summary(existing, db), "idempotent_replay": True}
