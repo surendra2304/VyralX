@@ -20,7 +20,8 @@ This file distinguishes implemented repository capability from external producti
 - [x] Optional topic-matched IntelX research query with bounded evidence context passed to Inference; graceful degradation when IntelX is not configured/reachable.
 - [x] Opt-in private Memora context retrieval for continuity plus compact completion summaries with idempotency key, receipt/status, and manual retry endpoint; both are disabled by default pending live credential/namespace validation.
 - [x] Optional voiceover synthesis through a compatible configured TTS endpoint.
-- [ ] Validate actual Inference gateway route/model/response format and TTS model on the deployed FRIDAY mesh.
+- [x] Verify the source-level Inference task route, Universal Task Envelope, successful result fields, IntelX query route, and Memora search/write/auth contracts against the current peer repositories (see `docs/INTEGRATIONS.md`).
+- [ ] Validate live Inference runtime credentials/model/provider output and the configured TTS model on the deployed FRIDAY mesh.
 - [ ] Add source-specific repeat-use license checks and operator-configurable channel strategy.
 
 ## Track C — Editing and publish pipeline
@@ -45,9 +46,11 @@ This file distinguishes implemented repository capability from external producti
 - [x] Standard specialist port 8000 and private \`friday_mesh\` Compose topology.
 - [x] Durable, idempotent task envelope; polling, cancellation, correlation IDs and machine-readable capability manifest.
 - [x] Timeout-bounded generic peer client and peer health probes.
-- [x] Optional fail-closed Sentinel gate before YouTube upload.
-- [ ] Validate actual endpoint contracts against deployed FRIDAY, Inference, IntelX, Memora and Sentinel code/configuration.
-- [ ] Implement and integration-test a concrete Memora write/search contract; do not store cross-agent long-term memory locally.
+- [x] Optional fail-closed Sentinel policy hook before YouTube upload (disabled by default; the existing Sentinel software-review route is not compatible with the `youtube.publish` request/response contract yet; see `docs/INTEGRATIONS.md`).
+- [x] Verify source-level Inference, IntelX, and Memora endpoints and request/response shapes against their current repository revisions (see `docs/INTEGRATIONS.md`).
+- [ ] Verify deployed service revisions, private-network reachability, and production credentials for all peers.
+- [x] Implement the Memora private search/write client, `vyralx` authentication identity, idempotent completion summaries, nested provenance metadata, and request-shape regression tests.
+- [ ] Run the live authenticated Memora search/write/readback test after provisioning the production key and private namespace/ACL.
 - [ ] Register VyralX in FRIDAY's live agent manifest only after authenticated contract tests pass.
 
 ## Track E — CI, deployment and operations
