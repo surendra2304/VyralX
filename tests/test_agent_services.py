@@ -575,8 +575,6 @@ def test_probe_reports_audio_stream_count(tmp_path: Path, monkeypatch):
 
 
 def test_peer_get_json_uses_validated_path_and_query_params(monkeypatch):
-    from types import SimpleNamespace
-
     from app.services import peers
 
     peer = peers.Peer(name="intelx", base_url="http://intelx:8000", api_key="peer-test-key")
