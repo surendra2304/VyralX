@@ -57,6 +57,7 @@ def generate_content_pack(
     audience: str = "general audience",
     tone: str = "clear, energetic and factual",
     target_seconds: int = 45,
+    research_context: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Use Inference /v1/task/execute to generate original scripts and scene plans."""
     settings = get_settings()
@@ -80,12 +81,24 @@ def generate_content_pack(
         "fact_check_notes": ["claims the operator should verify"],
         "rights_notes": "reminders about third-party assets and music",
     }
+    safe_research: list[dict[str, Any]] = []
+    for item in (research_context or [])[:5]:
+        if not isinstance(item, dict):
+            continue
+        safe_research.append({
+            "report_id": str(item.get("report_id") or "")[:120],
+            "published_at": str(item.get("published_at") or "")[:80],
+            "summary": str(item.get("summary") or "")[:1200],
+            "key_findings": [str(value)[:500] for value in item.get("key_findings", [])[:5]],
+            "tags": [str(value)[:100] for value in item.get("tags", [])[:10]],
+        })
     context = {
         "topic": topic.strip()[:500],
         "format": video_format,
         "target_duration_seconds": target_seconds,
         "audience": audience[:200],
         "tone": tone[:200],
+        "intelx_research_context": safe_research,
     }
     prompt = (
         "You are VyralX, an original video producer. Create a new script and production plan "
