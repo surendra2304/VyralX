@@ -645,3 +645,53 @@ def test_project_task_without_key_is_idempotent_across_dispatch_retries():
     with SessionLocal() as db:
         db.query(VideoProject).filter(VideoProject.project_key == first["project_key"]).delete()
         db.commit()
+
+
+def test_memora_project_memory_is_opt_in_private_and_idempotent():
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from app.database import SessionLocal
+    from app.models import VideoProject
+    from app.services import project_pipeline
+
+    project_key = "memora-test-" + uuid4().hex[:12]
+    with SessionLocal() as db:
+        project = VideoProject(project_key=project_key, topic="Test completed project", video_format="shorts", target_seconds=30, confirm_pexels_license=True, status="completed")
+        db.add(project)
+        db.commit()
+        project_id = project.id
+    try:
+        monkey_settings = SimpleNamespace(memora_write_enabled=True)
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(project_pipeline, "get_settings", lambda: monkey_settings)
+        monkeypatch.setattr(project_pipeline, "configured_peers", lambda: {"memora": object()})
+        calls = []
+        def fake_post(name, path, payload, **kwargs):
+            calls.append((name, path, payload, kwargs))
+            return {"id": "memory-test-123"}
+        monkeypatch.setattr(project_pipeline, "post_peer_json", fake_post)
+        try:
+            with SessionLocal() as db:
+                result = project_pipeline.sync_project_memory(project_id, db)
+                assert result["status"] == "stored"
+                assert result["memory_id"] == "memory-test-123"
+                stored = db.get(VideoProject, project_id)
+                assert stored.memora_memory_status == "stored"
+                assert stored.memora_memory_id == "memory-test-123"
+            assert calls[0][0:2] == ("memora", "/api/v1/memories")
+            payload = calls[0][2]
+            assert payload["target_namespace_path"] == "memora://vyralx/private"
+            assert payload["memory_type"] == "episodic"
+            assert payload["idempotency_key"].startswith("vyralx-project-")
+            assert "agent_id" not in payload
+            with SessionLocal() as db:
+                replay = project_pipeline.sync_project_memory(project_id, db)
+                assert replay["idempotent_replay"] is True
+            assert len(calls) == 1
+        finally:
+            monkeypatch.undo()
+    finally:
+        with SessionLocal() as db:
+            db.query(VideoProject).filter(VideoProject.project_key == project_key).delete()
+            db.commit()
