@@ -17,6 +17,7 @@ This file distinguishes implemented repository capability from external producti
 - [x] Deterministic trend heuristic that never turns candidates into authorized assets.
 - [x] Official Pexels API search, file metadata, rights confirmation gate, size-limited import and creator provenance.
 - [x] Original script, hook, scene plan, title, description, tags and thumbnail brief via configured Inference.
+- [x] Optional topic-matched IntelX research query with bounded evidence context passed to Inference; graceful degradation when IntelX is not configured/reachable.
 - [x] Optional voiceover synthesis through a compatible configured TTS endpoint.
 - [ ] Validate actual Inference gateway route/model/response format and TTS model on the deployed FRIDAY mesh.
 - [ ] Add source-specific repeat-use license checks and operator-configurable channel strategy.
