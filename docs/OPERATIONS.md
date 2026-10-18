@@ -4,9 +4,10 @@ This runbook describes the repository implementation; it does not claim that liv
 
 ## Local verification
 
-    python -m pip install -e ".[dev]"
-    ruff check app tests scripts
-    pytest
+    python -m pip install "uv==0.12.18"
+    uv sync --frozen --extra dev --no-editable
+    uv run --frozen --extra dev ruff check app tests scripts
+    uv run --frozen --extra dev pytest
     docker build -t vyralx:local .
     API_KEY=ci-only-not-a-real-secret docker compose config --quiet
 
@@ -16,7 +17,7 @@ CI runs Ruff, pytest, the Docker build, Compose validation, a strict Python depe
 
 The Dockerfile pins the multi-platform index digest for the Official Python 3.11.17 slim-bookworm image instead of relying on the moving `3.11-slim` tag. See the [Official Python image tag details](https://hub.docker.com/layers/library/python/3.11-slim-bookworm/). Refresh the digest only through a reviewed change followed by the full container vulnerability scan and CI. The multi-platform index lets the runtime select the matching architecture, including x86-64 and ARM64.
 
-This pin makes the Python base image identity stable, but it does not yet make the full image bit-for-bit reproducible: `apt-get update` still resolves Debian packages from the configured repositories, and Python application dependencies are still range-constrained in `pyproject.toml`. A verified dependency lock and a reviewed OS-package strategy remain release gates. Do not describe the final image as fully reproducible until those are locked and CI installs from those locks.
+Resolved application and development dependencies are recorded in `uv.lock`. CI verifies the lock and runs its tests against `uv sync --frozen`; the Docker image installs the production project from the same lock without installing the dev extra. The lock-generation, sync, and image workflows pin uv to `0.12.18` because the strict audit identified an advisory against `0.12.10`. The image is still not fully bit-for-bit reproducible: `apt-get update` resolves Debian packages from moving repositories, so pinning the base image and Python lock does not pin every OS package. A reviewed immutable Debian package source/snapshot is a remaining release gate.
 
 ## Deployment topology
 

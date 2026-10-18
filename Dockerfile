@@ -5,10 +5,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-ng ca-certificates \
     && rm -rf /var/lib/apt/lists/* && useradd --create-home --uid 10001 appuser
 WORKDIR /app
-COPY pyproject.toml README.md ./
+COPY pyproject.toml uv.lock README.md ./
 COPY app ./app
-RUN pip install --no-cache-dir . \
-    && python -m pip uninstall -y setuptools wheel
+RUN python -m pip install --no-cache-dir "uv==0.12.18" \
+    && uv sync --frozen --no-editable \
+    && python -m pip uninstall -y setuptools wheel uv
+ENV PATH="/app/.venv/bin:$PATH"
 RUN mkdir -p /app/data /app/media /app/renders /app/secrets && chown -R appuser:appuser /app
 USER appuser
 EXPOSE 8000
