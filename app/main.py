@@ -154,6 +154,7 @@ async function loadProjects(button){
    const details=document.createElement('p');details.className='sub';details.textContent='Project #'+project.project_id+' · '+project.video_format+' · '+project.target_seconds+'s · '+(project.asset_ids||[]).length+' scene assets · attempt '+project.attempts;card.appendChild(details);
    const preview=project.content_preview||{};
    const research=document.createElement('p');research.className='sub';research.textContent='IntelX research: '+String(preview.research_status||'not_available').toUpperCase()+(preview.research_report_ids&&preview.research_report_ids.length?' · reports '+preview.research_report_ids.join(', '):'');card.appendChild(research);
+   const memoryContext=document.createElement('p');memoryContext.className='sub';memoryContext.textContent='Memora context: '+String(preview.memora_context_status||'disabled').toUpperCase()+(preview.memora_context_ids&&preview.memora_context_ids.length?' · memories '+preview.memora_context_ids.join(', '):'');card.appendChild(memoryContext);
    if(preview.hook){const hook=document.createElement('p');hook.textContent='Hook: '+preview.hook;card.appendChild(hook)}
    if(preview.title_options&&preview.title_options.length){const titles=document.createElement('p');titles.className='sub';titles.textContent='Title options: '+preview.title_options.join(' | ');card.appendChild(titles)}
    if(preview.script){const scriptDetails=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Review generated script and scene plan';scriptDetails.appendChild(summary);const script=document.createElement('p');script.textContent=preview.script;script.style.whiteSpace='pre-wrap';scriptDetails.appendChild(script);if(preview.scene_plan&&preview.scene_plan.length){const scenes=document.createElement('ul');for(const scene of preview.scene_plan){const item=document.createElement('li');item.textContent=String(scene.timecode||'')+' — '+String(scene.visual||'')+' — '+String(scene.on_screen_text||'');scenes.appendChild(item)}scriptDetails.appendChild(scenes)}card.appendChild(scriptDetails)}
@@ -268,6 +269,8 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
                 "tags": [str(value)[:100] for value in pack.get("tags", [])[:30]],
                 "fact_check_notes": [str(value)[:500] for value in pack.get("fact_check_notes", [])[:20]],
                 "research_status": str(pack.get("research_status") or "not_available"),
+                "memora_context_status": str(pack.get("memora_context_status") or "disabled"),
+                "memora_context_ids": [str(item.get("id"))[:120] for item in pack.get("memora_private_context", []) if isinstance(item, dict) and item.get("id")][:5],
                 "research_report_ids": [
                     str(item.get("report_id"))[:120]
                     for item in pack.get("intelx_research_context", [])
@@ -289,6 +292,7 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
         "memora_memory_id": project.memora_memory_id or None,
         "memora_memory_status": project.memora_memory_status,
         "memora_write_enabled": settings.memora_write_enabled,
+    "memora_read_enabled": settings.memora_read_enabled,
         "thumbnail_path": f"/api/projects/{project.id}/thumbnail" if project.thumbnail_path and Path(project.thumbnail_path).is_file() else None,
         "render_download_path": f"/api/render/{project.render_job_id}/download" if project.render_job_id else None,
         "error": project.error or None, "attempts": project.attempts,
