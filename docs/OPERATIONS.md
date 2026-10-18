@@ -10,7 +10,7 @@ This runbook describes the repository implementation; it does not claim that liv
     docker build -t vyralx:local .
     API_KEY=ci-only-not-a-real-secret docker compose config --quiet
 
-CI repeats Ruff, pytest, the Docker build, Compose validation, and a strict audit of the installed third-party Python packages using a frozen, fully pinned requirements snapshot (excluding only editable local projects). Verify the run for the latest commit rather than relying on an earlier run. The Python audit does not replace base-image/OS-package scanning or a repository secret scan.
+CI runs Ruff, pytest, the Docker build, Compose validation, a strict Python dependency audit, a full-history Gitleaks secret scan, and a Trivy scan of OS and Python-library vulnerabilities in the built image. Trivy gates known fixed HIGH/CRITICAL vulnerabilities and leaves unfixed advisories visible in the scan output; the image must still be assessed before a production release. GitHub Actions used by CI are pinned to commit SHAs, with version comments for review. Keep those pins current through reviewed dependency update PRs. Scan output and status are available in the latest GitHub Actions run. A clean scan does not prove that historical secrets were never exposed elsewhere; any confirmed credential exposure still requires revocation/rotation.
 
 ## Deployment topology
 
