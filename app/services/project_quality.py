@@ -47,6 +47,7 @@ def build_project_quality_report(
     thumbnail_path: str | Path | None,
     scene_rights_checks: list[bool],
     signal_analysis: dict[str, Any] | None = None,
+    caption_alignment_status: str = "estimated",
 ) -> dict[str, Any]:
     """Return a QA snapshot. Warnings require operator attention, never auto-approval."""
     checks: list[dict[str, Any]] = []
@@ -121,6 +122,13 @@ def build_project_quality_report(
         len(caption_words), len(spoken_words))
 
     timing_ok = bool(subtitle_segments)
+    expected_caption_end = float(target_seconds)
+    expected_caption_end_label = "target duration"
+    if voiceover_requested and caption_alignment_status == "measured_chunk":
+        measured_duration = _finite_number(voiceover_duration)
+        if measured_duration is not None and measured_duration > 0:
+            expected_caption_end = measured_duration
+            expected_caption_end_label = "measured narration duration"
     previous_end = 0.0
     for index, cue in enumerate(subtitle_segments):
         try:
@@ -137,10 +145,27 @@ def build_project_quality_report(
             timing_ok = False
             break
         previous_end = end
-    timing_ok = timing_ok and abs(previous_end - float(target_seconds)) <= 0.05
+    timing_ok = timing_ok and abs(previous_end - expected_caption_end) <= 0.05
     add("caption_timing", "Caption timing", bool(timing_ok),
-        "Caption cues are ordered, non-overlapping, and span the target duration." if timing_ok else "Caption cues have invalid timing or do not span the target duration.",
-        round(previous_end, 3), int(target_seconds))
+        f"Caption cues are ordered, non-overlapping, and span the {expected_caption_end_label}."
+        if timing_ok else f"Caption cues have invalid timing or do not span the {expected_caption_end_label}.",
+        round(previous_end, 3), round(expected_caption_end, 3))
+
+    if not voiceover_requested:
+        add("caption_sync", "Caption-to-speech alignment", None, "Narration was not requested.")
+    elif caption_alignment_status == "measured_chunk":
+        add(
+            "caption_sync", "Caption-to-speech alignment", bool(subtitle_segments),
+            "Caption boundaries follow measured per-chunk narration durations; this is phrase-level alignment, not word-level forced alignment."
+            if subtitle_segments else "Measured narration alignment has no caption cues.",
+            caption_alignment_status, "measured chunk-level narration timing",
+        )
+    else:
+        add(
+            "caption_sync", "Caption-to-speech alignment", False,
+            "Caption timings are estimated rather than derived from measured narration chunks; review playback and align cues before publishing.",
+            caption_alignment_status or "unknown", "measured chunk-level narration timing",
+        )
 
     thumbnail_ok = _has_file(thumbnail_path)
     add("thumbnail", "Thumbnail output", thumbnail_ok,
