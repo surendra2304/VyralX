@@ -43,7 +43,7 @@ Requirements: Python 3.11+, FFmpeg/FFprobe and eSpeak NG (`espeak-ng`) for the d
 Install the same pinned packaging tool and lockfile-based environment used by CI:
 
 \`\`\`bash
-python -m pip install "uv==0.12.18"
+python -m pip install "uv==0.13.1"
 uv sync --frozen --extra dev
 # Windows PowerShell: Copy-Item .env.example .env
 # Linux/macOS: cp .env.example .env
