@@ -65,7 +65,7 @@ def _extract_json(raw: str) -> dict[str, Any]:
         }
         if cleaned["visual"] or cleaned["on_screen_text"]:
             scenes.append(cleaned)
-    if not scenes:
+    if not scenes and len(value["scene_plan"]) > 0:
         raise ValueError("scene_plan must contain at least one usable scene")
     value["scene_plan"] = scenes
     value["tags"] = [
