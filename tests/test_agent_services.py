@@ -598,3 +598,24 @@ def test_peer_get_json_uses_validated_path_and_query_params(monkeypatch):
     assert calls["kwargs"]["headers"]["X-API-Key"] == "peer-test-key"
     with pytest.raises(ValueError, match="traversal"):
         peers.get_peer_json("intelx", "/api/v1/../secrets")
+
+
+def test_local_voiceover_rate_tracks_target_duration(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import voiceover
+
+    media_dir = tmp_path / "media"
+    media_dir.mkdir()
+    settings = SimpleNamespace(media_dir=media_dir, tts_provider="espeak", espeak_bin="espeak-ng", espeak_voice="en-us", espeak_rate=165)
+    monkeypatch.setattr(voiceover, "get_settings", lambda: settings)
+    monkeypatch.setattr(voiceover.shutil, "which", lambda name: "/usr/bin/espeak-ng")
+    calls = {}
+    def fake_run(command, **kwargs):
+        calls["command"] = command
+        Path(command[2]).write_bytes(b"wav-data")
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+    monkeypatch.setattr(voiceover.subprocess, "run", fake_run)
+    result = voiceover.synthesize_voiceover("one two three four", target_seconds=2)
+    assert calls["command"][calls["command"].index("-s") + 1] == "120"
+    assert Path(result["file_path"]).is_file()
