@@ -621,3 +621,27 @@ def test_local_voiceover_rate_tracks_target_duration(tmp_path: Path, monkeypatch
     result = voiceover.synthesize_voiceover("one two three four", target_seconds=2)
     assert calls["command"][calls["command"].index("-s") + 1] == "120"
     assert Path(result["file_path"]).is_file()
+
+
+def test_project_task_without_key_is_idempotent_across_dispatch_retries():
+    from app.database import SessionLocal
+    from app.models import VideoProject
+    from app.services.task_dispatch import dispatch_agent_task
+
+    payload = {
+        "topic": "How geothermal energy works",
+        "video_format": "shorts",
+        "target_seconds": 30,
+        "scene_count": 3,
+        "confirm_pexels_license": True,
+        "use_voiceover": False,
+    }
+    with SessionLocal() as db:
+        first = dispatch_agent_task("project.create", payload, db)
+        second = dispatch_agent_task("project.create", payload, db)
+        assert first["project_id"] == second["project_id"]
+        assert first["project_key"] == second["project_key"]
+        db.commit()
+    with SessionLocal() as db:
+        db.query(VideoProject).filter(VideoProject.project_key == first["project_key"]).delete()
+        db.commit()
