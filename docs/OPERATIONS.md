@@ -5,7 +5,7 @@ This runbook describes the repository implementation; it does not claim that liv
 ## Local verification
 
     python -m pip install "uv==0.12.18"
-    uv sync --frozen --extra dev --no-editable
+    uv sync --frozen --extra dev
     uv run --frozen --extra dev ruff check app tests scripts
     uv run --frozen --extra dev pytest
     docker build -t vyralx:local .
@@ -17,7 +17,7 @@ CI runs Ruff, pytest, the Docker build, Compose validation, a strict Python depe
 
 The Dockerfile pins the multi-platform index digest for the Official Python 3.11.17 slim-bookworm image instead of relying on the moving `3.11-slim` tag. See the [Official Python image tag details](https://hub.docker.com/layers/library/python/3.11-slim-bookworm/). Refresh the digest only through a reviewed change followed by the full container vulnerability scan and CI. The multi-platform index lets the runtime select the matching architecture, including x86-64 and ARM64.
 
-Resolved application and development dependencies are recorded in `uv.lock`. CI verifies the lock and runs tests against `uv sync --frozen`; Docker installs the production project from that lock without the dev extra. The lock/sync/image workflows pin uv to `0.12.18` because the strict audit found an advisory against `0.12.10`. The Python base image is pinned by digest and APT uses the immutable Debian Snapshot timestamp `20261017T000000Z` for both Bookworm and its security archive; update that snapshot only through a reviewed change and a clean Trivy scan. Snapshot entries set `Check-Valid-Until: no` because historic archive metadata expires; package signature validation still uses Debian's archive keyring. The image is not yet bit-for-bit reproducible: PEP 517 build-isolation requirements (`setuptools` and `wheel`) are constrained in `pyproject.toml` but are not separately version-locked by `uv.lock`.
+Resolved application and development dependencies are recorded in `uv.lock`. CI verifies the lock and runs tests against `uv sync --frozen`; Docker installs the production project from that lock without the dev extra. The lock/sync/image workflows pin uv to `0.12.18` because the strict audit found an advisory against `0.12.10`. The Python base image is pinned by digest and APT uses the immutable Debian Snapshot timestamp `20261017T000000Z` for both Bookworm and its security archive; update that snapshot only through a reviewed change and a clean Trivy scan. Snapshot entries set `Check-Valid-Until: no` because historic archive metadata expires; package signature validation still uses Debian's archive keyring. The project's isolated PEP 517 build dependencies are pinned to `setuptools==84.0.0` and `wheel==0.48.0`, with SHA-256 hashes enforced by uv through `tool.uv.build-constraint-dependencies` and `require-build-hashes`. These are deliberately separate from the application runtime lock because build isolation occurs before the project is installed. A bit-for-bit reproducibility claim still requires comparing two clean image builds and accounting for build timestamps and other toolchain-generated metadata.
 
 ## Deployment topology
 

@@ -70,7 +70,8 @@ This file distinguishes implemented repository capability from external producti
 - [x] Pin the Python base image to its immutable multi-platform index digest; refresh only through a reviewed update and a green container scan.
 - [x] Lock resolved application and development dependencies in `uv.lock`; use frozen sync for CI and production container installs.
 - [x] Pin Debian package indexes to an immutable dated Snapshot archive and run the container vulnerability scan before updating its timestamp.
-- [ ] Lock PEP 517 build-isolation dependencies (`setuptools` and `wheel`) separately before claiming bit-for-bit image reproducibility.
+- [x] Pin and hash-check PEP 517 build-isolation dependencies (`setuptools==84.0.0`, `wheel==0.48.0`) separately from runtime `uv.lock`.
+- [ ] Compare two clean image builds and inspect generated artifacts before claiming bit-for-bit image reproducibility.
 - [ ] Investigate and rotate any historical credentials if secret-scanning evidence indicates confirmed exposure.
 - [ ] Validate the actual external Docker network and Dokploy stack before deploy.
 - [ ] Test persistence across recreation, encrypted backup and a successful restore.
