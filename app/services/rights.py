@@ -72,7 +72,7 @@ def append_stock_attribution(description: str, source_records: list[tuple[Asset,
         suffix = f" — License: {license_url[:500]}" if license_url else ""
         line = f"- {creator[:120]} (Pexels): {url[:600]}{suffix}"
         lines.append(line)
-    if not lines:
+    if not lines or "Stock footage credits:" in description:
         return description[:limit]
     credit_block = "Stock footage credits:\n" + "\n".join(lines)
     credit_block = credit_block[: max(0, limit - 4)]
