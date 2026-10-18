@@ -36,4 +36,5 @@ jobs:
       - name: Audit installed Python dependencies
         run: |
           python -m pip install --upgrade pip-audit
-          pip-audit --strict --skip-editable
+          python -m pip freeze | grep -v '^-e ' > /tmp/vyralx-audit-requirements.txt
+          pip-audit --strict --no-deps --requirement /tmp/vyralx-audit-requirements.txt
