@@ -105,10 +105,21 @@ def dispatch_agent_task(task_type: str, raw_input: dict[str, Any], db: Session) 
             raise ValueError("Automatic trend discovery requires YOUTUBE_DATA_API_KEY")
         existing = db.query(VideoProject).filter(VideoProject.project_key == request.project_key).one_or_none()
         if existing is not None:
-            if existing.auto_discover_trend != request.auto_discover_trend or existing.trend_query != request.trend_query.strip():
-                raise ValueError("project_key already exists with different trend settings")
-            if not existing.auto_discover_trend and existing.topic != request.topic.strip():
-                raise ValueError("project_key already exists with a different topic")
+            same = (
+                existing.auto_discover_trend == request.auto_discover_trend
+                and existing.trend_query == request.trend_query.strip()
+                and existing.trend_max_results == request.trend_max_results
+                and existing.video_format == request.video_format
+                and existing.target_seconds == request.target_seconds
+                and existing.audience == request.audience
+                and existing.tone == request.tone
+                and existing.scene_count == request.scene_count
+                and existing.confirm_pexels_license == request.confirm_pexels_license
+                and existing.use_voiceover == request.use_voiceover
+                and (request.auto_discover_trend or existing.topic == request.topic.strip())
+            )
+            if not same:
+                raise ValueError("project_key already exists with different project settings")
             return {"project_id": existing.id, "project_key": existing.project_key, "status": existing.status}
         project = VideoProject(
             project_key=request.project_key,
