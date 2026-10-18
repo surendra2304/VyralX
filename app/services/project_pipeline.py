@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from hashlib import sha256
 import logging
+import math
 import re
 from pathlib import Path
 
@@ -460,8 +461,8 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
         metadata = probe_media(rendered)
         actual_duration = float(metadata.get("duration_seconds") or 0)
         expected_width, expected_height = PRESETS[project.video_format]
-        if actual_duration <= 0:
-            raise RuntimeError("Rendered project did not have a readable positive duration")
+        if not math.isfinite(actual_duration) or actual_duration <= 0:
+            raise RuntimeError("Rendered project did not have a finite positive duration")
         if abs(actual_duration - project.target_seconds) > 1.5:
             raise RuntimeError(f"Rendered duration {actual_duration:.2f}s differs from target {project.target_seconds}s")
         if int(metadata.get("width") or 0) != expected_width or int(metadata.get("height") or 0) != expected_height:
