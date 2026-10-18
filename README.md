@@ -9,7 +9,7 @@ VyralX is the tenth service planned for the FRIDAY Universe. It runs as an indep
 
 - **FRIDAY task envelope:** authenticated \`POST /api/v1/tasks\`, durable queue, task polling/listing/cancellation, correlation IDs, and idempotent replay when the same task ID and payload are reused.
 - **Discovery:** YouTube Data API search with view/like/comment metadata and heuristic trend scoring; official Pexels stock video search with creator, file choices and license links.
-- **Content intelligence:** the real FRIDAY Inference Universal Task API (`/v1/task/execute`) that generates an original script, hook, scene plan, voiceover text, title variants, description, tags, thumbnail brief and fact-check notes.
+- **Content intelligence:** the real FRIDAY Inference Universal Task API (`/v1/task/execute`) that generates an original script, hook, scene plan, voiceover text, title variants, description, tags, thumbnail brief and fact-check notes. When IntelX is configured, the project pipeline optionally fetches recent topic-matched reports and passes a bounded, recorded research context to Inference; IntelX failure degrades gracefully and is not presented as verified fact.
 - **Stock media import:** official Pexels video detail/download flow, size limits, FFprobe inspection, attribution metadata and explicit license confirmation. Search results remain unverified leads until import is confirmed.
 - **Media library:** chunked local upload, source/creator/license/permission provenance, metadata inspection and persistent asset records.
 - **Production:** FFmpeg Shorts (9:16), landscape (16:9) and square presets; trim ranges, pad or crop, SRT caption burn-in, optional generated narration, and thumbnail extraction.
