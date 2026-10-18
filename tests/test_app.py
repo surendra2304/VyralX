@@ -201,3 +201,13 @@ def test_video_project_api_is_idempotent_and_requires_license_confirmation():
         with SessionLocal() as db:
             db.query(VideoProject).filter(VideoProject.project_key == key).delete()
             db.commit()
+
+
+def test_integration_configuration_endpoint_never_exposes_credentials():
+    response = client.get("/api/integrations")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "configuration_only_not_live_connectivity"
+    assert {"inference", "pexels", "youtube_data_api", "youtube_upload", "tts", "intelx", "memora", "sentinel", "worker", "media_tools"} <= set(data["providers"])
+    assert "api_key" not in str(data).lower()
+    assert "secret_value" not in str(data).lower()
