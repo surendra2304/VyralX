@@ -14,8 +14,8 @@ from starlette.concurrency import run_in_threadpool
 from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.migrations import run_additive_migrations
-from app.models import AgentTask, Asset, ContentPack, PublishJob, RenderJob, Source, VideoMetric, utcnow
-from app.schemas import AgentTaskCancelRequest, AgentTaskRequest, ContentGenerationRequest, ContentVoiceoverRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, PublishResolutionRequest, RenderRequest, SourceCreate, ThumbnailRequest, UniverseTaskEnvelope
+from app.models import AgentTask, Asset, ContentPack, PublishJob, RenderJob, Source, VideoMetric, VideoProject, utcnow
+from app.schemas import AgentTaskCancelRequest, AgentTaskRequest, ContentGenerationRequest, ContentVoiceoverRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishRequest, PublishResolutionRequest, RenderRequest, SourceCreate, ThumbnailRequest, UniverseTaskEnvelope, VideoProjectCreateRequest, VideoProjectRetryRequest
 from app.security import require_api_key
 from app.services.probe import probe_media
 from app.services.discovery import discover_youtube_videos
@@ -234,6 +234,96 @@ async function refreshAll(){
 if(key())$('apiKey').value=key();
 refreshAll();
 </script></body></html>""")
+
+def _project_summary(project: VideoProject) -> dict:
+    try:
+        asset_ids = json.loads(project.asset_ids_json or "[]")
+    except ValueError:
+        asset_ids = []
+    return {
+        "project_id": project.id, "project_key": project.project_key, "topic": project.topic,
+        "auto_discover_trend": project.auto_discover_trend, "trend_query": project.trend_query,
+        "trend_max_results": project.trend_max_results, "trend_source_video_id": project.trend_source_video_id,
+        "trend_source_url": project.trend_source_url, "trend_score": project.trend_score,
+        "video_format": project.video_format, "target_seconds": project.target_seconds,
+        "audience": project.audience, "tone": project.tone, "scene_count": project.scene_count,
+        "use_voiceover": project.use_voiceover, "status": project.status,
+        "content_pack_id": project.content_pack_id, "asset_ids": asset_ids,
+        "primary_asset_id": project.primary_asset_id, "render_job_id": project.render_job_id,
+        "thumbnail_path": f"/api/projects/{project.id}/thumbnail" if project.thumbnail_path and Path(project.thumbnail_path).is_file() else None,
+        "render_download_path": f"/api/render/{project.render_job_id}/download" if project.render_job_id else None,
+        "error": project.error or None, "attempts": project.attempts,
+        "created_at": project.created_at.isoformat() if project.created_at else None,
+        "started_at": project.started_at.isoformat() if project.started_at else None,
+        "updated_at": project.updated_at.isoformat() if project.updated_at else None,
+        "completed_at": project.completed_at.isoformat() if project.completed_at else None,
+    }
+
+
+@app.post("/api/projects", status_code=202, dependencies=[Depends(require_api_key)])
+def create_video_project(payload: VideoProjectCreateRequest, db: Session = Depends(get_db)):
+    if not payload.confirm_pexels_license:
+        raise HTTPException(403, "Review https://www.pexels.com/license/ and confirm the license")
+    if payload.auto_discover_trend and not settings.youtube_data_api_key:
+        raise HTTPException(422, "Automatic trend discovery requires YOUTUBE_DATA_API_KEY")
+    existing = db.scalar(select(VideoProject).where(VideoProject.project_key == payload.project_key))
+    if existing is not None:
+        same = (payload.auto_discover_trend and existing.auto_discover_trend and existing.trend_query == payload.trend_query.strip()) or (not payload.auto_discover_trend and not existing.auto_discover_trend and existing.topic == payload.topic.strip())
+        same = same and existing.video_format == payload.video_format and existing.target_seconds == payload.target_seconds and existing.scene_count == payload.scene_count and existing.audience == payload.audience and existing.tone == payload.tone and existing.use_voiceover == payload.use_voiceover
+        if not same:
+            raise HTTPException(409, "project_key already exists with different settings")
+        return {**_project_summary(existing), "idempotent_replay": True}
+    project = VideoProject(project_key=payload.project_key, topic=payload.topic.strip(), auto_discover_trend=payload.auto_discover_trend, trend_query=payload.trend_query.strip(), trend_max_results=payload.trend_max_results, video_format=payload.video_format, target_seconds=payload.target_seconds, audience=payload.audience, tone=payload.tone, scene_count=payload.scene_count, confirm_pexels_license=True, use_voiceover=payload.use_voiceover, status="queued")
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return {**_project_summary(project), "idempotent_replay": False}
+
+
+@app.get("/api/projects", dependencies=[Depends(require_api_key)])
+def list_video_projects(db: Session = Depends(get_db), limit: int = 30):
+    projects = db.scalars(select(VideoProject).order_by(VideoProject.id.desc()).limit(max(1, min(limit, 100)))).all()
+    return {"count": len(projects), "items": [_project_summary(p) for p in projects]}
+
+
+@app.get("/api/projects/{project_id}", dependencies=[Depends(require_api_key)])
+def get_video_project(project_id: int, db: Session = Depends(get_db)):
+    project = db.get(VideoProject, project_id)
+    if project is None:
+        raise HTTPException(404, "Video project not found")
+    return _project_summary(project)
+
+
+@app.post("/api/projects/{project_id}/retry", dependencies=[Depends(require_api_key)])
+def retry_video_project(project_id: int, payload: VideoProjectRetryRequest, db: Session = Depends(get_db)):
+    project = db.get(VideoProject, project_id)
+    if project is None:
+        raise HTTPException(404, "Video project not found")
+    if project.status != "failed":
+        raise HTTPException(409, "Only failed projects can be retried")
+    if project.attempts >= settings.worker_max_attempts:
+        raise HTTPException(409, "Configured project retry limit has been reached")
+    project.status = "queued"
+    project.error = ""
+    project.completed_at = None
+    project.render_job_id = None
+    project.thumbnail_path = ""
+    project.updated_at = utcnow()
+    db.commit()
+    db.refresh(project)
+    return _project_summary(project)
+
+
+@app.get("/api/projects/{project_id}/thumbnail", dependencies=[Depends(require_api_key)])
+def download_project_thumbnail(project_id: int, db: Session = Depends(get_db)):
+    project = db.get(VideoProject, project_id)
+    if project is None or not project.thumbnail_path:
+        raise HTTPException(404, "Project thumbnail not found")
+    path = Path(project.thumbnail_path).resolve()
+    if settings.render_dir.resolve() not in path.parents or not path.is_file():
+        raise HTTPException(404, "Project thumbnail is unavailable")
+    return FileResponse(path, media_type="image/jpeg", filename=f"{project.project_key}-thumbnail.jpg")
+
 
 @app.post("/api/discover", dependencies=[Depends(require_api_key)])
 def discover(payload: DiscoveryRequest):
