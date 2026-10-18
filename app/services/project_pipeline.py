@@ -263,7 +263,7 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
                 content_record.voiceover_status = "ready"
                 db.commit()
 
-        caption_text = str(pack.get("voiceover") or script)
+        caption_text = str(pack.get("voiceover") or script) if project.use_voiceover else script
         segments = segment_script(caption_text, project.target_seconds)
         subtitle_dir = settings.data_dir / "subtitles"
         subtitle_dir.mkdir(parents=True, exist_ok=True)
