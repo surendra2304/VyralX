@@ -432,7 +432,9 @@ def test_video_project_task_creates_durable_queued_project():
         assert project is not None
         assert project.status == "queued"
         assert project.project_key == project_key
-        db.rollback()
+        with pytest.raises(ValueError, match="different project settings"):
+            dispatch_agent_task("project.create", {**payload, "trend_max_results": 15}, db)
+        db.commit()
     with SessionLocal() as db:
         db.query(VideoProject).filter(VideoProject.project_key == project_key).delete()
         db.commit()
