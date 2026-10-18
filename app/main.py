@@ -162,6 +162,23 @@ async function loadProjects(button){
    const details=document.createElement('p');details.className='sub';details.textContent='Project #'+project.project_id+' · '+project.video_format+' · '+project.target_seconds+'s · '+(project.asset_ids||[]).length+' scene assets · attempt '+project.attempts;card.appendChild(details);
    const preview=project.content_preview||{};
    const research=document.createElement('p');research.className='sub';research.textContent='IntelX research: '+String(preview.research_status||'not_available').toUpperCase()+(preview.research_report_ids&&preview.research_report_ids.length?' · reports '+preview.research_report_ids.join(', '):'');card.appendChild(research);
+   const qa=preview.production_qa||{};
+   if(Array.isArray(qa.checks)&&qa.checks.length){
+    const qaDetails=document.createElement('details');
+    const qaSummary=document.createElement('summary');
+    qaSummary.textContent='Production QA: '+String(qa.status||'not_available').replaceAll('_',' ').toUpperCase()+' · '+String(qa.passed_count||0)+' passed · '+String(qa.warning_count||0)+' warnings';
+    qaDetails.appendChild(qaSummary);
+    const qaNote=document.createElement('p');qaNote.className='notice';
+    qaNote.textContent='This report is a technical review aid, not publish approval. Review the rendered video, spoken narration, caption synchronization, facts, and rights before publishing.';
+    qaDetails.appendChild(qaNote);
+    const qaList=document.createElement('ul');
+    for(const check of qa.checks){
+     const item=document.createElement('li');
+     item.textContent=String(check.label||check.id||'Check')+' — '+String(check.status||'unknown').toUpperCase()+': '+String(check.message||'');
+     qaList.appendChild(item);
+    }
+    qaDetails.appendChild(qaList);card.appendChild(qaDetails);
+   }
    const sceneSources=Array.isArray(project.scene_sources)?project.scene_sources:[];
    if(sceneSources.length){
     const rightsDetails=document.createElement('details');
@@ -303,6 +320,7 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
                     for item in pack.get("intelx_research_context", [])
                     if isinstance(item, dict) and item.get("report_id")
                 ][:5],
+                "production_qa": pack.get("production_qa", {}) if isinstance(pack.get("production_qa"), dict) else {},
                 "requires_editor_review": bool(pack.get("requires_editor_review", True)),
             }
     scene_sources = []

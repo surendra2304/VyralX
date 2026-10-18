@@ -22,6 +22,7 @@ from app.services.peers import configured_peers, get_peer_json, post_peer_json
 from app.services.renderer import PRESETS
 from app.services.thumbnail import extract_thumbnail
 from app.services.rights import is_project_scene_publishable
+from app.services.project_quality import build_project_quality_report
 from app.services.voiceover import synthesize_voiceover
 
 log = logging.getLogger("vyralx.projects")
@@ -471,6 +472,29 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
         extract_thumbnail(rendered, thumbnail, min(1.0, max(0.0, project.target_seconds / 4)))
         if not thumbnail.is_file() or thumbnail.stat().st_size <= 0:
             raise RuntimeError("Thumbnail generation did not produce a usable image")
+        scene_rights_checks = []
+        for asset in assets:
+            source = db.get(Source, asset.source_id) if asset.source_id else None
+            scene_rights_checks.append(
+                bool(Path(asset.file_path).is_file() and is_project_scene_publishable(asset, source))
+            )
+        pack["production_qa"] = build_project_quality_report(
+            target_seconds=project.target_seconds,
+            actual_duration=actual_duration,
+            expected_width=expected_width,
+            expected_height=expected_height,
+            actual_width=int(metadata.get("width") or 0),
+            actual_height=int(metadata.get("height") or 0),
+            audio_stream_count=int(metadata.get("audio_stream_count") or 0),
+            voiceover_requested=project.use_voiceover,
+            voiceover_path=voice_path or None,
+            subtitle_path=subtitle_path,
+            subtitle_segments=segments,
+            caption_text=caption_text,
+            thumbnail_path=thumbnail,
+            scene_rights_checks=scene_rights_checks,
+        )
+        content_record.pack_json = json.dumps(pack, ensure_ascii=False)
         render_job.status = "completed"
         render_job.output_path = rendered
         render_job.error = ""
