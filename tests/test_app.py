@@ -125,7 +125,11 @@ def test_canonical_friday_task_contract_and_idempotent_replay(monkeypatch):
         assert replay.status_code == 202
         assert replay.json()["idempotent_replay"] is True
 
-        changed = {**payload, "inputs": {"topic": "different topic"}}
+        changed = {
+            **payload,
+            "inputs": {"topic": "different topic"},
+            "payload": {"topic": "different topic"},
+        }
         conflict = client.post("/v1/task/execute", json=changed)
         assert conflict.status_code == 409
 
