@@ -120,6 +120,11 @@ _MEMORA_PRIVATE_NAMESPACE = "memora://vyralx/private"
 _MEMORA_ERROR_STATES = {"error", "failed", "failure", "rejected", "blocked"}
 
 
+class _MemoraProviderError(RuntimeError):
+    """Memora explicitly returned an error envelope or failed status."""
+
+
+
 def _memora_collection_items(value, *, depth: int = 0) -> list | None:
     """Unwrap known JSON collection envelopes without treating success metadata as memories."""
     if depth > 4:
@@ -130,7 +135,7 @@ def _memora_collection_items(value, *, depth: int = 0) -> list | None:
         return None
     status = str(value.get("status") or "").strip().casefold()
     if value.get("error") or value.get("success") is False or status in _MEMORA_ERROR_STATES:
-        raise RuntimeError("Memora search returned an error envelope")
+        raise _MemoraProviderError("Memora search returned an error envelope")
     for key in ("items", "memories", "results", "matches"):
         if isinstance(value.get(key), list):
             return value[key]
@@ -243,7 +248,7 @@ def _fetch_memora_context(project: VideoProject) -> tuple[list[dict], str]:
             if len(items) == 5:
                 break
         return items, "used" if items else "no_matches"
-    except RuntimeError as exc:
+    except _MemoraProviderError as exc:
         log.warning("Memora search provider error project_id=%s error_type=%s", project.id, type(exc).__name__)
         return [], "provider_error"
     except Exception as exc:

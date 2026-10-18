@@ -827,6 +827,11 @@ def test_memora_context_distinguishes_provider_errors_from_invalid_responses(mon
     monkeypatch.setattr(project_pipeline, "get_peer_json", lambda *args, **kwargs: {"status": "success", "message": "no items shape"})
     assert project_pipeline._fetch_memora_context(project) == ([], "invalid_response")
 
+    def fail_transport(*args, **kwargs):
+        raise RuntimeError("transport failure details must not be persisted")
+    monkeypatch.setattr(project_pipeline, "get_peer_json", fail_transport)
+    assert project_pipeline._fetch_memora_context(project) == ([], "unavailable")
+
 
 def test_memora_write_does_not_mark_error_envelopes_as_stored(monkeypatch):
     from types import SimpleNamespace
