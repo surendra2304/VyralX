@@ -72,6 +72,13 @@ class PublishJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The resumable session URI is a bearer-like capability. It is worker-only and
+    # must never be included in API summaries, dashboard data, or logs.
+    upload_session_url: Mapped[str] = mapped_column(Text, default="")
+    upload_progress_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    upload_file_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    upload_metadata_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    upload_session_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
