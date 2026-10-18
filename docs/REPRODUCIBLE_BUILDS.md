@@ -14,6 +14,8 @@ scripts/compare_oci_images.py validates the OCI index and referenced descriptors
 
 When a comparison fails, the helper prints each manifest layer blob digest alongside the image config uncompressed rootfs diff_id. Matching diff_ids with different blob digests suggest a compression/serialization difference; different diff_ids identify differing filesystem-layer content. Keep this output with the failed run and investigate the responsible layer instead of bypassing the gate.
 
+The Docker install step removes uv 0.13.1's optional, wall-clock-stamped `uv_cache.json` from the installed `vyralx` dist-info directory and removes its matching line from `RECORD`. Without that cleanup, two otherwise clean builds differed only in those generated metadata files. The comparator remains strict: it requires exact OCI payload identity and is not configured to ignore those files.
+
 The resulting CI record is evidence for the tested commit and Linux/amd64 build path only. It does not prove that a future commit, ARM64 output, a different BuildKit/toolchain version, or an Oracle/Dokploy deployment is reproducible. Retain the exact run link with release evidence; repeat the check on the final release candidate and rerun security scanning on that same commit.
 
 ## Manual artifact comparison
