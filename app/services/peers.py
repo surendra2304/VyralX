@@ -97,3 +97,38 @@ def post_peer_json(
         raise RuntimeError(f"FRIDAY peer {name!r} returned HTTP {exc.response.status_code}") from None
     except httpx.RequestError as exc:
         raise RuntimeError(f"FRIDAY peer {name!r} request failed ({type(exc).__name__})") from None
+
+def get_peer_json(
+    name: str,
+    path: str,
+    params: dict[str, Any] | None = None,
+    *,
+    timeout_seconds: float = 8.0,
+) -> Any:
+    """GET JSON from a configured peer using a fixed, validated path and bounded timeout."""
+    if not path.startswith("/") or path.startswith("//") or "://" in path:
+        raise ValueError("Peer endpoint path must be an absolute path, not a URL")
+    if any(segment == ".." for segment in path.split("/")):
+        raise ValueError("Peer endpoint path must not contain traversal segments")
+    peer = configured_peers().get(name)
+    if peer is None:
+        raise RuntimeError(f"FRIDAY peer {name!r} is not configured")
+    try:
+        response = httpx.get(
+            peer.base_url + path,
+            headers={"Authorization": f"Bearer {peer.api_key}", "X-API-Key": peer.api_key, "X-Agent-Name": "vyralx"},
+            params=params or {},
+            timeout=timeout_seconds,
+            follow_redirects=False,
+        )
+        response.raise_for_status()
+        if not response.content:
+            return []
+        data = response.json()
+        if not isinstance(data, (dict, list)):
+            raise RuntimeError(f"FRIDAY peer {name!r} returned an unsupported JSON shape")
+        return data
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(f"FRIDAY peer {name!r} returned HTTP {exc.response.status_code}") from None
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"FRIDAY peer {name!r} request failed ({type(exc).__name__})") from None
