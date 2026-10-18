@@ -362,9 +362,11 @@ def test_montage_renderer_builds_concat_and_voiceover_command(tmp_path: Path, mo
     clip_a = media_dir / "a.mp4"
     clip_b = media_dir / "b.mp4"
     voice = media_dir / "voice.wav"
+    subtitles = data_dir / "captions.srt"
     clip_a.write_bytes(b"a")
     clip_b.write_bytes(b"b")
     voice.write_bytes(b"wav")
+    subtitles.write_text("1\\n00:00:00,000 --> 00:00:01,000\\nHello\\n", encoding="utf-8")
     output = render_dir / "project.mp4"
     settings = SimpleNamespace(
         media_dir=media_dir,
@@ -388,11 +390,15 @@ def test_montage_renderer_builds_concat_and_voiceover_command(tmp_path: Path, mo
         "shorts",
         target_seconds=20,
         fit_mode="crop",
+        subtitle_file=subtitles,
         voiceover_path=voice,
     )
     command = calls["command"]
     assert result == str(output.resolve())
-    assert "concat=n=2:v=1:a=0[joined]" in command[command.index("-filter_complex") + 1]
+    filtergraph = command[command.index("-filter_complex") + 1]
+    assert "concat=n=2:v=1:a=0[joined]" in filtergraph
+    assert "[joined]subtitles=" in filtergraph
+    assert "-vf" not in command
     assert "-stream_loop" in command
     assert "[2:a:0]" in command or "2:a:0" in command
     assert output.read_bytes() == b"rendered"
