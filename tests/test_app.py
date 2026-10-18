@@ -203,6 +203,58 @@ def test_video_project_api_is_idempotent_and_requires_license_confirmation():
             db.commit()
 
 
+def test_project_captions_are_persisted_and_download_requires_completed_project():
+    from uuid import uuid4
+
+    from app.config import get_settings
+    from app.database import SessionLocal
+    from app.models import VideoProject
+
+    key = "caption-download-" + uuid4().hex[:12]
+    settings = get_settings()
+    caption_file = None
+    project_id = None
+    try:
+        with SessionLocal() as db:
+            project = VideoProject(
+                project_key=key,
+                topic="Caption persistence test",
+                status="completed",
+                attempts=1,
+                confirm_pexels_license=True,
+            )
+            db.add(project)
+            db.commit()
+            db.refresh(project)
+            project_id = project.id
+        caption_file = settings.data_dir / "subtitles" / f"project-{project_id}-attempt-1.srt"
+        caption_file.parent.mkdir(parents=True, exist_ok=True)
+        caption_file.write_text(
+            "1\\n00:00:00,000 --> 00:00:02,000\\nReview this caption.\\n",
+            encoding="utf-8",
+        )
+
+        response = client.get(f"/api/projects/{project_id}/captions")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/x-subrip")
+        assert "Review this caption." in response.text
+        project_summary = client.get(f"/api/projects/{project_id}").json()
+        assert project_summary["captions_download_path"] == f"/api/projects/{project_id}/captions"
+
+        with SessionLocal() as db:
+            project = db.get(VideoProject, project_id)
+            project.status = "failed"
+            db.commit()
+        assert client.get(f"/api/projects/{project_id}/captions").status_code == 404
+    finally:
+        if caption_file is not None:
+            caption_file.unlink(missing_ok=True)
+        if project_id is not None:
+            with SessionLocal() as db:
+                db.query(VideoProject).filter(VideoProject.id == project_id).delete()
+                db.commit()
+
+
 def test_integration_configuration_endpoint_never_exposes_credentials():
     response = client.get("/api/integrations")
     assert response.status_code == 200

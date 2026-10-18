@@ -680,7 +680,7 @@ def test_memora_project_memory_is_opt_in_private_and_idempotent():
                 stored = db.get(VideoProject, project_id)
                 assert stored.memora_memory_status == "stored"
                 assert stored.memora_memory_id == "memory-test-123"
-            assert calls[0][0:2] == ("memora", "/api/v1/memories")
+            assert calls[0][0:2] == ("memora", "/v1/memories")
             payload = calls[0][2]
             assert payload["target_namespace_path"] == "memora://vyralx/private"
             assert payload["memory_type"] == "episodic"
@@ -714,6 +714,6 @@ def test_memora_context_reads_only_vyralx_private_namespace(monkeypatch):
     assert status == "used"
     assert context[0]["id"] == "memory-9"
     assert calls["name"] == "memora"
-    assert calls["path"] == "/api/v1/memories/search"
+    assert calls["path"] == "/v1/memories/search"
     assert calls["params"]["namespace_path"] == "memora://vyralx/private"
     assert calls["params"]["limit"] == 5

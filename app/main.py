@@ -212,7 +212,8 @@ async function loadProjects(button){
     }
     const download=document.createElement('button');download.textContent='Download MP4';
     download.onclick=async()=>{download.disabled=true;try{await downloadAuthenticated(project.render_download_path,'vyralx-project-'+project.project_id+'.mp4')}catch(e){show({error:String(e)})}finally{download.disabled=false}};actions.appendChild(download);
-    if(project.thumbnail_path){const thumb=document.createElement('button');thumb.className='secondary';thumb.textContent='Preview thumbnail';
+    if(project.captions_download_path){const captions=document.createElement('button');captions.className='secondary';captions.textContent='Download captions (SRT)';captions.onclick=async()=>{captions.disabled=true;try{await downloadAuthenticated(project.captions_download_path,'vyralx-project-'+project.project_id+'.srt')}catch(e){show({error:String(e)})}finally{captions.disabled=false}};actions.appendChild(captions);}
+   if(project.thumbnail_path){const thumb=document.createElement('button');thumb.className='secondary';thumb.textContent='Preview thumbnail';
      thumb.onclick=async()=>{try{const headers=new Headers();if(key())headers.set('X-API-Key',key());const response=await fetch(project.thumbnail_path,{headers});if(!response.ok)throw new Error(response.status+' '+await response.text());const url=URL.createObjectURL(await response.blob());const img=document.createElement('img');img.src=url;img.alt='Generated video thumbnail';img.style.width='100%';img.style.maxWidth='480px';img.style.display='block';img.style.marginTop='12px';img.style.borderRadius='10px';const old=card.querySelector('img');if(old){URL.revokeObjectURL(old.src);old.remove()}card.appendChild(img)}catch(e){show({error:String(e)})}};actions.appendChild(thumb);
     }
     const prep=document.createElement('button');prep.className='secondary';prep.textContent='Prepare publish review';
@@ -323,6 +324,12 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
                 "production_qa": pack.get("production_qa", {}) if isinstance(pack.get("production_qa"), dict) else {},
                 "requires_editor_review": bool(pack.get("requires_editor_review", True)),
             }
+    captions_file = settings.data_dir / "subtitles" / f"project-{project.id}-attempt-{project.attempts}.srt"
+    captions_download_path = (
+        f"/api/projects/{project.id}/captions"
+        if project.status == "completed" and captions_file.is_file()
+        else None
+    )
     scene_sources = []
     if db is not None:
         for raw_asset_id in asset_ids[:4]:
@@ -362,6 +369,7 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
         "memora_write_enabled": settings.memora_write_enabled,
         "memora_read_enabled": settings.memora_read_enabled,
         "thumbnail_path": f"/api/projects/{project.id}/thumbnail" if project.thumbnail_path and Path(project.thumbnail_path).is_file() else None,
+        "captions_download_path": captions_download_path,
         "render_download_path": f"/api/render/{project.render_job_id}/download" if project.render_job_id else None,
         "error": project.error or None, "attempts": project.attempts,
         "created_at": project.created_at.isoformat() if project.created_at else None,
@@ -482,6 +490,25 @@ def download_project_thumbnail(project_id: int, db: Session = Depends(get_db)):
     if settings.render_dir.resolve() not in path.parents or not path.is_file():
         raise HTTPException(404, "Project thumbnail is unavailable")
     return FileResponse(path, media_type="image/jpeg", filename=f"{project.project_key}-thumbnail.jpg")
+
+
+@app.get("/api/projects/{project_id}/captions", dependencies=[Depends(require_api_key)])
+def download_project_captions(project_id: int, db: Session = Depends(get_db)):
+    project = db.get(VideoProject, project_id)
+    if project is None or project.status != "completed":
+        raise HTTPException(404, "Project captions not found")
+    path = (
+        settings.data_dir / "subtitles"
+        / f"project-{project.id}-attempt-{project.attempts}.srt"
+    ).resolve()
+    captions_root = (settings.data_dir / "subtitles").resolve()
+    if captions_root not in path.parents or not path.is_file():
+        raise HTTPException(404, "Project captions are unavailable")
+    return FileResponse(
+        path,
+        media_type="application/x-subrip",
+        filename=f"{project.project_key}-captions.srt",
+    )
 
 
 @app.post("/api/discover", dependencies=[Depends(require_api_key)])

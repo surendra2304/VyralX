@@ -71,6 +71,8 @@ Project list/detail responses also return `content_preview.production_qa` after 
 
 On completion, the project response supplies \`primary_asset_id\`, \`asset_ids\`, \`content_pack_id\`, \`render_job_id\` and authenticated download paths. The render's saved \`montage_asset_ids\` are checked individually for rights evidence both when a publish request is created and again immediately before upload. Pexels creator/source attribution is appended to the YouTube description.
 
+Successful topic-to-video projects retain their generated SRT file and expose it through the authenticated `GET /api/projects/{project_id}/captions` endpoint and `captions_download_path` review field. Failed-attempt temporary subtitle files are cleaned up.
+
 ## Integration configuration
 
 `GET /api/integrations` reports only whether required provider settings and OAuth files are present for Inference, Pexels, YouTube Data API/upload, TTS, IntelX, Memora, Sentinel, worker and media tools. It never returns credential values and explicitly does not claim that provider connectivity, quota or upload permission has been verified.

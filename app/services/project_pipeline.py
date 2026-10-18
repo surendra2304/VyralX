@@ -114,7 +114,7 @@ def _fetch_memora_context(project: VideoProject) -> tuple[list[dict], str]:
     try:
         result = get_peer_json(
             "memora",
-            "/api/v1/memories/search",
+            "/v1/memories/search",
             {
                 "q": project.topic[:500],
                 "namespace_path": "memora://vyralx/private",
@@ -358,7 +358,7 @@ def sync_project_memory(project_id: int, db: Session) -> dict:
     project.memora_memory_status = "pending"
     db.commit()
     try:
-        result = post_peer_json("memora", "/api/v1/memories", payload, timeout_seconds=8.0)
+        result = post_peer_json("memora", "/v1/memories", payload, timeout_seconds=8.0)
         memory_id = str(result.get("id") or result.get("memory_id") or "").strip() if isinstance(result, dict) else ""
         if not memory_id:
             raise RuntimeError("Memora response did not include a memory ID")
@@ -531,5 +531,7 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             output_path.unlink(missing_ok=True)
         log.exception("Video project failed project_id=%s", project_id)
     finally:
-        if subtitle_path is not None:
+        # Keep successful caption files as durable review/download artifacts.
+        # Failed attempts are cleaned up; the next attempt gets its own filename.
+        if subtitle_path is not None and (project is None or project.status != "completed"):
             subtitle_path.unlink(missing_ok=True)
