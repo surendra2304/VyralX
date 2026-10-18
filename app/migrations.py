@@ -13,6 +13,7 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
         "completed_at": "TIMESTAMP",
         "updated_at": "TIMESTAMP",
         "options_json": "TEXT NOT NULL DEFAULT '{}'",
+        "project_id": "INTEGER",
     },
     "publish_jobs": {
         "attempts": "INTEGER NOT NULL DEFAULT 0",
@@ -24,6 +25,15 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
     "content_packs": {
         "voiceover_path": "VARCHAR(2048) NOT NULL DEFAULT ''",
         "voiceover_status": "VARCHAR(40) NOT NULL DEFAULT 'not_generated'",
+    },
+    "video_projects": {
+        "thumbnail_path": "VARCHAR(2048) NOT NULL DEFAULT ''",
+        "auto_discover_trend": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "trend_query": "VARCHAR(200) NOT NULL DEFAULT ''",
+        "trend_max_results": "INTEGER NOT NULL DEFAULT 10",
+        "trend_source_video_id": "VARCHAR(100) NOT NULL DEFAULT ''",
+        "trend_source_url": "VARCHAR(2048) NOT NULL DEFAULT ''",
+        "trend_score": "FLOAT NOT NULL DEFAULT 0",
     },
     "agent_tasks": {
         "idempotency_key": "VARCHAR(160)",
