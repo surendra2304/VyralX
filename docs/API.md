@@ -69,6 +69,10 @@ Project creation asks for a topic, format, duration, scene count (2–4), audien
 
 On completion, the project response supplies \`primary_asset_id\`, \`asset_ids\`, \`content_pack_id\`, \`render_job_id\` and authenticated download paths. The render's saved \`montage_asset_ids\` are checked individually for rights evidence both when a publish request is created and again immediately before upload. Pexels creator/source attribution is appended to the YouTube description.
 
+## Integration configuration
+
+`GET /api/integrations` reports only whether required provider settings and OAuth files are present for Inference, Pexels, YouTube Data API/upload, TTS, IntelX, Memora, Sentinel, worker and media tools. It never returns credential values and explicitly does not claim that provider connectivity, quota or upload permission has been verified.
+
 ## Main API flow
 
 1. Register or discover source metadata.
