@@ -41,6 +41,21 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+      - name: Export dependency lock for this explicit maintainer run
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[lock-export]')
+        run: |
+          python -m pip install "uv==0.12.10"
+          uv lock --python 3.11
+          python - <<'PY'
+          import base64
+          from pathlib import Path
+
+          encoded = base64.b64encode(Path("uv.lock").read_bytes()).decode("ascii")
+          print("VYRALX_LOCK_BASE64_BEGIN")
+          for index, start in enumerate(range(0, len(encoded), 2000)):
+              print(f"VYRALX_LOCK_BASE64_{index:04d}={encoded[start:start + 2000]}")
+          print("VYRALX_LOCK_BASE64_END")
+          PY
       - name: Lint
         run: ruff check app tests scripts
       - name: Test
