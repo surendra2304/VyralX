@@ -84,11 +84,13 @@ def render_montage(
         )
         labels.append(f"[{label}]")
     filters.append(
-        "".join(labels) + f"concat=n={len(sources)}:v=1:a=0[outv]"
+        "".join(labels) + f"concat=n={len(sources)}:v=1:a=0[joined]"
     )
-    command.extend(["-filter_complex", ";".join(filters), "-map", "[outv]"])
     if subtitle_file is not None:
-        command.extend(["-vf", _subtitle_filter(subtitle_file, settings.data_dir)])
+        filters.append(f"[joined]{_subtitle_filter(subtitle_file, settings.data_dir)}[outv]")
+    else:
+        filters.append("[joined]null[outv]")
+    command.extend(["-filter_complex", ";".join(filters), "-map", "[outv]"])
     if voice is not None:
         command.extend(["-map", f"{audio_index}:a:0", "-af", "apad", "-c:a", "aac", "-b:a", "128k"])
     else:
