@@ -92,7 +92,7 @@ label{display:block;color:#cbd7ef;font-size:.84rem;margin:10px 0 6px}input,selec
 @media(max-width:620px){body{padding:12px}.row2{grid-template-columns:1fr}h1{font-size:1.6rem}.card{padding:14px}}
 </style></head><body>
 <header><div><h1>VyralX <span style="color:var(--accent)">/ Control Room</span></h1><p>Discover, script, produce, review, publish and measure.</p></div><span class="pill" id="health">Checking service...</span></header>
-<section class="card" style="margin-top:16px"><h2>Service access</h2><div class="row2"><div><label for="apiKey">API key (kept only in this browser tab session)</label><input id="apiKey" type="password" autocomplete="off" placeholder="Required outside development mode"></div><div><label>&nbsp;</label><div class="actions"><button onclick="saveKey()">Use key</button><button class="secondary" onclick="refreshAll()">Refresh dashboard</button><button class="secondary" onclick="clearKey()">Clear key</button></div></div></div><p class="sub">The dashboard does not embed secrets in HTML. Do not use development mode on a public endpoint.</p><pre class="output" id="statusOut">Loading status...</pre></section>
+<section class="card" style="margin-top:16px"><h2>Service access</h2><div class="row2"><div><label for="apiKey">API key (kept only in this browser tab session)</label><input id="apiKey" type="password" autocomplete="off" placeholder="Required outside development mode"></div><div><label>&nbsp;</label><div class="actions"><button onclick="saveKey()">Use key</button><button class="secondary" onclick="refreshAll()">Refresh dashboard</button><button class="secondary" onclick="checkIntegrations(this)">Check integrations</button><button class="secondary" onclick="clearKey()">Clear key</button></div></div></div><p class="sub">The dashboard does not embed secrets in HTML. Do not use development mode on a public endpoint.</p><pre class="output" id="statusOut">Loading status...</pre><pre class="output" id="integrationOut">Integration configuration has not been checked.</pre></section>
 <div class="grid">
 <section class="card span" id="projectBuilder"><h2>Automatic topic-to-video project</h2><p>One request queues original script generation through Inference, licensed Pexels scene selection/import, local narration, timed captions, FFmpeg montage, thumbnail, and a completed render ready for manual review.</p><div class="row2"><div><label for="projectTopic">Topic</label><input id="projectTopic" value="How wind turbines generate electricity" maxlength="500"></div><div><label for="projectFormat">Format</label><select id="projectFormat"><option value="shorts">Shorts (9:16)</option><option value="long">Long form (16:9)</option></select></div></div><div class="row2"><div><label for="projectDuration">Target duration (seconds)</label><input id="projectDuration" type="number" value="45" min="15" max="600"></div><div><label for="projectScenes">Stock scenes</label><select id="projectScenes"><option value="2">2 scenes</option><option value="3">3 scenes</option><option value="4" selected>4 scenes</option></select></div></div><div class="row2"><div><label for="projectAudience">Audience</label><input id="projectAudience" value="general audience" maxlength="200"></div><div><label for="projectTone">Tone</label><input id="projectTone" value="clear, energetic and factual" maxlength="200"></div></div><label><input id="projectVoiceover" type="checkbox" checked> Generate narration (default: local eSpeak; optional external TTS)</label><label><input id="projectLicense" type="checkbox"> I have reviewed the Pexels Content License and confirm the intended use is permitted.</label><div class="actions"><button onclick="createVideoProject(this)">Create full video project</button><button class="secondary" onclick="loadProjects(this)">Refresh project jobs</button></div><p class="notice">This workflow searches and imports licensed stock clips; it does not download or reuse unrelated creators' YouTube/Instagram/TikTok videos.</p><div id="projectList"></div></section>
 <section class="card"><h2>1. YouTube discovery</h2><label for="ytQuery">Topic or keyword</label><input id="ytQuery" value="AI productivity" maxlength="200"><div class="row2"><div><label>Sort</label><select id="ytOrder"><option value="viewCount">Views</option><option value="date">Newest</option><option value="relevance">Relevance</option><option value="rating">Rating</option></select></div><div><label>Results</label><select id="ytCount"><option>5</option><option selected>10</option><option>15</option><option>25</option></select></div></div><button onclick="discoverYouTube(this)">Find videos</button><p class="sub">Metadata only. Discovery does not grant permission to download or repost.</p></section>
@@ -126,6 +126,14 @@ async function api(path,opts={}){
 function show(data){$('actionOut').textContent=typeof data==='string'?data:JSON.stringify(data,null,2)}
 function asInt(id){const v=Number($(id).value);if(!Number.isInteger(v)||v<=0)throw new Error(id+' must be a positive integer');return v}
 async function run(button,fn){try{if(button)button.disabled=true;const r=await fn();show(r);return r}catch(e){show({error:String(e)});return {error:String(e)}}finally{if(button)button.disabled=false}}
+async function checkIntegrations(button){
+ return run(button,async()=>{
+  const result=await api('/api/integrations');
+  $('integrationOut').textContent=JSON.stringify(result,null,2);
+  return result;
+ });
+}
+
 async function createVideoProject(button){
  return run(button,async()=>{
   if(!$('projectLicense').checked)throw new Error('Review Pexels licensing and explicitly confirm before starting a project.');
@@ -301,6 +309,42 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
         "started_at": project.started_at.isoformat() if project.started_at else None,
         "updated_at": project.updated_at.isoformat() if project.updated_at else None,
         "completed_at": project.completed_at.isoformat() if project.completed_at else None,
+    }
+
+
+@app.get("/api/integrations", dependencies=[Depends(require_api_key)])
+def integration_configuration():
+    """Report configuration presence only; this endpoint never exposes credential values."""
+    peers = configured_peers()
+    oauth_client_present = settings.youtube_client_secrets_file.is_file()
+    oauth_token_present = settings.youtube_token_file.is_file()
+    return {
+        "status": "configuration_only_not_live_connectivity",
+        "providers": {
+            "inference": {"configured": bool(settings.inference_url and settings.inference_api_key)},
+            "pexels": {"configured": bool(settings.pexels_api_key)},
+            "youtube_data_api": {"configured": bool(settings.youtube_data_api_key)},
+            "youtube_upload": {
+                "enabled": settings.youtube_upload_enabled,
+                "oauth_client_file_present": oauth_client_present,
+                "token_file_present": oauth_token_present,
+                "configured": bool(settings.youtube_upload_enabled and oauth_client_present and oauth_token_present),
+            },
+            "tts": {
+                "provider": settings.tts_provider,
+                "configured": bool(shutil.which(settings.espeak_bin)) if settings.tts_provider == "espeak" else bool(settings.inference_tts_url and (settings.inference_tts_api_key or settings.inference_api_key) and settings.inference_tts_model),
+            },
+            "intelx": {"configured": "intelx" in peers},
+            "memora": {
+                "peer_configured": "memora" in peers,
+                "read_enabled": settings.memora_read_enabled,
+                "write_enabled": settings.memora_write_enabled,
+            },
+            "sentinel": {"peer_configured": "sentinel" in peers, "required_for_publish": settings.sentinel_required_for_publish},
+            "worker": {"required": settings.worker_required, "heartbeat": read_worker_status()},
+            "media_tools": {"ffmpeg": bool(shutil.which(settings.ffmpeg_bin)), "ffprobe": bool(shutil.which(settings.ffprobe_bin))},
+        },
+        "note": "Presence checks do not prove provider connectivity, credentials validity, quota, or live upload permissions.",
     }
 
 
