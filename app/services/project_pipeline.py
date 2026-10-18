@@ -442,6 +442,7 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             "Video project completed project_key=%s project_id=%s render_job_id=%s scenes=%s",
             project.project_key, project.id, render_job.id, len(assets),
         )
+        sync_project_memory(project.id, db)
     except Exception as exc:
         db.rollback()
         project = db.get(VideoProject, project_id)
