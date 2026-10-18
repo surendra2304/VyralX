@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     ffmpeg_bin: str = "ffmpeg"
     ffprobe_bin: str = "ffprobe"
     max_upload_mb: int = 2048
+    max_stock_clip_mb: int = 150
     max_render_seconds: int = 14400
     max_concurrent_renders: int = 1
     default_shorts_width: int = 1080
@@ -59,7 +60,7 @@ class Settings(BaseSettings):
     pexels_api_key: str = ""
     youtube_data_api_key: str = ""
     youtube_client_secrets_file: Path = Path("./secrets/youtube-client-secret.json")
-    youtube_token_file: Path = Path("./secrets/youtube-token.json")
+    youtube_token_file: Path = Path("./data/secrets/youtube-token.json")
     youtube_default_privacy: str = "private"
     youtube_category_id: str = "28"
     youtube_upload_enabled: bool = False
@@ -75,6 +76,12 @@ class Settings(BaseSettings):
             raise ValueError("WORKER_POLL_SECONDS must be at least 0.5")
         if self.worker_max_attempts < 1:
             raise ValueError("WORKER_MAX_ATTEMPTS must be at least 1")
+        if self.max_stock_clip_mb < 1 or self.max_stock_clip_mb > self.max_upload_mb:
+            raise ValueError("MAX_STOCK_CLIP_MB must be between 1 and MAX_UPLOAD_MB")
+        if self.tts_provider.lower() not in {"espeak", "external"}:
+            raise ValueError("TTS_PROVIDER must be espeak or external")
+        if not 80 <= self.espeak_rate <= 300:
+            raise ValueError("ESPEAK_RATE must be between 80 and 300")
         if self.youtube_default_privacy not in {"private", "unlisted", "public"}:
             raise ValueError("YOUTUBE_DEFAULT_PRIVACY must be private, unlisted, or public")
         if self.sentinel_required_for_publish and not (
