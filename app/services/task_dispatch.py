@@ -8,13 +8,14 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Asset, ContentPack, PublishJob, RenderJob, Source
+from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoProject
 from app.schemas import (
     ContentGenerationRequest,
     DiscoveryRequest,
     PexelsSearchRequest,
     PublishRequest,
     RenderRequest,
+    VideoProjectCreateRequest,
 )
 from app.services.content import generate_content_pack
 from app.services.discovery import discover_youtube_videos
@@ -95,6 +96,38 @@ def dispatch_agent_task(task_type: str, raw_input: dict[str, Any], db: Session) 
             "voiceover_status": record.voiceover_status,
             "bytes": output["bytes"],
         }
+
+    if task_type == "project.create":
+        request = VideoProjectCreateRequest.model_validate(raw_input)
+        if not request.confirm_pexels_license:
+            raise ValueError("confirm_pexels_license must be true after reviewing the Pexels license")
+        if request.auto_discover_trend and not settings.youtube_data_api_key:
+            raise ValueError("Automatic trend discovery requires YOUTUBE_DATA_API_KEY")
+        existing = db.query(VideoProject).filter(VideoProject.project_key == request.project_key).one_or_none()
+        if existing is not None:
+            if existing.auto_discover_trend != request.auto_discover_trend or existing.trend_query != request.trend_query.strip():
+                raise ValueError("project_key already exists with different trend settings")
+            if not existing.auto_discover_trend and existing.topic != request.topic.strip():
+                raise ValueError("project_key already exists with a different topic")
+            return {"project_id": existing.id, "project_key": existing.project_key, "status": existing.status}
+        project = VideoProject(
+            project_key=request.project_key,
+            topic=request.topic.strip(),
+            auto_discover_trend=request.auto_discover_trend,
+            trend_query=request.trend_query.strip(),
+            trend_max_results=request.trend_max_results,
+            video_format=request.video_format,
+            target_seconds=request.target_seconds,
+            audience=request.audience,
+            tone=request.tone,
+            scene_count=request.scene_count,
+            confirm_pexels_license=request.confirm_pexels_license,
+            use_voiceover=request.use_voiceover,
+            status="queued",
+        )
+        db.add(project)
+        db.flush()
+        return {"project_id": project.id, "project_key": project.project_key, "status": project.status}
 
     if task_type == "render.create":
         request = RenderRequest.model_validate(raw_input)
