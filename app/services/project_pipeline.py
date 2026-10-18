@@ -257,13 +257,14 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             ):
                 voice_path = str(existing_voice)
             else:
-                voice = synthesize_voiceover(str(pack.get("voiceover") or script))
+                voice = synthesize_voiceover(str(pack.get("voiceover") or script), target_seconds=project.target_seconds)
                 voice_path = str(voice["file_path"])
                 content_record.voiceover_path = voice_path
                 content_record.voiceover_status = "ready"
                 db.commit()
 
-        segments = segment_script(script, project.target_seconds)
+        caption_text = str(pack.get("voiceover") or script)
+        segments = segment_script(caption_text, project.target_seconds)
         subtitle_dir = settings.data_dir / "subtitles"
         subtitle_dir.mkdir(parents=True, exist_ok=True)
         subtitle_path = subtitle_dir / f"project-{project.id}-attempt-{project.attempts}.srt"
