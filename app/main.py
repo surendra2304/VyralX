@@ -1076,6 +1076,9 @@ _TASK_ACTION_ALIASES = {
     "video.content.generate": "content.generate",
     "content.voiceover": "content.voiceover",
     "vyralx.content.voiceover": "content.voiceover",
+    "project.create": "project.create",
+    "vyralx.project.create": "project.create",
+    "video.project.create": "project.create",
     "render.create": "render.create",
     "vyralx.render.create": "render.create",
     "video.render": "render.create",
@@ -1230,6 +1233,8 @@ def submit_agent_task(payload: AgentTaskRequest, db: Session = Depends(get_db)):
             ContentGenerationRequest.model_validate(payload.input)
         elif payload.task_type == "content.voiceover":
             ContentVoiceoverRequest.model_validate(payload.input)
+        elif payload.task_type == "project.create":
+            VideoProjectCreateRequest.model_validate(payload.input)
         elif payload.task_type == "render.create":
             RenderRequest.model_validate(payload.input)
         elif payload.task_type == "publish.request":
