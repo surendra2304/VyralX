@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     inference_url: str = ""
     inference_api_key: str = ""
     inference_model: str = ""
+    # Editorial guidance only; it never grants media rights or publish approval.
+    channel_name: str = Field(default="", max_length=160)
+    channel_niche: str = Field(default="", max_length=240)
+    channel_content_pillars: str = Field(default="", max_length=1200)
+    channel_avoid_topics: str = Field(default="", max_length=1200)
+    channel_brand_voice: str = Field(default="", max_length=240)
+    channel_call_to_action: str = Field(default="", max_length=240)
+    channel_language: str = Field(default="English", max_length=80)
     inference_generation_path: str = "/v1/task/execute"
     inference_timeout_seconds: int = 60
     tts_provider: str = "espeak"

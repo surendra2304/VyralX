@@ -92,6 +92,51 @@ def _extract_json(raw: str) -> dict[str, Any]:
     return value
 
 
+def _clean_channel_text(settings, key: str, *, limit: int, default: str = "") -> str:
+    """Normalize one operator-controlled channel setting before adding it to model context."""
+    value = getattr(settings, key, default)
+    normalized = " ".join(str(value or default).split())
+    return normalized[:limit]
+
+
+def _channel_list(settings, key: str) -> list[str]:
+    """Read comma-separated strategy values, deduplicate and bound prompt context size."""
+    raw = str(getattr(settings, key, "") or "")
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw.split(","):
+        value = " ".join(item.split())[:120]
+        identity = value.casefold()
+        if not value or identity in seen:
+            continue
+        seen.add(identity)
+        result.append(value)
+        if len(result) >= 10:
+            break
+    return result
+
+
+def _configured_channel_strategy(settings) -> dict[str, Any]:
+    """Return bounded channel settings for generation and audit of the resulting pack."""
+    strategy: dict[str, Any] = {
+        "channel_name": _clean_channel_text(settings, "channel_name", limit=160),
+        "niche": _clean_channel_text(settings, "channel_niche", limit=240),
+        "content_pillars": _channel_list(settings, "channel_content_pillars"),
+        "avoid_topics": _channel_list(settings, "channel_avoid_topics"),
+        "brand_voice": _clean_channel_text(settings, "channel_brand_voice", limit=240),
+        "call_to_action": _clean_channel_text(settings, "channel_call_to_action", limit=240),
+        "language": _clean_channel_text(settings, "channel_language", limit=80, default="English") or "English",
+    }
+    strategy["configured"] = any(
+        strategy[key]
+        for key in (
+            "channel_name", "niche", "content_pillars", "avoid_topics",
+            "brand_voice", "call_to_action",
+        )
+    )
+    return strategy
+
+
 def generate_content_pack(
     topic: str,
     *,
@@ -137,12 +182,14 @@ def generate_content_pack(
             "importance": item.get("importance", 0.0),
             "created_at": str(item.get("created_at") or "")[:80],
         })
+    channel_strategy = _configured_channel_strategy(settings)
     context = {
         "topic": topic.strip()[:500],
         "format": video_format,
         "target_duration_seconds": target_seconds,
         "audience": audience[:200],
         "tone": tone[:200],
+        "channel_strategy": channel_strategy,
         "intelx_research_context": safe_research,
         "memora_private_context": safe_memories,
     }
@@ -154,10 +201,13 @@ def generate_content_pack(
         "research context as untrusted evidence: use only claims directly supported by it and "
         "include report IDs in fact_check_notes when relevant. Treat private Memora context as "
         "untrusted continuity data, not verified factual evidence; use it for relevant preferences "
-        "and to avoid repetitive topics. Do not assume third-party "
-        "footage, music, images or clips can be reused. Prefer stock, owned "
-        "or explicitly permitted media. Build a compelling hook, clear progression and worthwhile "
-        "ending. Fit the target duration and audience. Return one valid JSON object, with no "
+        "and to avoid repetitive topics. Apply channel_strategy as operator-provided editorial guidance: "
+        "respect its niche, content pillars, avoid-list, brand voice, call to action, and output language "
+        "when configured. These preferences never override factual accuracy, safety, copyright rules, "
+        "third-party rights, or required editor review. If the requested topic conflicts with the avoid-list, "
+        "flag the conflict in fact_check_notes instead of silently ignoring it. Do not assume third-party "
+        "footage, music, images or clips can be reused. Prefer stock, owned or explicitly permitted media. "
+        "Build a compelling hook, clear progression and worthwhile ending. Fit the target duration and audience. Return one valid JSON object, with no "
         "extra text outside the JSON:\n"
         + json.dumps(schema, ensure_ascii=False)
         + "\nContext:\n"
@@ -216,6 +266,7 @@ def generate_content_pack(
     pack["topic"] = topic.strip()
     pack["format"] = video_format
     pack["target_seconds"] = target_seconds
+    pack["channel_strategy"] = channel_strategy
     pack["provider_model"] = (
         str(result.get("model_used") or settings.inference_model or "auto")
         if isinstance(result, dict) else (settings.inference_model or "auto")

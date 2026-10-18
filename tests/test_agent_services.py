@@ -9,7 +9,7 @@ from sqlalchemy import inspect, text, create_engine
 from app.database import SessionLocal
 from app.migrations import run_additive_migrations
 from app.models import PublishJob, RenderJob
-from app.services.content import _extract_json
+from app.services.content import _configured_channel_strategy, _extract_json
 from app.services.peers import post_peer_json
 from app.services.trends import rank_candidates
 from app.worker import claim_publish_job, claim_render_job
@@ -305,6 +305,13 @@ def test_content_generation_uses_actual_inference_task_contract(monkeypatch):
         inference_model="",
         inference_generation_path="/v1/task/execute",
         inference_timeout_seconds=3,
+        channel_name="FRIDAY Lab",
+        channel_niche="AI and developer education",
+        channel_content_pillars="AI tools, practical coding, AI tools",
+        channel_avoid_topics="unsupported performance claims, unverified financial promises",
+        channel_brand_voice="direct, curious and practical",
+        channel_call_to_action="Subscribe for practical experiments",
+        channel_language="English",
     )
     monkeypatch.setattr(content_service, "get_settings", lambda: settings)
 
@@ -341,6 +348,12 @@ def test_content_generation_uses_actual_inference_task_contract(monkeypatch):
     assert calls["kwargs"]["json"]["target_agent"] == "inference"
     assert calls["kwargs"]["json"]["payload"]["context"]["intelx_research_context"][0]["report_id"] == "intelx-123"
     assert calls["kwargs"]["json"]["payload"]["context"]["memora_private_context"][0]["id"] == "memory-1"
+    strategy = calls["kwargs"]["json"]["payload"]["context"]["channel_strategy"]
+    assert strategy["configured"] is True
+    assert strategy["channel_name"] == "FRIDAY Lab"
+    assert strategy["content_pillars"] == ["AI tools", "practical coding"]
+    assert "avoid-list" in calls["kwargs"]["json"]["payload"]["prompt"]
+    assert actual["channel_strategy"] == strategy
     assert calls["kwargs"]["json"]["source_agent"] == "vyralx"
     assert "X-FRIDAY-API-Key" in calls["kwargs"]["headers"]
     assert "Return one valid JSON object" in calls["kwargs"]["json"]["payload"]["prompt"]
@@ -897,3 +910,33 @@ def test_memora_context_reads_only_vyralx_private_namespace(monkeypatch):
     assert calls["path"] == "/v1/memories/search"
     assert calls["params"]["namespace_path"] == "memora://vyralx/private"
     assert calls["params"]["limit"] == 5
+
+
+def test_channel_strategy_bounds_and_normalizes_operator_settings():
+    from types import SimpleNamespace
+
+    settings = SimpleNamespace(
+        channel_name="  FRIDAY   Lab  ",
+        channel_niche="AI and developer education",
+        channel_content_pillars="AI Tools, practical coding, ai tools, , " + ", ".join(f"Pillar {i}" for i in range(12)),
+        channel_avoid_topics="unverified claims, guaranteed results",
+        channel_brand_voice="clear and friendly",
+        channel_call_to_action="Subscribe for more",
+        channel_language="Telugu",
+    )
+    strategy = _configured_channel_strategy(settings)
+    assert strategy["configured"] is True
+    assert strategy["channel_name"] == "FRIDAY Lab"
+    assert strategy["content_pillars"][:2] == ["AI Tools", "practical coding"]
+    assert len(strategy["content_pillars"]) == 10
+    assert strategy["avoid_topics"] == ["unverified claims", "guaranteed results"]
+    assert strategy["language"] == "Telugu"
+
+
+def test_channel_strategy_is_disabled_without_editorial_overrides():
+    from types import SimpleNamespace
+
+    strategy = _configured_channel_strategy(SimpleNamespace(channel_language="English"))
+    assert strategy["configured"] is False
+    assert strategy["language"] == "English"
+    assert strategy["content_pillars"] == []
