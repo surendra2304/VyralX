@@ -9,8 +9,8 @@ import httpx
 from app.config import get_settings
 from app.services.probe import probe_media
 
-PEXELS_SEARCH_URL = "https://api.pexels.com/v1/videos/search"
-PEXELS_VIDEO_URL = "https://api.pexels.com/v1/videos/videos/{video_id}"
+PEXELS_SEARCH_URL = "https://api.pexels.com/videos/search"
+PEXELS_VIDEO_URL = "https://api.pexels.com/videos/videos/{video_id}"
 
 
 def _api_key() -> str:
