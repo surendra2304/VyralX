@@ -13,7 +13,23 @@ VideoFormat = Literal["shorts", "long"]
 
 
 def _extract_json(raw: str) -> dict[str, Any]:
-    value = json.loads(raw.strip())
+    candidate = raw.strip()
+    if candidate.startswith("```"):
+        lines = candidate.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        candidate = "\n".join(lines).strip()
+    try:
+        value = json.loads(candidate)
+    except json.JSONDecodeError:
+        # Some models add a short preamble despite the JSON-only instruction.
+        # Extract one object, then validate every required field below.
+        start, end = candidate.find("{"), candidate.rfind("}")
+        if start < 0 or end <= start:
+            raise ValueError("Inference output did not contain a JSON object") from None
+        value = json.loads(candidate[start : end + 1])
     if not isinstance(value, dict):
         raise ValueError("Inference output must be one JSON object")
     required = {
