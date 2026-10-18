@@ -267,7 +267,6 @@ def synthesize_voiceover_with_captions(
         segment_paths, frame_payloads, caption_segments, common_format, cursor = synthesize_chunks(
             initial_rate
         )
-        rate = initial_rate
         # Chunk-level synthesis adds natural pauses that a single long TTS call does
         # not. If the first measured pass drifts from the target, adjust rate once and
         # regenerate, retaining the per-chunk measured cue boundaries.
@@ -279,7 +278,6 @@ def synthesize_voiceover_with_captions(
                 segment_paths, frame_payloads, caption_segments, common_format, cursor = (
                     synthesize_chunks(adjusted_rate)
                 )
-                rate = adjusted_rate
 
         channels, sample_width, sample_rate, _, _ = common_format
         try:
