@@ -164,7 +164,8 @@ def test_caption_alignment_warning_distinguishes_estimated_and_not_applicable():
         caption_alignment_status="not_applicable",
     )
 
-    statuses = lambda report: {item["id"]: item["status"] for item in report["checks"]}
+    def statuses(report):
+        return {item["id"]: item["status"] for item in report["checks"]}
     assert statuses(estimated)["caption_sync"] == "warning"
     assert statuses(measured)["caption_sync"] == "passed"
     assert statuses(no_voiceover)["caption_sync"] == "not_applicable"
