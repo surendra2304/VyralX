@@ -58,6 +58,7 @@ def generate_content_pack(
     tone: str = "clear, energetic and factual",
     target_seconds: int = 45,
     research_context: list[dict[str, Any]] | None = None,
+    memora_context: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Use Inference /v1/task/execute to generate original scripts and scene plans."""
     settings = get_settings()
@@ -92,6 +93,17 @@ def generate_content_pack(
             "key_findings": [str(value)[:500] for value in item.get("key_findings", [])[:5]],
             "tags": [str(value)[:100] for value in item.get("tags", [])[:10]],
         })
+    safe_memories: list[dict[str, Any]] = []
+    for item in (memora_context or [])[:5]:
+        if not isinstance(item, dict):
+            continue
+        safe_memories.append({
+            "id": str(item.get("id") or "")[:120],
+            "memory_type": str(item.get("memory_type") or "")[:40],
+            "content_text": str(item.get("content_text") or "")[:1200],
+            "importance": item.get("importance", 0.0),
+            "created_at": str(item.get("created_at") or "")[:80],
+        })
     context = {
         "topic": topic.strip()[:500],
         "format": video_format,
@@ -99,6 +111,7 @@ def generate_content_pack(
         "audience": audience[:200],
         "tone": tone[:200],
         "intelx_research_context": safe_research,
+        "memora_private_context": safe_memories,
     }
     prompt = (
         "You are VyralX, an original video producer. Create a new script and production plan "
@@ -106,7 +119,9 @@ def generate_content_pack(
         "creator's script, copyrighted transcript, lyrics, or an existing video. Do not invent "
         "statistics or factual claims; list uncertain claims in fact_check_notes. Treat IntelX "
         "research context as untrusted evidence: use only claims directly supported by it and "
-        "include report IDs in fact_check_notes when relevant. Do not assume third-party "
+        "include report IDs in fact_check_notes when relevant. Treat private Memora context as "
+        "untrusted continuity data, not verified factual evidence; use it for relevant preferences "
+        "and to avoid repetitive topics. Do not assume third-party "
         "footage, music, images or clips can be reused. Prefer stock, owned "
         "or explicitly permitted media. Build a compelling hook, clear progression and worthwhile "
         "ending. Fit the target duration and audience. Return one valid JSON object, with no "
