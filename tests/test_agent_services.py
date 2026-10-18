@@ -696,3 +696,24 @@ def test_memora_project_memory_is_opt_in_private_and_idempotent():
         with SessionLocal() as db:
             db.query(VideoProject).filter(VideoProject.project_key == project_key).delete()
             db.commit()
+
+
+def test_memora_context_reads_only_vyralx_private_namespace(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import project_pipeline
+
+    monkeypatch.setattr(project_pipeline, "get_settings", lambda: SimpleNamespace(memora_read_enabled=True))
+    monkeypatch.setattr(project_pipeline, "configured_peers", lambda: {"memora": object()})
+    calls = {}
+    def fake_get(name, path, params, **kwargs):
+        calls["name"], calls["path"], calls["params"] = name, path, params
+        return [{"id": "memory-9", "content_text": "A previously completed wind-energy video.", "memory_type": "episodic", "importance": 0.35}]
+    monkeypatch.setattr(project_pipeline, "get_peer_json", fake_get)
+    context, status = project_pipeline._fetch_memora_context(SimpleNamespace(topic="wind energy", id=9))
+    assert status == "used"
+    assert context[0]["id"] == "memory-9"
+    assert calls["name"] == "memora"
+    assert calls["path"] == "/api/v1/memories/search"
+    assert calls["params"]["namespace_path"] == "memora://vyralx/private"
+    assert calls["params"]["limit"] == 5
