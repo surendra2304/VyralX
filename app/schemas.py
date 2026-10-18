@@ -122,6 +122,7 @@ class AgentTaskRequest(BaseModel):
         "discover.pexels",
         "content.generate",
         "content.voiceover",
+        "project.create",
         "render.create",
         "publish.request",
     ]
