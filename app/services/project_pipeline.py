@@ -197,10 +197,32 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
     if not project.confirm_pexels_license:
         raise ValueError("Operator must explicitly confirm review of the Pexels license before project creation")
     scene_plan = pack.get("scene_plan") if isinstance(pack.get("scene_plan"), list) else []
-    asset_ids = [int(value) for value in json.loads(project.asset_ids_json or "[]")]
+    try:
+        stored_asset_ids = json.loads(project.asset_ids_json or "[]")
+    except (TypeError, ValueError):
+        raise ValueError("Stored project scene asset IDs are not valid JSON") from None
+    if not isinstance(stored_asset_ids, list):
+        raise ValueError("Stored project scene asset IDs must be a JSON array")
+
+    asset_ids: list[int] = []
+    for value in stored_asset_ids:
+        if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+            raise ValueError("Stored project scene asset ID is invalid")
+        try:
+            asset_id = int(value)
+        except (TypeError, ValueError):
+            raise ValueError("Stored project scene asset ID is invalid") from None
+        if asset_id <= 0:
+            raise ValueError("Stored project scene asset ID must be positive")
+        if asset_id not in asset_ids:
+            asset_ids.append(asset_id)
+
     assets: list[Asset] = []
     used_video_ids: set[int] = set()
+    needed = int(project.scene_count)
     for asset_id in asset_ids:
+        if len(assets) >= needed:
+            break
         asset = db.get(Asset, asset_id)
         if asset is not None and Path(asset.file_path).is_file():
             assets.append(asset)
@@ -210,11 +232,12 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
                 if match:
                     used_video_ids.add(int(match.group(1)))
 
-    # Discard stale/missing IDs before adding new scene records during recovery.
+    # Keep persisted assets, rendered scene count and the primary asset aligned
+    # when recovering older/corrupt jobs containing extra valid asset IDs.
     asset_ids = [asset.id for asset in assets]
     project.asset_ids_json = json.dumps(asset_ids)
+    project.primary_asset_id = assets[0].id if assets else None
     orientation = "portrait" if project.video_format == "shorts" else "landscape"
-    needed = project.scene_count
     for index in range(len(assets), needed):
         scene = scene_plan[index] if index < len(scene_plan) and isinstance(scene_plan[index], dict) else {}
         query = _scene_query(project.topic, scene, index)

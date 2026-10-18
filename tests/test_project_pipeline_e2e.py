@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
+
 from app.database import SessionLocal
 from app.models import Asset, ContentPack, RenderJob, Source, VideoProject
 from app.services import project_pipeline
@@ -164,3 +166,113 @@ def test_project_pipeline_persists_render_captions_provenance_and_qa(tmp_path, m
     for path in [*tmp_path.glob("clip-*.mp4"), *settings.render_dir.glob("*"), *settings.data_dir.rglob("*")]:
         if path.is_file():
             path.unlink(missing_ok=True)
+
+
+
+def test_scene_asset_recovery_truncates_excess_valid_assets_to_requested_scene_count(tmp_path, monkeypatch):
+    settings = SimpleNamespace(max_upload_mb=256, max_stock_clip_mb=150)
+    monkeypatch.setattr(project_pipeline, "get_settings", lambda: settings)
+    suffix = uuid4().hex[:12]
+    project_id = None
+    asset_ids: list[int] = []
+    source_ids: list[int] = []
+    try:
+        with SessionLocal() as db:
+            project = VideoProject(
+                project_key="scene-count-" + suffix,
+                topic="Solar panels",
+                video_format="shorts",
+                target_seconds=30,
+                scene_count=2,
+                confirm_pexels_license=True,
+                use_voiceover=False,
+                status="running",
+                asset_ids_json="[]",
+            )
+            db.add(project)
+            db.flush()
+            project_id = project.id
+            for index, video_id in enumerate((123456, 234567, 345678)):
+                clip = tmp_path / f"scene-{index}.mp4"
+                clip.write_bytes(b"licensed source fixture")
+                source = Source(
+                    title=f"Scene source {index}",
+                    source_url=f"https://www.pexels.com/video/{video_id}/",
+                    platform="pexels",
+                    creator=f"Creator {index}",
+                    license_name="Pexels Content License",
+                    permission_reference="https://www.pexels.com/license/",
+                    rights_verified=True,
+                    status="licensed",
+                )
+                db.add(source)
+                db.flush()
+                source_ids.append(source.id)
+                asset = Asset(
+                    source_id=source.id,
+                    title=f"Scene asset {index}",
+                    file_path=str(clip),
+                    rights_verified=True,
+                )
+                db.add(asset)
+                db.flush()
+                asset_ids.append(asset.id)
+            project.asset_ids_json = json.dumps(asset_ids)
+            db.commit()
+
+            recovered = project_pipeline._ensure_scene_assets(project, {"scene_plan": []}, db)
+
+            assert [asset.id for asset in recovered] == asset_ids[:2]
+            assert json.loads(project.asset_ids_json) == asset_ids[:2]
+            assert project.primary_asset_id == asset_ids[0]
+    finally:
+        with SessionLocal() as db:
+            if project_id is not None:
+                db.query(VideoProject).filter(VideoProject.id == project_id).delete()
+            if asset_ids:
+                db.query(Asset).filter(Asset.id.in_(asset_ids)).delete(synchronize_session=False)
+            if source_ids:
+                db.query(Source).filter(Source.id.in_(source_ids)).delete(synchronize_session=False)
+            db.commit()
+
+
+@pytest.mark.parametrize(
+    "stored_ids, expected_message",
+    [
+        ("{}", "must be a JSON array"),
+        ('["not-an-id"]', "asset ID is invalid"),
+        ("[true]", "asset ID is invalid"),
+        ("[1.5]", "asset ID is invalid"),
+        ("[-1]", "must be positive"),
+    ],
+)
+def test_scene_asset_recovery_rejects_malformed_persisted_ids(
+    tmp_path, monkeypatch, stored_ids, expected_message
+):
+    settings = SimpleNamespace(max_upload_mb=256, max_stock_clip_mb=150)
+    monkeypatch.setattr(project_pipeline, "get_settings", lambda: settings)
+    suffix = uuid4().hex[:12]
+    project_id = None
+    try:
+        with SessionLocal() as db:
+            project = VideoProject(
+                project_key="bad-scene-ids-" + suffix,
+                topic="Solar panels",
+                video_format="shorts",
+                target_seconds=30,
+                scene_count=2,
+                confirm_pexels_license=True,
+                use_voiceover=False,
+                status="running",
+                asset_ids_json=stored_ids,
+            )
+            db.add(project)
+            db.commit()
+            project_id = project.id
+            with pytest.raises(ValueError, match=expected_message):
+                project_pipeline._ensure_scene_assets(project, {"scene_plan": []}, db)
+    finally:
+        with SessionLocal() as db:
+            if project_id is not None:
+                db.query(VideoProject).filter(VideoProject.id == project_id).delete()
+                db.commit()
