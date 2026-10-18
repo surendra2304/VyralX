@@ -12,7 +12,7 @@ from app.models import PublishJob, RenderJob
 from app.services.content import _configured_channel_strategy, _extract_json
 from app.services.peers import post_peer_json
 from app.services.trends import rank_candidates
-from app.worker import claim_publish_job, claim_render_job
+from app.worker import claim_publish_job, claim_render_job, recover_interrupted_jobs
 
 
 def test_trend_ranking_is_bounded_and_does_not_grant_rights():
@@ -940,3 +940,62 @@ def test_channel_strategy_is_disabled_without_editorial_overrides():
     assert strategy["configured"] is False
     assert strategy["language"] == "English"
     assert strategy["content_pillars"] == []
+
+
+def test_youtube_success_checkpoint_is_private_and_attempt_scoped(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import youtube as youtube_service
+
+    settings = SimpleNamespace(youtube_token_file=tmp_path / "secrets" / "youtube-token.json")
+    monkeypatch.setattr(youtube_service, "get_settings", lambda: settings)
+
+    assert youtube_service.write_upload_success_checkpoint(42, 3, "abcdefghijk") is True
+    checkpoint = settings.youtube_token_file.parent / "upload-checkpoints" / "42.json"
+    assert checkpoint.is_file()
+    assert checkpoint.stat().st_mode & 0o777 == 0o600
+    assert youtube_service.load_upload_success_checkpoint(42, 3) == "abcdefghijk"
+    assert youtube_service.load_upload_success_checkpoint(42, 2) is None
+
+    youtube_service.clear_upload_success_checkpoint(42)
+    assert youtube_service.load_upload_success_checkpoint(42, 3) is None
+
+
+def test_worker_recovers_upload_only_from_matching_success_checkpoint(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import youtube as youtube_service
+
+    settings = SimpleNamespace(youtube_token_file=tmp_path / "secrets" / "youtube-token.json")
+    monkeypatch.setattr(youtube_service, "get_settings", lambda: settings)
+    job_id = None
+    try:
+        with SessionLocal() as db:
+            job = PublishJob(
+                asset_id=9999,
+                render_job_id=9999,
+                title="Checkpoint recovery",
+                status="uploading",
+                attempts=4,
+            )
+            db.add(job)
+            db.commit()
+            job_id = job.id
+
+        assert youtube_service.write_upload_success_checkpoint(job_id, 4, "abcdefghijk")
+        counts = recover_interrupted_jobs()
+
+        with SessionLocal() as db:
+            recovered = db.get(PublishJob, job_id)
+            assert recovered is not None
+            assert recovered.status == "uploaded"
+            assert recovered.youtube_video_id == "abcdefghijk"
+            assert recovered.error == ""
+        assert counts["uploads_recovered"] >= 1
+        assert youtube_service.load_upload_success_checkpoint(job_id, 4) is None
+    finally:
+        if job_id is not None:
+            youtube_service.clear_upload_success_checkpoint(job_id)
+            with SessionLocal() as db:
+                db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+                db.commit()

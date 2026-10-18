@@ -7,8 +7,10 @@ against YouTube before retrying, to avoid duplicate public videos.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -19,6 +21,9 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 from app.config import get_settings
+
+
+log = logging.getLogger(__name__)
 
 
 class UploadOutcomeUnknown(RuntimeError):
@@ -46,6 +51,98 @@ def _atomic_private_write(path: Path, text: str) -> None:
     except Exception:
         temp.unlink(missing_ok=True)
         raise
+
+
+def _upload_checkpoint_path(publish_job_id: int, *, create_parent: bool = False) -> Path:
+    """Return a job-scoped receipt path below the private OAuth data directory."""
+    if isinstance(publish_job_id, bool) or not isinstance(publish_job_id, int) or publish_job_id < 1:
+        raise ValueError("publish_job_id must be a positive integer")
+    settings = get_settings()
+    token_path = Path(
+        getattr(settings, "youtube_token_file", Path("./data/secrets/youtube-token.json"))
+    ).resolve()
+    directory = token_path.parent / "upload-checkpoints"
+    if create_parent:
+        directory.mkdir(parents=True, exist_ok=True)
+        try:
+            directory.chmod(0o700)
+        except OSError:
+            pass
+    root = directory.resolve()
+    path = (root / f"{publish_job_id}.json").resolve()
+    if root not in path.parents:
+        raise ValueError("Invalid upload checkpoint path")
+    return path
+
+
+def _valid_video_id(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and 6 <= len(value) <= 100
+        and all(char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for char in value)
+    )
+
+
+def write_upload_success_checkpoint(
+    publish_job_id: int, upload_attempt: int, video_id: str
+) -> bool:
+    """Persist provider-confirmed success before the worker commits its database state."""
+    if (
+        isinstance(upload_attempt, bool)
+        or not isinstance(upload_attempt, int)
+        or upload_attempt < 1
+        or not _valid_video_id(video_id)
+    ):
+        return False
+    payload = {
+        "version": 1,
+        "publish_job_id": publish_job_id,
+        "upload_attempt": upload_attempt,
+        "video_id": video_id,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _atomic_private_write(
+        _upload_checkpoint_path(publish_job_id, create_parent=True),
+        json.dumps(payload, separators=(",", ":"), ensure_ascii=False),
+    )
+    return True
+
+
+def load_upload_success_checkpoint(publish_job_id: int, upload_attempt: int) -> str | None:
+    """Return only an explicit success receipt matching this job and attempt."""
+    if (
+        isinstance(upload_attempt, bool)
+        or not isinstance(upload_attempt, int)
+        or upload_attempt < 1
+    ):
+        return None
+    try:
+        payload = json.loads(
+            _upload_checkpoint_path(publish_job_id).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if (
+        type(payload.get("version")) is not int
+        or payload.get("version") != 1
+        or type(payload.get("publish_job_id")) is not int
+        or payload.get("publish_job_id") != publish_job_id
+        or type(payload.get("upload_attempt")) is not int
+        or payload.get("upload_attempt") != upload_attempt
+        or not _valid_video_id(payload.get("video_id"))
+    ):
+        return None
+    return str(payload["video_id"])
+
+
+def clear_upload_success_checkpoint(publish_job_id: int) -> None:
+    """Remove a success receipt after the corresponding outcome is durably committed."""
+    try:
+        _upload_checkpoint_path(publish_job_id).unlink(missing_ok=True)
+    except (OSError, ValueError):
+        log.warning("Could not remove YouTube success checkpoint for publish job %s", publish_job_id)
 
 
 def youtube_service():
@@ -78,6 +175,8 @@ def upload_video(
     privacy_status: str,
     category_id: str,
     scheduled_at: str = "",
+    publish_job_id: int | None = None,
+    upload_attempt: int | None = None,
 ) -> str:
     settings = get_settings()
     if not settings.youtube_upload_enabled:
@@ -148,4 +247,16 @@ def upload_video(
     video_id = response.get("id")
     if not video_id:
         raise UploadOutcomeUnknown("YouTube response lacked a video ID; reconcile provider state before retrying")
-    return str(video_id)
+    normalized_video_id = str(video_id)
+    if publish_job_id is not None and upload_attempt is not None:
+        try:
+            write_upload_success_checkpoint(publish_job_id, upload_attempt, normalized_video_id)
+        except (OSError, ValueError) as exc:
+            # The provider has confirmed success. Preserve normal DB commit behavior;
+            # the receipt only narrows the crash window before that commit.
+            log.warning(
+                "YouTube success checkpoint could not be persisted for job %s (%s)",
+                publish_job_id,
+                type(exc).__name__,
+            )
+    return normalized_video_id

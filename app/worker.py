@@ -24,7 +24,12 @@ from app.services.probe import probe_media
 from app.services.captions import write_srt
 from app.services.renderer import render_video
 from app.services.rights import append_stock_attribution, source_is_publishable, verified_render_sources
-from app.services.youtube import UploadOutcomeUnknown, upload_video
+from app.services.youtube import (
+    UploadOutcomeUnknown,
+    clear_upload_success_checkpoint,
+    load_upload_success_checkpoint,
+    upload_video,
+)
 from app.services.peers import post_peer_json
 from app.services.task_dispatch import dispatch_agent_task
 from app.services.project_pipeline import execute_project_pipeline
@@ -359,6 +364,8 @@ def process_publish_job(job_id: int) -> None:
                 privacy_status=job.privacy_status,
                 category_id=settings.youtube_category_id,
                 scheduled_at=job.scheduled_at,
+                publish_job_id=job.id,
+                upload_attempt=job.attempts,
             )
             job.youtube_video_id = video_id
             job.status = "uploaded"
@@ -376,14 +383,22 @@ def process_publish_job(job_id: int) -> None:
             job.completed_at = utcnow()
             job.updated_at = utcnow()
             db.commit()
+            if job.status == "uploaded":
+                clear_upload_success_checkpoint(job.id)
             _heartbeat("idle")
 
 
 
 
 def recover_interrupted_jobs() -> dict[str, int]:
-    """Do not auto-repeat external uploads after a crash; require reconciliation."""
-    counts = {"renders": 0, "agent_tasks": 0, "projects": 0, "uploads_uncertain": 0}
+    """Recover confirmed uploads and never automatically repeat uncertain provider calls."""
+    counts = {
+        "renders": 0,
+        "agent_tasks": 0,
+        "projects": 0,
+        "uploads_uncertain": 0,
+        "uploads_recovered": 0,
+    }
     with SessionLocal() as db:
         now = utcnow()
         render_jobs = db.scalars(select(RenderJob).where(RenderJob.status == "running")).all()
@@ -412,16 +427,30 @@ def recover_interrupted_jobs() -> dict[str, int]:
             project.updated_at = now
             counts["projects"] += 1
         publish_jobs = db.scalars(select(PublishJob).where(PublishJob.status == "uploading")).all()
+        checkpoint_jobs: list[int] = []
         for job in publish_jobs:
-            job.status = "uncertain"
-            job.error = (
-                "Worker restarted while uploading. Check YouTube Studio/API state before resolving; "
-                "automatic retries are prohibited to prevent duplicate uploads."
-            )
-            job.updated_at = now
-            counts["uploads_uncertain"] += 1
+            video_id = load_upload_success_checkpoint(job.id, job.attempts)
+            if video_id:
+                job.status = "uploaded"
+                job.youtube_video_id = video_id
+                job.error = ""
+                job.completed_at = now
+                job.updated_at = now
+                checkpoint_jobs.append(job.id)
+                counts["uploads_recovered"] += 1
+            else:
+                job.status = "uncertain"
+                job.error = (
+                    "Worker restarted before a matching upload-success checkpoint was available. "
+                    "Check YouTube Studio/API state before resolving; automatic retries are prohibited "
+                    "to prevent duplicate uploads."
+                )
+                job.updated_at = now
+                counts["uploads_uncertain"] += 1
         db.commit()
-    if counts["renders"] or counts["agent_tasks"] or counts["projects"] or counts["uploads_uncertain"]:
+        for publish_job_id in checkpoint_jobs:
+            clear_upload_success_checkpoint(publish_job_id)
+    if any(counts.values()):
         log.warning("Recovered interrupted jobs: %s", counts)
     return counts
 
