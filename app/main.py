@@ -461,6 +461,16 @@ def create_render(payload: RenderRequest, db: Session = Depends(get_db)):
     }
 
 
+@app.get("/api/render/{job_id}/download", dependencies=[Depends(require_api_key)])
+def download_render(job_id: int, db: Session = Depends(get_db)):
+    job = db.get(RenderJob, job_id)
+    if job is None or job.status != "completed" or not job.output_path:
+        raise HTTPException(404, "Completed render is unavailable")
+    path = Path(job.output_path).resolve()
+    if settings.render_dir.resolve() not in path.parents or not path.is_file():
+        raise HTTPException(404, "Rendered video file is unavailable")
+    return FileResponse(path, media_type="video/mp4", filename=f"vyralx-render-{job.id}.mp4")
+
 @app.get("/api/render", dependencies=[Depends(require_api_key)])
 def list_renders(db: Session = Depends(get_db)):
     rows = db.scalars(select(RenderJob).order_by(RenderJob.id.desc()).limit(100)).all()
