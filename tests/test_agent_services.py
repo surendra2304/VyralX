@@ -760,6 +760,13 @@ def test_memora_project_memory_is_opt_in_private_and_idempotent():
             assert payload["target_namespace_path"] == "memora://vyralx/private"
             assert payload["memory_type"] == "episodic"
             assert payload["idempotency_key"].startswith("vyralx-project-")
+            assert payload["source_type"] == "project_completion"
+            assert payload["trust_level"] == "unverified"
+            assert payload["evidence_refs"]
+            assert payload["provenance"]["source_type"] == "project_completion"
+            assert payload["provenance"]["trust_level"] == "unverified"
+            assert payload["provenance"]["evidence_refs"] == payload["evidence_refs"]
+            assert payload["provenance"]["project_key"] == project_key
             assert "agent_id" not in payload
             with SessionLocal() as db:
                 replay = project_pipeline.sync_project_memory(project_id, db)
