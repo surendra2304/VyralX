@@ -29,7 +29,7 @@ def _store_audio(data: bytes, suffix: str) -> dict[str, str | int]:
     }
 
 
-def synthesize_voiceover(text: str) -> dict[str, str | int]:
+def synthesize_voiceover(text: str, *, target_seconds: int | None = None) -> dict[str, str | int]:
     """Synthesize a script locally with eSpeak or use an explicitly configured TTS API."""
     settings = get_settings()
     normalized = " ".join(text.split())
@@ -37,6 +37,8 @@ def synthesize_voiceover(text: str) -> dict[str, str | int]:
         raise ValueError("Voiceover text must not be empty")
     if len(normalized) > 20_000:
         raise ValueError("Voiceover text exceeds the 20000-character limit")
+    if target_seconds is not None and target_seconds <= 0:
+        raise ValueError("target_seconds must be positive")
 
     provider = settings.tts_provider.strip().lower()
     if provider == "espeak":
@@ -50,9 +52,14 @@ def synthesize_voiceover(text: str) -> dict[str, str | int]:
         path = (audio_dir / (uuid4().hex + ".wav")).resolve()
         if audio_dir.resolve() not in path.parents:
             raise RuntimeError("Invalid voiceover destination path")
+        # eSpeak uses words per minute; estimate a target-aware rate for the project duration.
+        rate = settings.espeak_rate
+        if target_seconds is not None:
+            rate = round(len(normalized.split()) * 60 / target_seconds)
+        rate = max(80, min(rate, 300))
         command = [
             executable, "-w", str(path), "-v", settings.espeak_voice,
-            "-s", str(max(80, min(settings.espeak_rate, 300))), normalized,
+            "-s", str(rate), normalized,
         ]
         try:
             result = subprocess.run(
