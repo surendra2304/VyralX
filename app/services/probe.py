@@ -23,4 +23,5 @@ def probe_media(path: str | Path) -> dict:
         "duration_seconds": float(data.get("format", {}).get("duration") or 0),
         "width": int(video.get("width") or 0),
         "height": int(video.get("height") or 0),
+        "audio_stream_count": sum(1 for stream in data.get("streams", []) if stream.get("codec_type") == "audio"),
     }
