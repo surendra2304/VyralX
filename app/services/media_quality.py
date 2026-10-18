@@ -59,7 +59,10 @@ def analyze_media_signals(
     unavailable so the production-QA layer can surface an operator warning.
     """
     path = Path(video_path)
-    if not path.is_file() or path.stat().st_size <= 0:
+    try:
+        if not path.is_file() or path.stat().st_size <= 0:
+            return _unavailable("missing_output")
+    except (OSError, TypeError, ValueError):
         return _unavailable("missing_output")
     duration = _finite_float(actual_duration, -1.0)
     if duration <= 0:

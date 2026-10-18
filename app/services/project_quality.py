@@ -21,6 +21,14 @@ def _words(value: str) -> list[str]:
     return re.findall(r"\w+", str(value or "").casefold(), flags=re.UNICODE)
 
 
+def _finite_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def build_project_quality_report(
     *,
     target_seconds: int,
@@ -168,8 +176,8 @@ def build_project_quality_report(
         for interval in black_intervals[:200]:
             if not isinstance(interval, dict):
                 continue
-            duration = float(interval.get("duration_seconds") or 0)
-            if math.isfinite(duration) and duration >= 0.5:
+            duration = _finite_number(interval.get("duration_seconds"))
+            if duration is not None and duration >= 0.5:
                 valid_black.append(interval)
         add(
             "black_frames", "Black-frame scan", not valid_black,
@@ -196,8 +204,8 @@ def build_project_quality_report(
             for interval in silence_intervals[:200]:
                 if not isinstance(interval, dict):
                     continue
-                duration = float(interval.get("duration_seconds") or 0)
-                if not math.isfinite(duration) or duration < 0:
+                duration = _finite_number(interval.get("duration_seconds"))
+                if duration is None or duration < 0:
                     continue
                 longest_silence = max(longest_silence, duration)
                 if duration > silence_threshold:
