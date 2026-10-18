@@ -152,8 +152,14 @@ def test_project_pipeline_persists_render_captions_provenance_and_qa(tmp_path, m
             if content_id is not None:
                 db.query(ContentPack).filter(ContentPack.id == content_id).delete()
             if asset_ids:
+                source_ids = [
+                    source_id for (source_id,) in
+                    db.query(Asset.source_id).filter(Asset.id.in_(asset_ids)).all()
+                    if source_id is not None
+                ]
                 db.query(Asset).filter(Asset.id.in_(asset_ids)).delete(synchronize_session=False)
-                db.query(Source).filter(Source.id.in_(db.query(Asset.source_id).filter(Asset.id.in_(asset_ids)))).delete(synchronize_session=False)
+                if source_ids:
+                    db.query(Source).filter(Source.id.in_(source_ids)).delete(synchronize_session=False)
             db.commit()
     for path in [*tmp_path.glob("clip-*.mp4"), *settings.render_dir.glob("*"), *settings.data_dir.rglob("*")]:
         if path.is_file():
