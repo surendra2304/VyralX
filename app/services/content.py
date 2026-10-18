@@ -8,6 +8,7 @@ from uuid import uuid4
 import httpx
 
 from app.config import get_settings
+from app.services.intelx import normalize_intelx_reports
 
 VideoFormat = Literal["shorts", "long"]
 
@@ -43,10 +44,50 @@ def _extract_json(raw: str) -> dict[str, Any]:
         raise ValueError("scene_plan and title_options must be arrays")
     if not isinstance(value["tags"], list):
         raise ValueError("tags must be an array")
-    value["tags"] = [str(tag).strip()[:100] for tag in value["tags"][:30] if str(tag).strip()]
-    value["title_options"] = [str(title).strip()[:100] for title in value["title_options"][:8] if str(title).strip()]
-    value.setdefault("fact_check_notes", [])
+    for field, maximum in {
+        "hook": 2000, "script": 12000, "voiceover": 12000,
+        "caption": 12000, "description": 4500, "thumbnail_brief": 2000,
+    }.items():
+        if not isinstance(value[field], str):
+            raise ValueError(f"Inference field {field} must be text")
+        value[field] = value[field].strip()[:maximum]
+    for field in ("hook", "script", "voiceover", "caption", "thumbnail_brief"):
+        if not value[field]:
+            raise ValueError(f"Inference field {field} must not be empty")
+    scenes = []
+    for scene in value["scene_plan"][:8]:
+        if not isinstance(scene, dict):
+            continue
+        cleaned = {
+            "timecode": str(scene.get("timecode") or "").strip()[:40],
+            "visual": str(scene.get("visual") or "").strip()[:500],
+            "on_screen_text": str(scene.get("on_screen_text") or "").strip()[:200],
+        }
+        if cleaned["visual"] or cleaned["on_screen_text"]:
+            scenes.append(cleaned)
+    if not scenes:
+        raise ValueError("scene_plan must contain at least one usable scene")
+    value["scene_plan"] = scenes
+    value["tags"] = [
+        str(tag).strip()[:100] for tag in value["tags"][:30]
+        if isinstance(tag, (str, int, float)) and str(tag).strip()
+    ]
+    value["title_options"] = [
+        title.strip()[:100] for title in value["title_options"][:8]
+        if isinstance(title, str) and title.strip()
+    ]
+    if not value["title_options"]:
+        raise ValueError("title_options must contain at least one non-empty title")
+    notes = value.get("fact_check_notes", [])
+    if not isinstance(notes, list):
+        raise ValueError("fact_check_notes must be an array")
+    value["fact_check_notes"] = [
+        str(note).strip()[:500] for note in notes[:20]
+        if isinstance(note, (str, int, float)) and str(note).strip()
+    ]
     value.setdefault("rights_notes", "Review licensing for each third-party asset before publishing.")
+    if not isinstance(value["rights_notes"], str):
+        value["rights_notes"] = "Review licensing for each third-party asset before publishing."
     return value
 
 
@@ -82,17 +123,8 @@ def generate_content_pack(
         "fact_check_notes": ["claims the operator should verify"],
         "rights_notes": "reminders about third-party assets and music",
     }
-    safe_research: list[dict[str, Any]] = []
-    for item in (research_context or [])[:5]:
-        if not isinstance(item, dict):
-            continue
-        safe_research.append({
-            "report_id": str(item.get("report_id") or "")[:120],
-            "published_at": str(item.get("published_at") or "")[:80],
-            "summary": str(item.get("summary") or "")[:1200],
-            "key_findings": [str(value)[:500] for value in item.get("key_findings", [])[:5]],
-            "tags": [str(value)[:100] for value in item.get("tags", [])[:10]],
-        })
+    safe_research = normalize_intelx_reports(research_context or [], topic)
+
     safe_memories: list[dict[str, Any]] = []
     for item in (memora_context or [])[:5]:
         if not isinstance(item, dict):

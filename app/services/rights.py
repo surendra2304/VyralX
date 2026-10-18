@@ -1,21 +1,45 @@
-"""Conservative, traceable source-rights checks for video assets."""
+"""Conservative source-rights checks for VyralX assets."""
 from __future__ import annotations
 
 import json
+from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session
 
 from app.models import Asset, RenderJob, Source
 
+_PLACEHOLDERS = {"-", "n/a", "na", "none", "unknown", "tbd", "todo", "pending", "not provided"}
+
+
+def _meaningful(value: str) -> bool:
+    normalized = " ".join(value.split()).strip().casefold()
+    return (
+        len(normalized) >= 5
+        and normalized not in _PLACEHOLDERS
+        and not normalized.startswith(("replace-with", "your license", "your permission", "todo:", "tbd:"))
+    )
+
 
 def source_is_publishable(source: Source | None) -> bool:
-    """A checkbox alone is not permission: require an explicit claim and evidence reference."""
+    """Require a meaningful rights record and validate official Pexels provenance."""
     if source is None or not bool(source.rights_verified):
         return False
     license_name = str(source.license_name or "").strip()
     evidence = str(source.permission_reference or "").strip()
-    if not license_name or not evidence:
+    if not _meaningful(license_name) or not _meaningful(evidence):
         return False
+    if str(source.platform or "").strip().casefold() == "pexels":
+        media = urlsplit(str(source.source_url or "").strip())
+        license_url = urlsplit(evidence)
+        return (
+            license_name.casefold() == "pexels content license"
+            and media.scheme == "https"
+            and media.hostname in {"pexels.com", "www.pexels.com"}
+            and media.path.startswith("/video/")
+            and license_url.scheme == "https"
+            and license_url.hostname in {"pexels.com", "www.pexels.com"}
+            and license_url.path.rstrip("/") == "/license"
+        )
     return True
 
 
@@ -40,7 +64,6 @@ def verified_render_sources(render: RenderJob, db: Session) -> list[tuple[Asset,
         asset_ids.insert(0, render.asset_id)
     if not asset_ids or len(asset_ids) > 4:
         raise ValueError("Render must reference between 1 and 4 source assets")
-
     verified: list[tuple[Asset, Source]] = []
     for asset_id in asset_ids:
         asset = db.get(Asset, asset_id)
@@ -56,29 +79,43 @@ def verified_render_sources(render: RenderJob, db: Session) -> list[tuple[Asset,
 
 
 def append_stock_attribution(description: str, source_records: list[tuple[Asset, Source]], limit: int = 5000) -> str:
-    """Preserve Pexels creator/source credits within YouTube's description length limit."""
+    """Append complete Pexels credits; never silently truncate a required source or license URL."""
+    limit = min(5000, int(limit))
+    if limit < 1:
+        raise ValueError("Description limit must be positive")
+    description = str(description or "").strip()
+    if len(description) > limit:
+        raise ValueError("Description exceeds the limit; shorten it before publishing")
     lines: list[str] = []
     seen: set[str] = set()
     for _, source in source_records:
-        if str(source.platform or "").lower() != "pexels":
+        if str(source.platform or "").casefold() != "pexels":
             continue
         url = str(source.source_url or "").strip()
-        creator = str(source.creator or "Pexels creator").strip()
-        key = url or creator
-        if key in seen:
-            continue
-        seen.add(key)
         license_url = str(source.permission_reference or "").strip()
-        if url and url in description and (not license_url or license_url in description):
+        if not url or not license_url:
+            raise ValueError("Pexels attribution requires both a source URL and license reference")
+        if url in seen or (url in description and license_url in description):
             continue
-        suffix = f" — License: {license_url[:500]}" if license_url else ""
-        line = f"- {creator[:120]} (Pexels): {url[:600]}{suffix}"
-        lines.append(line)
+        seen.add(url)
+        creator = str(source.creator or "Pexels creator").strip()[:300] or "Pexels creator"
+        lines.append(f"- {creator} (Pexels): {url} — License: {license_url}")
     if not lines:
-        return description[:limit]
-    heading = "" if "Stock footage credits:" in description else "Stock footage credits:\n"
-    credit_block = heading + "\n".join(lines)
-    credit_block = credit_block[: max(0, limit - 4)]
-    available = max(0, limit - len(credit_block) - 4)
-    intro = description.strip()[:available]
-    return (intro + "\n\n" + credit_block).strip()[:limit]
+        return description
+    heading = "Stock footage credits:"
+    if heading in description:
+        block = "\n".join(lines)
+        separator = "\n" if description.rstrip().endswith(heading) else "\n\n"
+    else:
+        block = heading + "\n" + "\n".join(lines)
+        separator = "\n\n" if description else ""
+    available = limit - len(separator) - len(block)
+    if available < 0:
+        raise ValueError("Required stock attribution exceeds the description limit")
+    intro = description[:available].rstrip()
+    if len(intro) < len(description) and " " in intro:
+        intro = intro[:intro.rfind(" ")].rstrip()
+    result = (intro + separator + block).strip()
+    if len(block) > limit or len(result) > limit:
+        raise ValueError("Required stock attribution exceeds the description limit")
+    return result
