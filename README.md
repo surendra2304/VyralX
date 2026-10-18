@@ -38,7 +38,7 @@ The Compose template attaches both containers to the existing \`friday_mesh\` ne
 
 ## Quick start (local development)
 
-Requirements: Python 3.11+, FFmpeg/FFprobe.
+Requirements: Python 3.11+, FFmpeg/FFprobe and eSpeak NG (`espeak-ng`) for the default local narration provider. The Docker image installs these binaries.
 
 \`\`\`bash
 python -m venv .venv
