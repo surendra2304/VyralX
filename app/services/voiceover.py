@@ -251,9 +251,7 @@ def synthesize_voiceover_with_captions(
                 combined.setsampwidth(sample_width)
                 combined.setframerate(sample_rate)
                 combined.setcomptype("NONE", "not compressed")
-                for frames in frame_payloads:
-                    combined.writeframesraw(frames)
-                combined.writeframes(b"")
+                combined.writeframes(b"".join(frame_payloads))
         except (OSError, wave.Error):
             raise RuntimeError("Could not combine measured narration chunks") from None
 
