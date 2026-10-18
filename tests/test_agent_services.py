@@ -745,7 +745,7 @@ def test_memora_project_memory_is_opt_in_private_and_idempotent():
         calls = []
         def fake_post(name, path, payload, **kwargs):
             calls.append((name, path, payload, kwargs))
-            return {"id": "memory-test-123"}
+            return {"success": True, "data": {"memory": {"memory_id": "memory-test-123"}}}
         monkeypatch.setattr(project_pipeline, "post_peer_json", fake_post)
         try:
             with SessionLocal() as db:
@@ -773,6 +773,99 @@ def test_memora_project_memory_is_opt_in_private_and_idempotent():
             db.commit()
 
 
+def test_memora_context_unwraps_response_envelopes_and_filters_other_namespaces(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import project_pipeline
+
+    monkeypatch.setattr(project_pipeline, "get_settings", lambda: SimpleNamespace(memora_read_enabled=True))
+    monkeypatch.setattr(project_pipeline, "configured_peers", lambda: {"memora": object()})
+    monkeypatch.setattr(project_pipeline, "get_peer_json", lambda *args, **kwargs: {
+        "status": "success",
+        "data": {
+            "memories": [
+                {
+                    "memory_id": "private-memory",
+                    "content": {"text": "A prior VyralX solar video."},
+                    "memory_type": "episodic",
+                    "importance": "0.7",
+                    "namespace_path": "memora://vyralx/private",
+                },
+                {
+                    "id": "foreign-memory",
+                    "content_text": "Another agent's private memory.",
+                    "namespace_path": "memora://sentinel/private",
+                },
+                {"id": "empty-memory", "content_text": "   "},
+                {"id": "untraceable-memory", "content_text": "No valid ID"},
+            ]
+        },
+    })
+
+    context, status = project_pipeline._fetch_memora_context(
+        SimpleNamespace(topic="solar energy", id=91)
+    )
+    assert status == "used"
+    assert len(context) == 1
+    assert context[0]["id"] == "private-memory"
+    assert context[0]["content_text"] == "A prior VyralX solar video."
+    assert context[0]["importance"] == 0.7
+
+
+def test_memora_context_distinguishes_provider_errors_from_invalid_responses(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import project_pipeline
+
+    monkeypatch.setattr(project_pipeline, "get_settings", lambda: SimpleNamespace(memora_read_enabled=True))
+    monkeypatch.setattr(project_pipeline, "configured_peers", lambda: {"memora": object()})
+    project = SimpleNamespace(topic="solar", id=92)
+
+    monkeypatch.setattr(project_pipeline, "get_peer_json", lambda *args, **kwargs: {"status": "failed", "error": "secret detail"})
+    assert project_pipeline._fetch_memora_context(project) == ([], "provider_error")
+
+    monkeypatch.setattr(project_pipeline, "get_peer_json", lambda *args, **kwargs: {"status": "success", "message": "no items shape"})
+    assert project_pipeline._fetch_memora_context(project) == ([], "invalid_response")
+
+
+def test_memora_write_does_not_mark_error_envelopes_as_stored(monkeypatch):
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from app.database import SessionLocal
+    from app.models import VideoProject
+    from app.services import project_pipeline
+
+    project_key = "memora-error-" + uuid4().hex[:12]
+    with SessionLocal() as db:
+        project = VideoProject(
+            project_key=project_key, topic="Test completed project", video_format="shorts",
+            target_seconds=30, confirm_pexels_license=True, status="completed",
+        )
+        db.add(project)
+        db.commit()
+        project_id = project.id
+
+    monkeypatch.setattr(project_pipeline, "get_settings", lambda: SimpleNamespace(memora_write_enabled=True))
+    monkeypatch.setattr(project_pipeline, "configured_peers", lambda: {"memora": object()})
+    monkeypatch.setattr(project_pipeline, "post_peer_json", lambda *args, **kwargs: {
+        "status": "failed", "error": "do not persist provider text", "id": "misleading-id"
+    })
+    try:
+        with SessionLocal() as db:
+            result = project_pipeline.sync_project_memory(project_id, db)
+            stored = db.get(VideoProject, project_id)
+            assert result["status"] == "failed"
+            assert stored is not None
+            assert stored.memora_memory_status == "failed"
+            assert stored.memora_memory_id == ""
+            assert result["error_type"] == "RuntimeError"
+    finally:
+        with SessionLocal() as db:
+            db.query(VideoProject).filter(VideoProject.project_key == project_key).delete()
+            db.commit()
+
+
 def test_memora_context_reads_only_vyralx_private_namespace(monkeypatch):
     from types import SimpleNamespace
 
@@ -783,7 +876,7 @@ def test_memora_context_reads_only_vyralx_private_namespace(monkeypatch):
     calls = {}
     def fake_get(name, path, params, **kwargs):
         calls["name"], calls["path"], calls["params"] = name, path, params
-        return [{"id": "memory-9", "content_text": "A previously completed wind-energy video.", "memory_type": "episodic", "importance": 0.35}]
+        return [{"id": "memory-9", "content_text": "A previously completed wind-energy video.", "memory_type": "episodic", "importance": 0.35, "namespace_path": "memora://vyralx/private"}]
     monkeypatch.setattr(project_pipeline, "get_peer_json", fake_get)
     context, status = project_pipeline._fetch_memora_context(SimpleNamespace(topic="wind energy", id=9))
     assert status == "used"
