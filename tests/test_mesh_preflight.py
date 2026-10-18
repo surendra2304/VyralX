@@ -83,6 +83,20 @@ def test_peer_url_with_credentials_is_rejected(monkeypatch):
     assert "password" not in json.dumps(report)
 
 
+@pytest.mark.parametrize("url", ["https://intelx.internal:not-a-port", "https://intelx.internal:0"])
+def test_invalid_port_is_rejected_before_network_call(monkeypatch, url):
+    settings = _settings(intelx_url=url, intelx_api_key="not-logged")
+    monkeypatch.setattr(mesh_preflight, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        mesh_preflight,
+        "peer_health",
+        lambda *args, **kwargs: pytest.fail("invalid port reached network"),
+    )
+    report = mesh_preflight.run_preflight()
+    check = next(item for item in report["checks"] if item["check"] == "intelx.configuration")
+    assert check["status"] == "failed"
+
+
 def test_intelx_probe_uses_read_only_contract_and_sanitizes_results(monkeypatch):
     settings = _settings(intelx_url="https://intelx.internal", intelx_api_key="secret")
     captured = {}

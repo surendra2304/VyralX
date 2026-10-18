@@ -38,6 +38,7 @@ def _valid_base_url(value: str) -> bool:
         return bool(
             parsed.scheme in {"http", "https"}
             and parsed.hostname
+            and (parsed.port is None or 1 <= parsed.port <= 65535)
             and parsed.username is None
             and parsed.password is None
             and not parsed.query
@@ -155,7 +156,7 @@ def run_preflight(
             _entry(
                 f"{name}.health",
                 status,
-                "Authenticated health endpoint responded successfully."
+                "Health endpoint responded successfully; authentication is verified only by active contract probes."
                 if reachable
                 else (
                     "Required peer health check failed."
