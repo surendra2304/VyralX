@@ -285,9 +285,9 @@ def sync_project_memory(project_id: int, db: Session) -> dict:
     }
     payload = {
         "content_text": "VyralX completed a video project.\n" + json.dumps(summary, ensure_ascii=False, sort_keys=True),
-        "agent_id": "vyralx",
         "user_id": "default_user",
         "workspace_id": "default_workspace",
+        "device_id": "vyralx-worker",
         "task_id": f"vyralx-project-{project.id}",
         "idempotency_key": "vyralx-project-" + sha256(project.project_key.encode("utf-8")).hexdigest()[:32],
         "target_namespace_path": "memora://vyralx/private",
@@ -308,7 +308,6 @@ def sync_project_memory(project_id: int, db: Session) -> dict:
         },
         "confidence": 0.65,
         "importance": 0.35,
-        "purpose": "private project completion record for VyralX continuity",
     }
     project.memora_memory_status = "pending"
     db.commit()
