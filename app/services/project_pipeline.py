@@ -17,6 +17,7 @@ from app.services.trends import rank_candidates
 from app.services.montage import render_montage
 from app.services.pexels import import_video_file, search_videos
 from app.services.probe import probe_media
+from app.services.renderer import PRESETS
 from app.services.thumbnail import extract_thumbnail
 from app.services.voiceover import synthesize_voiceover
 
@@ -281,10 +282,18 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             voiceover_path=voice_path or None,
         )
         metadata = probe_media(rendered)
-        if float(metadata.get("duration_seconds") or 0) <= 0:
+        actual_duration = float(metadata.get("duration_seconds") or 0)
+        expected_width, expected_height = PRESETS[project.video_format]
+        if actual_duration <= 0:
             raise RuntimeError("Rendered project did not have a readable positive duration")
+        if abs(actual_duration - project.target_seconds) > 1.5:
+            raise RuntimeError(f"Rendered duration {actual_duration:.2f}s differs from target {project.target_seconds}s")
+        if int(metadata.get("width") or 0) != expected_width or int(metadata.get("height") or 0) != expected_height:
+            raise RuntimeError("Rendered dimensions do not match the selected video format")
         thumbnail = settings.render_dir / f"{project.project_key}-thumbnail.jpg"
         extract_thumbnail(rendered, thumbnail, min(1.0, max(0.0, project.target_seconds / 4)))
+        if not thumbnail.is_file() or thumbnail.stat().st_size <= 0:
+            raise RuntimeError("Thumbnail generation did not produce a usable image")
         render_job.status = "completed"
         render_job.output_path = rendered
         render_job.error = ""
