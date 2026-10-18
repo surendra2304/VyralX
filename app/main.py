@@ -26,7 +26,7 @@ from app.services.thumbnail import extract_thumbnail
 from app.services.youtube_analytics import fetch_video_metrics
 from app.services.peers import configured_peers, peer_health
 from app.services.pexels import import_video_file, search_videos
-from app.services.rights import source_is_publishable
+from app.services.rights import append_stock_attribution, source_is_publishable, verified_render_sources
 
 settings = get_settings()
 settings.prepare_directories()
@@ -519,8 +519,13 @@ def queue_publish(payload: PublishRequest, db: Session = Depends(get_db)):
     source = db.get(Source, asset.source_id) if asset.source_id else None
     if not source_is_publishable(source):
         raise HTTPException(403, "Current source record does not contain verified rights evidence")
+    try:
+        render_sources = verified_render_sources(render, db)
+    except ValueError as exc:
+        raise HTTPException(403, str(exc)) from None
+    publish_description = append_stock_attribution(payload.description, render_sources)
     job = PublishJob(asset_id=asset.id, render_job_id=render.id, title=payload.title,
-                     description=payload.description, tags_json=json.dumps(payload.tags[:30]),
+                     description=publish_description, tags_json=json.dumps(payload.tags[:30]),
                      privacy_status=privacy_status, scheduled_at=scheduled_at, status="pending_approval")
     db.add(job)
     db.commit()
