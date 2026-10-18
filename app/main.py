@@ -501,6 +501,7 @@ def retry_video_project(project_id: int, payload: VideoProjectRetryRequest, db: 
         raise HTTPException(409, "Configured project retry limit has been reached")
     project.status = "queued"
     project.error = ""
+    project.started_at = None
     project.completed_at = None
     project.render_job_id = None
     project.thumbnail_path = ""
