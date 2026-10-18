@@ -68,7 +68,9 @@ def append_stock_attribution(description: str, source_records: list[tuple[Asset,
         if key in seen:
             continue
         seen.add(key)
-        line = f"- {creator[:120]} (Pexels): {url[:600]}"
+        license_url = str(source.permission_reference or "").strip()
+        suffix = f" — License: {license_url[:500]}" if license_url else ""
+        line = f"- {creator[:120]} (Pexels): {url[:600]}{suffix}"
         lines.append(line)
     if not lines:
         return description[:limit]
