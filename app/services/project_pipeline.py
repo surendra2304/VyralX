@@ -27,6 +27,7 @@ from app.services.project_quality import build_project_quality_report
 from app.services.media_quality import analyze_media_signals
 from app.services.intelx import normalize_intelx_reports
 from app.services.voiceover import synthesize_voiceover, synthesize_voiceover_with_captions
+from app.services.forced_alignment import ForcedAlignmentError, align_word_timestamps
 
 log = logging.getLogger("vyralx.projects")
 
@@ -560,7 +561,7 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
                 if (
                     isinstance(cached_segments, list)
                     and cached_segments
-                    and pack.get("caption_alignment_status") == "measured_chunk"
+                    and pack.get("caption_alignment_status") in {"measured_chunk", "word_forced"}
                 ):
                     segments = cached_segments
                     caption_alignment_status = "measured_chunk"
@@ -604,10 +605,37 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             ):
                 raise RuntimeError("Narration file is not readable audio with a positive duration")
 
+        alignment_url = str(getattr(settings, "caption_alignment_url", "") or "").strip()
+        if (
+            project.use_voiceover
+            and alignment_url
+            and voice_path
+            and caption_alignment_status != "word_forced"
+        ):
+            try:
+                aligned_segments = align_word_timestamps(
+                    voice_path,
+                    caption_text,
+                    duration_seconds=voiceover_duration or 0,
+                )
+                if not aligned_segments:
+                    raise ForcedAlignmentError("Word-level alignment produced no caption cues")
+                segments = aligned_segments
+                caption_alignment_status = "word_forced"
+                pack["caption_segments"] = segments
+                log.info("Word-level caption alignment verified project_id=%s", project.id)
+            except ForcedAlignmentError as exc:
+                caption_alignment_status = "alignment_fallback"
+                log.warning("Word-level alignment unavailable project_id=%s: %s", project.id, exc)
+            pack["caption_alignment_status"] = caption_alignment_status
+            content_record.pack_json = json.dumps(pack, ensure_ascii=False)
+            db.commit()
+
         if segments is None:
             segments = segment_script(caption_text, project.target_seconds)
             if project.use_voiceover:
-                caption_alignment_status = "estimated"
+                if caption_alignment_status != "alignment_fallback":
+                    caption_alignment_status = "estimated"
                 pack.pop("caption_segments", None)
                 pack["caption_alignment_status"] = caption_alignment_status
                 content_record.pack_json = json.dumps(pack, ensure_ascii=False)

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -49,6 +50,11 @@ class Settings(BaseSettings):
     inference_tts_model: str = ""
     inference_tts_voice: str = "alloy"
     inference_tts_timeout_seconds: int = 180
+    caption_alignment_url: str = ""
+    caption_alignment_api_key: str = ""
+    caption_alignment_path: str = "/v1/align"
+    caption_alignment_timeout_seconds: int = 90
+    caption_alignment_language: str = "en"
     intelx_url: str = ""
     intelx_api_key: str = ""
     memora_url: str = ""
@@ -84,6 +90,32 @@ class Settings(BaseSettings):
             raise ValueError("TTS_PROVIDER must be espeak or external")
         if not 80 <= self.espeak_rate <= 300:
             raise ValueError("ESPEAK_RATE must be between 80 and 300")
+        if not 1 <= self.caption_alignment_timeout_seconds <= 300:
+            raise ValueError("CAPTION_ALIGNMENT_TIMEOUT_SECONDS must be between 1 and 300")
+        if (
+            not self.caption_alignment_path.startswith("/")
+            or self.caption_alignment_path.startswith("//")
+            or "?" in self.caption_alignment_path
+            or "#" in self.caption_alignment_path
+        ):
+            raise ValueError("CAPTION_ALIGNMENT_PATH must be a safe absolute path")
+        if not self.caption_alignment_language.strip() or len(self.caption_alignment_language) > 20:
+            raise ValueError("CAPTION_ALIGNMENT_LANGUAGE must be a short language tag")
+        if any(ch.isspace() for ch in self.caption_alignment_language):
+            raise ValueError("CAPTION_ALIGNMENT_LANGUAGE must not contain whitespace")
+        if self.caption_alignment_url:
+            alignment_url = urlsplit(self.caption_alignment_url.strip())
+            if (
+                alignment_url.scheme not in {"http", "https"}
+                or not alignment_url.netloc
+                or alignment_url.query
+                or alignment_url.fragment
+                or alignment_url.username
+                or alignment_url.password
+            ):
+                raise ValueError("CAPTION_ALIGNMENT_URL must be an HTTP(S) base URL without credentials")
+            if not self.caption_alignment_api_key.strip():
+                raise ValueError("CAPTION_ALIGNMENT_API_KEY is required when alignment is configured")
         if self.youtube_default_privacy not in {"private", "unlisted", "public"}:
             raise ValueError("YOUTUBE_DEFAULT_PRIVACY must be private, unlisted, or public")
         if self.sentinel_required_for_publish and not (
