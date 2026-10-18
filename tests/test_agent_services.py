@@ -797,7 +797,7 @@ def test_memora_context_unwraps_response_envelopes_and_filters_other_namespaces(
                     "namespace_path": "memora://sentinel/private",
                 },
                 {"id": "empty-memory", "content_text": "   "},
-                {"id": "untraceable-memory", "content_text": "No valid ID"},
+                {"content_text": "No valid ID"},
             ]
         },
     })
