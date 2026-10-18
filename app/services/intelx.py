@@ -11,7 +11,7 @@ def _terms(text: str) -> set[str]:
 
 
 def normalize_intelx_reports(data: Any, topic: str) -> list[dict[str, Any]]:
-    """Keep traceable, bounded reports and discard clearly unrelated titled results."""
+    """Normalize bounded reports; mutate list inputs so stored research matches model context."""
     if isinstance(data, list):
         candidates = data
     elif isinstance(data, dict):
@@ -35,7 +35,7 @@ def normalize_intelx_reports(data: Any, topic: str) -> list[dict[str, Any]]:
         if not report_id or not (title or summary or findings):
             continue
         terms = _terms(" ".join([title, summary, *findings, *tags]))
-        if title and topic_terms and terms and not (topic_terms & terms):
+        if topic_terms and terms and not (topic_terms & terms) and (title or len(terms) >= 2):
             continue
         reports.append({
             "report_id": report_id, "title": title,
@@ -45,4 +45,6 @@ def normalize_intelx_reports(data: Any, topic: str) -> list[dict[str, Any]]:
         })
         if len(reports) == 5:
             break
+    if isinstance(data, list):
+        data[:] = reports
     return reports

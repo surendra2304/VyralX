@@ -111,14 +111,17 @@ def test_inference_receives_only_topic_matched_intelx_context(monkeypatch):
         return FakeResponse()
 
     monkeypatch.setattr(content_service.httpx, "post", fake_post)
-    result_pack = generate_content_pack("How solar panels work", research_context=[
+    research_items = [
         {"id": "solar-1", "title": "Solar output", "summary": "Solar output varies by sunlight."},
         {"id": "sports-2", "title": "Basketball finals", "summary": "The team won the championship."},
-    ])
+    ]
+    result_pack = generate_content_pack("How solar panels work", research_context=research_items)
     reports = captured["json"]["payload"]["context"]["intelx_research_context"]
     assert [item["report_id"] for item in reports] == ["solar-1"]
     assert reports[0]["title"] == "Solar output"
     assert "solar-1" in result_pack["fact_check_notes"][0]
+    assert len(research_items) == 1
+    assert research_items[0]["report_id"] == "solar-1"
 
 
 def test_inference_content_contract_rejects_malformed_scene_plan():
