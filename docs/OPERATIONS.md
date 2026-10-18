@@ -86,3 +86,8 @@ Local eSpeak is the default zero-key narration provider in the container. Extern
 - Persistence survives container recreation and a backup restore has been demonstrated.
 
 Repository CI cannot prove live credentials, external APIs, Oracle resources, real channel permissions, live FRIDAY mesh connectivity, or backup restoration.
+
+
+## Interrupted implementation sessions
+
+Use the [interruption recovery runbook](RECOVERY.md) to resume safely from the latest GitHub commit, inspect CI failures, and continue from an existing branch without duplicating work. The scheduled Recovery Watch workflow creates or updates one incident when main CI fails and closes it after a later green run; it does not resume ChatGPT execution or deploy code.
