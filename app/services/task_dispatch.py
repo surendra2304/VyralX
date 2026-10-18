@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -98,7 +99,13 @@ def dispatch_agent_task(task_type: str, raw_input: dict[str, Any], db: Session) 
         }
 
     if task_type == "project.create":
-        request = VideoProjectCreateRequest.model_validate(raw_input)
+        # FRIDAY may retry a task after a worker restart. A missing project key
+        # must not create a new project on each dispatch attempt.
+        request_payload = raw_input
+        if not str(raw_input.get("project_key") or "").strip():
+            stable_payload = json.dumps(raw_input, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+            request_payload = {**raw_input, "project_key": "project_" + sha256(stable_payload.encode("utf-8")).hexdigest()[:16]}
+        request = VideoProjectCreateRequest.model_validate(request_payload)
         if not request.confirm_pexels_license:
             raise ValueError("confirm_pexels_license must be true after reviewing the Pexels license")
         if request.auto_discover_trend and not settings.youtube_data_api_key:
