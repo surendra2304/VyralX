@@ -12,6 +12,12 @@ This runbook describes the repository implementation; it does not claim that liv
 
 CI runs Ruff, pytest, the Docker build, Compose validation, a strict Python dependency audit, a full-history Gitleaks secret scan, and a Trivy scan of OS and Python-library vulnerabilities in the built image. Trivy gates known fixed HIGH/CRITICAL vulnerabilities and leaves unfixed advisories visible in the scan output; the image must still be assessed before a production release. The container installs the application and then removes packaging-only `setuptools` and `wheel` so vulnerable build tooling is not shipped in the runtime image. GitHub Actions used by CI are pinned to commit SHAs, with version comments for review. Keep those pins current through reviewed dependency update PRs. Scan output and status are available in the latest GitHub Actions run. A clean scan does not prove that historical secrets were never exposed elsewhere; any confirmed credential exposure still requires revocation/rotation.
 
+## Base-image pin and remaining dependency-lock gate
+
+The Dockerfile pins the multi-platform index digest for the Official Python 3.11.17 slim-bookworm image instead of relying on the moving `3.11-slim` tag. See the [Official Python image tag details](https://hub.docker.com/layers/library/python/3.11-slim-bookworm/). Refresh the digest only through a reviewed change followed by the full container vulnerability scan and CI. The multi-platform index lets the runtime select the matching architecture, including x86-64 and ARM64.
+
+This pin makes the Python base image identity stable, but it does not yet make the full image bit-for-bit reproducible: `apt-get update` still resolves Debian packages from the configured repositories, and Python application dependencies are still range-constrained in `pyproject.toml`. A verified dependency lock and a reviewed OS-package strategy remain release gates. Do not describe the final image as fully reproducible until those are locked and CI installs from those locks.
+
 ## Deployment topology
 
 The Compose file starts three services: vyralx-init runs additive schema setup once, vyralx serves FastAPI on port 8000, and vyralx-worker consumes durable queues. API and worker wait for successful initialization. They share the SQLite database, media, renders and secrets volumes, and join the pre-existing external friday_mesh network. No host port is published. Configure Dokploy's reverse proxy for the intended private ingress and do not expose SQLite or internal APIs publicly.
