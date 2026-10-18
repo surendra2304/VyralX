@@ -102,12 +102,51 @@ def _fetch_intelx_research(project: VideoProject) -> list[dict]:
         return []
 
 
+def _fetch_memora_context(project: VideoProject) -> tuple[list[dict], str]:
+    """Read bounded prior VyralX project memories from its private namespace only."""
+    settings = get_settings()
+    if not settings.memora_read_enabled:
+        return [], "disabled"
+    if "memora" not in configured_peers():
+        return [], "not_configured"
+    try:
+        result = get_peer_json(
+            "memora",
+            "/api/v1/memories/search",
+            {
+                "q": project.topic[:500],
+                "namespace_path": "memora://vyralx/private",
+                "limit": 5,
+                "min_score": 0.2,
+            },
+            timeout_seconds=8.0,
+        )
+        if not isinstance(result, list):
+            return [], "unavailable"
+        items = []
+        for item in result[:5]:
+            if not isinstance(item, dict):
+                continue
+            items.append({
+                "id": str(item.get("id") or "")[:120],
+                "memory_type": str(item.get("memory_type") or "")[:40],
+                "content_text": str(item.get("content_text") or "")[:1200],
+                "importance": item.get("importance", 0.0),
+                "created_at": str(item.get("created_at") or "")[:80],
+            })
+        return items, "used" if items else "no_matches"
+    except Exception as exc:
+        log.warning("Optional Memora context unavailable project_id=%s error_type=%s", project.id, type(exc).__name__)
+        return [], "unavailable"
+
+
 def _get_or_generate_content(project: VideoProject, db: Session) -> ContentPack:
     if project.content_pack_id:
         existing = db.get(ContentPack, project.content_pack_id)
         if existing is not None:
             return existing
     research = _fetch_intelx_research(project)
+    memora_context, memora_context_status = _fetch_memora_context(project)
     data = generate_content_pack(
         project.topic,
         video_format=project.video_format,
@@ -115,8 +154,11 @@ def _get_or_generate_content(project: VideoProject, db: Session) -> ContentPack:
         tone=project.tone,
         target_seconds=project.target_seconds,
         research_context=research,
+        memora_context=memora_context,
     )
     data["intelx_research_context"] = research
+    data["memora_private_context"] = memora_context
+    data["memora_context_status"] = memora_context_status
     data["research_status"] = "used" if research else "not_available"
     record = ContentPack(
         topic=project.topic,
