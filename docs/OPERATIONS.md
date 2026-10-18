@@ -55,9 +55,9 @@ Never paste tokens into GitHub issues/PRs or chat. The Docker build context excl
 ### Topic-to-video projects
 
 1. Confirm the current Pexels license and submit \`POST /api/projects\` with \`confirm_pexels_license=true\`.
-2. Poll \`GET /api/projects/{project_id}\`. The worker uses Inference for original content, official Pexels APIs for scenes, local eSpeak by default for narration, SRT captions and FFmpeg montage rendering.
+2. Poll \`GET /api/projects/{project_id}\`. The worker uses Inference for original content, official Pexels APIs for scenes, local eSpeak with target-aware speed by default for narration, captions from the spoken text, SRT output and FFmpeg montage rendering.
 3. A completed project response contains the asset IDs, render-job ID, thumbnail path and MP4 download path. Watch worker memory/disk usage on the small VM and keep stock clip limits conservative.
-4. Prepare a publish request using the project primary asset ID and completed render ID. The API and worker verify every montage source and attach Pexels credits; inspect the final MP4 and description, then explicitly approve the upload.
+4. Prepare a publish request using the project primary asset ID and completed render ID. The API and worker verify every montage source and attach Pexels credits; inspect the generated script, fact-check notes, final MP4 and description, then explicitly approve the upload. The dashboard shows whether IntelX reports were actually used.
 5. A failed project can be retried within the attempt limit. Existing valid content-pack/scene records are reused; inspect the error first. The worker marks projects interrupted by a restart as failed rather than claiming an incomplete render succeeded.
 
 Local eSpeak is the default zero-key narration provider in the container. External narration requires \`TTS_PROVIDER=external\` and a tested \`INFERENCE_TTS_URL\` plus model/key configuration. The standard Inference task API does not provide a TTS route.
