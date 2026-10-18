@@ -29,3 +29,7 @@ jobs:
         run: pytest
       - name: Build container
         run: docker build --progress=plain -t vyralx:ci .
+      - name: Validate Compose deployment model
+        env:
+          API_KEY: ci-only-not-a-real-secret
+        run: docker compose config --quiet
