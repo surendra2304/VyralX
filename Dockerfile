@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+# Multi-platform index digest for the Official Python 3.11.17 slim-bookworm image.
+# Refresh only through a reviewed base-image update and the container vulnerability scan.
+FROM python:3.11.17-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-ng ca-certificates \
     && rm -rf /var/lib/apt/lists/* && useradd --create-home --uid 10001 appuser
