@@ -261,6 +261,12 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
                 "description": str(pack.get("description") or "")[:4500],
                 "tags": [str(value)[:100] for value in pack.get("tags", [])[:30]],
                 "fact_check_notes": [str(value)[:500] for value in pack.get("fact_check_notes", [])[:20]],
+                "research_status": str(pack.get("research_status") or "not_available"),
+                "research_report_ids": [
+                    str(item.get("report_id"))[:120]
+                    for item in pack.get("intelx_research_context", [])
+                    if isinstance(item, dict) and item.get("report_id")
+                ][:5],
                 "requires_editor_review": bool(pack.get("requires_editor_review", True)),
             }
     return {
