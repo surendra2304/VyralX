@@ -78,7 +78,7 @@ jobs:
               --pull \
               --provenance=false \
               --build-arg "SOURCE_DATE_EPOCH=$source_date_epoch" \
-              --output "type=oci,dest=$output,rewrite-timestamp=true" \
+              --output "type=oci,dest=$output,rewrite-timestamp=true,compression=gzip,compression-level=9,force-compression=true" \
               .
             docker buildx rm "$builder" >/dev/null
           }

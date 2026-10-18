@@ -29,21 +29,42 @@ def _descriptor(content: bytes, media_type: str) -> dict:
     }
 
 
+def _layer_tar(payload: bytes) -> bytes:
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+        member = tarfile.TarInfo("payload.txt")
+        member.size = len(payload)
+        member.mtime = 0
+        member.mode = 0o644
+        member.uid = 0
+        member.gid = 0
+        member.uname = ""
+        member.gname = ""
+        archive.addfile(member, io.BytesIO(payload))
+    return output.getvalue()
+
+
 def _write_archive(
-    path: Path, *, layer_content: bytes = b"sample OCI layer", corrupt_blob: bool = False,
-    unsafe_member: bool = False, member_mtime: int = 0, wrong_descriptor_size: bool = False,
+    path: Path,
+    *,
+    layer_content: bytes = b"sample OCI layer",
+    corrupt_blob: bool = False,
+    unsafe_member: bool = False,
+    member_mtime: int = 0,
+    wrong_descriptor_size: bool = False,
 ) -> None:
+    layer_blob = _layer_tar(layer_content)
     config = _json_bytes(
         {
             "architecture": "amd64",
             "os": "linux",
             "rootfs": {
                 "type": "layers",
-                "diff_ids": ["sha256:" + hashlib.sha256(layer_content).hexdigest()],
+                "diff_ids": ["sha256:" + hashlib.sha256(layer_blob).hexdigest()],
             },
         }
     )
-    layer_descriptor = _descriptor(layer_content, "application/vnd.oci.image.layer.v1.tar")
+    layer_descriptor = _descriptor(layer_blob, "application/vnd.oci.image.layer.v1.tar")
     config_descriptor = _descriptor(config, "application/vnd.oci.image.config.v1+json")
     manifest = _json_bytes(
         {
@@ -54,14 +75,17 @@ def _write_archive(
         }
     )
     manifest_descriptor = _descriptor(manifest, "application/vnd.oci.image.manifest.v1+json")
-    root_descriptor = {**manifest_descriptor, "platform": {"architecture": "amd64", "os": "linux"}}
+    root_descriptor = {
+        **manifest_descriptor,
+        "platform": {"architecture": "amd64", "os": "linux"},
+    }
     if wrong_descriptor_size:
         root_descriptor["size"] += 1
     root_index = _json_bytes({"schemaVersion": 2, "manifests": [root_descriptor]})
     blobs = {
         "blobs/sha256/" + hashlib.sha256(config).hexdigest(): config,
-        "blobs/sha256/" + hashlib.sha256(layer_content).hexdigest(): (
-            layer_content + b"corruption" if corrupt_blob else layer_content
+        "blobs/sha256/" + hashlib.sha256(layer_blob).hexdigest(): (
+            layer_blob + b"corruption" if corrupt_blob else layer_blob
         ),
         "blobs/sha256/" + hashlib.sha256(manifest).hexdigest(): manifest,
     }
@@ -70,7 +94,7 @@ def _write_archive(
         "index.json": root_index,
         **blobs,
     }
-    with tarfile.open(path, mode="w") as archive:
+    with tarfile.open(path, mode="w", format=tarfile.USTAR_FORMAT) as archive:
         for name, content in sorted(members.items()):
             member = tarfile.TarInfo(name)
             member.size = len(content)
@@ -101,7 +125,7 @@ def test_identical_independent_oci_archives_pass_even_with_different_tar_metadat
     assert "byte-for-byte" in details[0]
 
 
-def test_different_image_layer_fails_comparison(tmp_path: Path):
+def test_different_image_layer_fails_and_reports_changed_file_path(tmp_path: Path):
     first = tmp_path / "first.oci.tar"
     second = tmp_path / "second.oci.tar"
     _write_archive(first, layer_content=b"layer one")
@@ -112,6 +136,8 @@ def test_different_image_layer_fails_comparison(tmp_path: Path):
     assert not identical
     assert left.files != right.files
     assert any("OCI member differs" in item for item in details)
+    assert any("linux/amd64 layer 1" in item for item in details)
+    assert any("file bytes differ: payload.txt" in item for item in details)
 
 
 def test_corrupt_blob_is_rejected_even_when_its_filename_claims_another_digest(tmp_path: Path):

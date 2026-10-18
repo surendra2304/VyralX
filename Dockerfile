@@ -2,12 +2,12 @@
 # Refresh only through a reviewed base-image update and the container vulnerability scan.
 FROM python:3.11.17-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 
-# Normalize timestamps used by Python packaging/build tools. CI overrides this with the commit time.
+# The commit timestamp is supplied by CI and normalized by the OCI exporter.
 ARG SOURCE_DATE_EPOCH=946684800
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 
 # Use a fixed Debian archive snapshot so apt does not resolve newer package versions on each build.
-# Remove timestamp-bearing package logs and package caches from the final image layer.
+# Remove apt caches and logs from the image layer; they contain build-environment-specific metadata.
 # Move the snapshot timestamp only in a reviewed update followed by the full container vulnerability scan.
 RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources \
     && printf '%s\n' \
@@ -27,7 +27,7 @@ RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.
         > /etc/apt/sources.list.d/debian-snapshot.sources \
     && apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg espeak-ng ca-certificates \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /var/log/apt \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /var/cache/ldconfig/aux-cache /var/log/apt \
     && rm -f /var/log/dpkg.log /var/log/alternatives.log \
     && useradd --create-home --uid 10001 appuser
 
