@@ -53,7 +53,7 @@ This file distinguishes implemented repository capability from external producti
 - [x] Containerized API and worker with non-root user, dropped capabilities, resource caps and heartbeat health.
 - [x] CI workflow for Ruff, pytest and Docker build.
 - [x] Example environment file and API/architecture/operations documentation.
-- [ ] Run and fix all CI checks on the latest branch head.
+- [x] Run and fix all CI checks on the latest branch head (Ruff, pytest, Docker image build, and Compose validation passed for the verified head; rerun after subsequent changes).
 - [ ] Run dependency audit and secret scan; pin base image and dependencies before immutable production release.
 - [ ] Validate the actual external Docker network and Dokploy stack before deploy.
 - [ ] Test persistence across recreation, encrypted backup and a successful restore.
