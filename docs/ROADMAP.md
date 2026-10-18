@@ -39,7 +39,8 @@ This file distinguishes implemented repository capability from external producti
 - [x] Add deterministic project QA for output duration/dimensions, requested audio, narration file/duration, caption file/word coverage/cue timing, thumbnail presence and scene provenance; QA warnings require operator review and never auto-approve.
 - [x] Add FFmpeg signal-level scans for sustained black frames and long silence gaps; analysis failures become operator-QA warnings and never auto-approve.
 - [x] Add FFmpeg integrated loudness, true-peak, and clipping-sample metrics to production QA; incomplete measurements remain review warnings.
-- [ ] Add perceptual caption-to-speech synchronization and confirm a channel-specific loudness standard against real rendered samples.
+- [x] Add measured phrase/chunk-level caption-to-speech timing for local eSpeak narration; estimated external/cached timings trigger a QA warning.
+- [ ] Add phoneme/word-level forced alignment and confirm a channel-specific loudness standard against real rendered samples.
 - [ ] Add upload session checkpoint/idempotency support to narrow the uncertain state window further.
 
 ## Track D — FRIDAY Universe mesh
