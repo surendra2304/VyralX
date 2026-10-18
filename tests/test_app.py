@@ -237,7 +237,7 @@ def test_project_captions_are_persisted_and_download_requires_completed_project(
         response = client.get(f"/api/projects/{project_id}/captions")
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("application/x-subrip")
-            "1\n00:00:00,000 --> 00:00:02,000\nReview this caption.\n",
+        assert "Review this caption." in response.text
         project_summary = client.get(f"/api/projects/{project_id}").json()
         assert project_summary["captions_download_path"] == f"/api/projects/{project_id}/captions"
 
