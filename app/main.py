@@ -292,7 +292,7 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
         "memora_memory_id": project.memora_memory_id or None,
         "memora_memory_status": project.memora_memory_status,
         "memora_write_enabled": settings.memora_write_enabled,
-    "memora_read_enabled": settings.memora_read_enabled,
+        "memora_read_enabled": settings.memora_read_enabled,
         "thumbnail_path": f"/api/projects/{project.id}/thumbnail" if project.thumbnail_path and Path(project.thumbnail_path).is_file() else None,
         "render_download_path": f"/api/render/{project.render_job_id}/download" if project.render_job_id else None,
         "error": project.error or None, "attempts": project.attempts,
