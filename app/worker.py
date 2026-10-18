@@ -312,12 +312,26 @@ def process_publish_job(job_id: int) -> None:
             return
         try:
             render_sources = verified_render_sources(render, db)
-            job.description = append_stock_attribution(job.description, render_sources)
+            refreshed_description = append_stock_attribution(job.description, render_sources)
         except ValueError as exc:
             job.status, job.error = "failed", str(exc)[:3000]
             job.completed_at = utcnow()
             job.updated_at = utcnow()
             db.commit()
+            return
+        if refreshed_description != job.description:
+            # Rights/source records may have changed after operator approval.
+            # Never upload metadata that the operator has not seen and approved.
+            job.description = refreshed_description
+            job.status = "pending_approval"
+            job.approved_at = None
+            job.started_at = None
+            job.completed_at = None
+            job.attempts = max(0, job.attempts - 1)
+            job.error = "Stock attribution changed after approval; review the updated description and approve again."
+            job.updated_at = utcnow()
+            db.commit()
+            log.warning("Publish job returned for review because stock attribution changed job_id=%s", job.id)
             return
         _heartbeat("busy", f"publish:{job.id}")
         try:

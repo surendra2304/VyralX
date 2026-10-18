@@ -97,6 +97,81 @@ def test_worker_claims_render_queue_and_increments_attempts():
             db.commit()
 
 
+def test_worker_returns_publish_to_review_if_attribution_changes_after_approval(tmp_path, monkeypatch):
+    import json
+    from uuid import uuid4
+
+    from app import worker
+    from app.database import SessionLocal
+    from app.models import Asset, PublishJob, RenderJob, Source
+    from app.worker import process_publish_job
+
+    suffix = uuid4().hex[:10]
+    render_path = tmp_path / "completed-render.mp4"
+    render_path.write_bytes(b"test render placeholder")
+
+    with SessionLocal() as db:
+        source = Source(
+            title="Worker attribution source",
+            source_url=f"https://www.pexels.com/video/{suffix}/",
+            platform="pexels",
+            creator="Changed Pexels Creator",
+            license_name="Pexels Content License",
+            permission_reference="https://www.pexels.com/license/",
+            rights_verified=True,
+            status="licensed",
+        )
+        db.add(source)
+        db.flush()
+        asset = Asset(
+            source_id=source.id,
+            title="Worker attribution asset",
+            file_path=str(tmp_path / "source.mp4"),
+            rights_verified=True,
+        )
+        db.add(asset)
+        db.flush()
+        render = RenderJob(
+            asset_id=asset.id,
+            preset="shorts",
+            status="completed",
+            output_path=str(render_path),
+            options_json=json.dumps({}),
+        )
+        db.add(render)
+        db.flush()
+        job = PublishJob(
+            asset_id=asset.id,
+            render_job_id=render.id,
+            title="Worker attribution review test",
+            description="Original description without generated credits",
+            status="uploading",
+            approved_at=datetime.now(timezone.utc),
+            attempts=1,
+        )
+        db.add(job)
+        db.commit()
+        source_id, asset_id, render_id, job_id = source.id, asset.id, render.id, job.id
+
+    monkeypatch.setattr(worker, "upload_video", lambda *args, **kwargs: pytest.fail("Upload must wait for attribution review"))
+    try:
+        process_publish_job(job_id)
+        with SessionLocal() as db:
+            saved = db.get(PublishJob, job_id)
+            assert saved is not None and saved.status == "pending_approval"
+            assert saved.approved_at is None
+            assert saved.attempts == 0
+            assert "Changed Pexels Creator" in saved.description
+            assert "review the updated description" in saved.error.lower()
+    finally:
+        with SessionLocal() as db:
+            db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+            db.query(RenderJob).filter(RenderJob.id == render_id).delete()
+            db.query(Asset).filter(Asset.id == asset_id).delete()
+            db.query(Source).filter(Source.id == source_id).delete()
+            db.commit()
+
+
 def test_worker_does_not_claim_unapproved_publish_job():
     with SessionLocal() as db:
         job = PublishJob(

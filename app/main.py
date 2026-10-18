@@ -284,6 +284,7 @@ async function refreshJobs(button){
     const descriptionSummary=document.createElement('summary');descriptionSummary.textContent='Review final description and stock attributions';descriptionDetails.appendChild(descriptionSummary);
     const description=document.createElement('pre');description.className='output';description.textContent=String(job.description||'(No description supplied)');descriptionDetails.appendChild(description);card.appendChild(descriptionDetails);
     const tags=document.createElement('p');tags.className='sub';tags.textContent='Tags: '+(Array.isArray(job.tags)&&job.tags.length?job.tags.join(', '):'(none)');card.appendChild(tags);
+    if(job.error){const warning=document.createElement('p');warning.className='notice';warning.textContent='Review required: '+job.error;card.appendChild(warning)}
     const acknowledgement=document.createElement('label');
     const check=document.createElement('input');check.type='checkbox';check.disabled=true;
     acknowledgement.appendChild(check);acknowledgement.appendChild(document.createTextNode(' I reviewed the final render, title, description and creator credits, privacy, tags, and rights.'));
@@ -292,7 +293,7 @@ async function refreshJobs(button){
     let descriptionOpened=false;
     descriptionDetails.addEventListener('toggle',()=>{if(descriptionDetails.open){descriptionOpened=true;check.disabled=false;btn.disabled=!check.checked}});
     check.addEventListener('change',()=>{btn.disabled=!check.checked||!descriptionOpened});
-    btn.onclick=async()=>{if(!check.checked||!descriptionOpened)return;if(!confirm('Approve publish job '+job.id+' for render '+job.render_job_id+'? Upload only proceeds if YouTube is enabled.'))return;btn.disabled=true;try{show(await api('/api/publish/'+job.id+'/execute',{method:'POST'}));await refreshJobs()}catch(e){show({error:String(e)})}finally{btn.disabled=!check.checked||!descriptionOpened}};
+    btn.onclick=async()=>{if(!check.checked||!descriptionOpened)return;if(!confirm('Approve publish job '+job.id+' for render '+job.render_job_id+'? Upload only proceeds if YouTube is enabled.'))return;btn.disabled=true;try{show(await api('/api/publish/'+job.id+'/execute',{method:'POST'}));await refreshJobs()}catch(e){show({error:String(e)});await refreshJobs()}finally{btn.disabled=!check.checked||!descriptionOpened}};
     card.appendChild(btn);root.appendChild(card);
   }
   return {render_count:result.renders.length,publish_count:result.publishes.length,pending_approval:pending.length};
@@ -741,10 +742,25 @@ def execute_publish(job_id: int, db: Session = Depends(get_db)):
         raise HTTPException(409, "The selected completed render is missing")
     if not asset.rights_verified or not source_is_publishable(source):
         raise HTTPException(403, "Current source record does not contain verified rights evidence")
+    try:
+        current_sources = verified_render_sources(render, db)
+        refreshed_description = append_stock_attribution(job.description, current_sources)
+    except ValueError as exc:
+        raise HTTPException(403, str(exc)) from None
+    if refreshed_description != job.description:
+        job.description = refreshed_description
+        job.error = "Stock attribution changed since request creation; review the refreshed description before approval."
+        job.updated_at = utcnow()
+        db.commit()
+        raise HTTPException(
+            409,
+            "Stock attribution changed since request creation. Review the refreshed description and approve again.",
+        )
     result = db.execute(
         update(PublishJob)
         .where(PublishJob.id == job.id, PublishJob.status == "pending_approval")
-        .values(status="queued", approved_at=utcnow(), updated_at=utcnow())
+        .values(status="queued", approved_at=utcnow(), updated_at=utcnow(),
+                error="", completed_at=None, started_at=None)
     )
     db.commit()
     if result.rowcount != 1:

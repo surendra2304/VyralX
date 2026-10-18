@@ -58,6 +58,78 @@ def test_dashboard_requires_reviewing_final_publish_description():
     assert "I reviewed the final render, title, description and creator credits" in html
 
 
+def test_publish_approval_refreshes_changed_attribution_before_queuing(tmp_path, monkeypatch):
+    from uuid import uuid4
+
+    from app import main as main_module
+    from app.database import SessionLocal
+    from app.models import Asset, RenderJob, Source
+
+    monkeypatch.setattr(main_module.settings, "youtube_upload_enabled", True)
+    render_path = tmp_path / "completed-render.mp4"
+    render_path.write_bytes(b"test render placeholder")
+    suffix = uuid4().hex[:10]
+    with SessionLocal() as db:
+        source = Source(
+            title="Attribution review source",
+            source_url=f"https://www.pexels.com/video/{suffix}/",
+            platform="pexels",
+            creator="Current Pexels Creator",
+            license_name="Pexels Content License",
+            permission_reference="https://www.pexels.com/license/",
+            rights_verified=True,
+            status="licensed",
+        )
+        db.add(source)
+        db.flush()
+        asset = Asset(
+            source_id=source.id,
+            title="Attribution review asset",
+            file_path=str(tmp_path / "source.mp4"),
+            rights_verified=True,
+        )
+        db.add(asset)
+        db.flush()
+        render = RenderJob(
+            asset_id=asset.id,
+            preset="shorts",
+            status="completed",
+            output_path=str(render_path),
+            options_json="{}",
+        )
+        db.add(render)
+        db.flush()
+        job = PublishJob(
+            asset_id=asset.id,
+            render_job_id=render.id,
+            title="Attribution review test",
+            description="Original description without generated credits",
+            tags_json='["education"]',
+            privacy_status="private",
+            status="pending_approval",
+        )
+        db.add(job)
+        db.commit()
+        source_id, asset_id, render_id, job_id = source.id, asset.id, render.id, job.id
+
+    try:
+        response = client.post(f"/api/publish/{job_id}/execute")
+        assert response.status_code == 409
+        assert "review the refreshed description" in response.json()["detail"].lower()
+        with SessionLocal() as db:
+            saved = db.get(PublishJob, job_id)
+            assert saved is not None and saved.status == "pending_approval"
+            assert "Current Pexels Creator" in saved.description
+            assert "Stock attribution changed" in saved.error
+    finally:
+        with SessionLocal() as db:
+            db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+            db.query(RenderJob).filter(RenderJob.id == render_id).delete()
+            db.query(Asset).filter(Asset.id == asset_id).delete()
+            db.query(Source).filter(Source.id == source_id).delete()
+            db.commit()
+
+
 def test_render_presets_are_defined():
     assert PRESETS["shorts"] == (1080, 1920)
     assert PRESETS["long"] == (1920, 1080)
