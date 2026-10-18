@@ -260,10 +260,11 @@ def test_content_generation_uses_actual_inference_task_contract(monkeypatch):
         return FakeResponse()
 
     monkeypatch.setattr(content_service.httpx, "post", fake_post)
-    actual = content_service.generate_content_pack("How solar panels work", target_seconds=45)
+    actual = content_service.generate_content_pack("How solar panels work", target_seconds=45, research_context=[{"report_id": "intelx-123", "summary": "Solar output varies by sunlight.", "key_findings": ["Output depends on irradiance."]}])
 
     assert calls["url"] == "http://inference:8000/v1/task/execute"
     assert calls["kwargs"]["json"]["target_agent"] == "inference"
+    assert calls["kwargs"]["json"]["payload"]["context"]["intelx_research_context"][0]["report_id"] == "intelx-123"
     assert calls["kwargs"]["json"]["source_agent"] == "vyralx"
     assert "X-FRIDAY-API-Key" in calls["kwargs"]["headers"]
     assert "Return one valid JSON object" in calls["kwargs"]["json"]["payload"]["prompt"]
