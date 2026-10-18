@@ -716,6 +716,7 @@ def agent_manifest():
         "role": "video_discovery_production_and_youtube_distribution",
         "health_url": "/health",
         "readiness_url": "/ready",
+        "integration_status_url": "/api/integrations",
         "authentication": {"schemes": ["Bearer", "X-API-Key"]},
         "capabilities": [
             {"id": "universe.task.execute", "method": "POST", "path": "/v1/task/execute"},
