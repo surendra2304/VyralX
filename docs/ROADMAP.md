@@ -18,7 +18,7 @@ This file distinguishes implemented repository capability from external producti
 - [x] Official Pexels API search, file metadata, rights confirmation gate, size-limited import and creator provenance.
 - [x] Original script, hook, scene plan, title, description, tags and thumbnail brief via configured Inference.
 - [x] Optional topic-matched IntelX research query with bounded evidence context passed to Inference; graceful degradation when IntelX is not configured/reachable.
-- [x] Opt-in private Memora completion summaries with idempotency key, receipt/status, and manual retry endpoint; disabled by default pending live credential/namespace validation.
+- [x] Opt-in private Memora context retrieval for continuity plus compact completion summaries with idempotency key, receipt/status, and manual retry endpoint; both are disabled by default pending live credential/namespace validation.
 - [x] Optional voiceover synthesis through a compatible configured TTS endpoint.
 - [ ] Validate actual Inference gateway route/model/response format and TTS model on the deployed FRIDAY mesh.
 - [ ] Add source-specific repeat-use license checks and operator-configurable channel strategy.
