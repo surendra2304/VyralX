@@ -56,6 +56,7 @@ def test_dashboard_requires_reviewing_final_publish_description():
     html = client.get("/").text
     assert "Review final description and stock attributions" in html
     assert "I reviewed the final render, title, description and creator credits" in html
+    assert "Download MP4 for review" in html
 
 
 def test_publish_approval_refreshes_changed_attribution_before_queuing(tmp_path, monkeypatch):

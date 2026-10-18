@@ -274,7 +274,8 @@ async function refreshJobs(button){
   const result={renders:await api('/api/render'),publishes:await api('/api/publish')};
   const root=$('jobTables');root.replaceChildren();
   const renders=document.createElement('pre');renders.className='output';renders.textContent='RENDER JOBS\\n'+JSON.stringify(result.renders,null,2);root.appendChild(renders);
-  const pubs=document.createElement('pre');pubs.className='output';pubs.textContent='PUBLISH JOBS\\n'+JSON.stringify(result.publishes,null,2);root.appendChild(pubs);
+  const publishSummary=result.publishes.map(job=>({id:job.id,asset_id:job.asset_id,render_job_id:job.render_job_id,title:job.title,tags:job.tags,privacy_status:job.privacy_status,scheduled_at:job.scheduled_at,status:job.status,attempts:job.attempts,youtube_video_id:job.youtube_video_id,error:job.error,description_characters:String(job.description||'').length,created_at:job.created_at,approved_at:job.approved_at,completed_at:job.completed_at}));
+  const pubs=document.createElement('pre');pubs.className='output';pubs.textContent='PUBLISH JOBS\\n'+JSON.stringify(publishSummary,null,2);root.appendChild(pubs);
   const pending=result.publishes.filter(j=>j.status==='pending_approval');
   for(const job of pending){
     const card=document.createElement('div');card.className='card';card.style.marginTop='12px';card.style.background='#0a111c';
@@ -285,6 +286,9 @@ async function refreshJobs(button){
     const description=document.createElement('pre');description.className='output';description.textContent=String(job.description||'(No description supplied)');descriptionDetails.appendChild(description);card.appendChild(descriptionDetails);
     const tags=document.createElement('p');tags.className='sub';tags.textContent='Tags: '+(Array.isArray(job.tags)&&job.tags.length?job.tags.join(', '):'(none)');card.appendChild(tags);
     if(job.error){const warning=document.createElement('p');warning.className='notice';warning.textContent='Review required: '+job.error;card.appendChild(warning)}
+    const renderDownload=document.createElement('button');renderDownload.className='secondary';renderDownload.textContent='Download MP4 for review';
+    renderDownload.onclick=async()=>{renderDownload.disabled=true;try{await downloadAuthenticated('/api/render/'+job.render_job_id+'/download','vyralx-publish-review-'+job.id+'.mp4')}catch(e){show({error:String(e)})}finally{renderDownload.disabled=false}};
+    card.appendChild(renderDownload);
     const acknowledgement=document.createElement('label');
     const check=document.createElement('input');check.type='checkbox';check.disabled=true;
     acknowledgement.appendChild(check);acknowledgement.appendChild(document.createTextNode(' I reviewed the final render, title, description and creator credits, privacy, tags, and rights.'));
