@@ -97,6 +97,7 @@ Successful topic-to-video projects retain their generated SRT file and expose it
 - \`PEXELS_API_KEY\`: optional official stock-footage adapter.
 - \`INFERENCE_URL\`, \`INFERENCE_API_KEY\`, \`INFERENCE_MODEL\`: script generation via an OpenAI-compatible chat endpoint.
 - \`INFERENCE_TTS_MODEL\`: separate TTS model; API must support compatible audio output.
+- `CHANNEL_NAME`, `CHANNEL_NICHE`, `CHANNEL_CONTENT_PILLARS`, `CHANNEL_AVOID_TOPICS`, `CHANNEL_BRAND_VOICE`, `CHANNEL_CALL_TO_ACTION`, `CHANNEL_LANGUAGE`: optional editorial context for newly generated content; see [Operations](OPERATIONS.md). These settings do not replace factual review or media-rights checks.
 
 Use \`docker compose config\` to validate the Compose file after setting environment variables. The Compose stack assumes the external \`friday_mesh\` network already exists.
 

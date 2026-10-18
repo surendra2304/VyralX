@@ -35,6 +35,20 @@ The interim ~1 GB AMD VM has limited capacity. The stack caps schema init at 96 
 
 Never paste tokens into GitHub issues/PRs or chat. The Docker build context excludes .env and private secrets via .dockerignore. Rotate credentials if leaked.
 
+## Operator-configurable channel strategy
+
+VyralX can apply channel editorial settings to newly generated content without changing the API request. Configure these optional variables in Dokploy:
+
+- `CHANNEL_NAME`: channel/brand name supplied as context.
+- `CHANNEL_NICHE`: the channel's focus and positioning.
+- `CHANNEL_CONTENT_PILLARS`: comma-separated recurring topics (up to 10 unique values).
+- `CHANNEL_AVOID_TOPICS`: comma-separated subjects/approaches to avoid (up to 10 unique values).
+- `CHANNEL_BRAND_VOICE`: preferred writing style and personality.
+- `CHANNEL_CALL_TO_ACTION`: preferred call to action.
+- `CHANNEL_LANGUAGE`: language for user-facing generated content; defaults to English.
+
+Keep settings concise. Text is normalized and bounded before entering model context; list entries are deduplicated and capped. The selected strategy is saved with each generated content pack for auditability. Strategy settings influence editorial generation only: they do not validate facts, confer footage/music rights, bypass editor review or enable publishing. Request-level audience and tone still apply. Existing content packs are not rewritten when settings change.
+
 ## API workflows
 
 ### FRIDAY asynchronous tasks
