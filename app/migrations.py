@@ -28,6 +28,8 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
     },
     "video_projects": {
         "thumbnail_path": "VARCHAR(2048) NOT NULL DEFAULT ''",
+        "memora_memory_id": "VARCHAR(128) NOT NULL DEFAULT ''",
+        "memora_memory_status": "VARCHAR(32) NOT NULL DEFAULT 'disabled'",
         "auto_discover_trend": "BOOLEAN NOT NULL DEFAULT FALSE",
         "trend_query": "VARCHAR(200) NOT NULL DEFAULT ''",
         "trend_max_results": "INTEGER NOT NULL DEFAULT 10",
