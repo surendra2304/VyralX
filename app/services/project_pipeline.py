@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 import logging
 import re
 from pathlib import Path
@@ -17,7 +18,7 @@ from app.services.trends import rank_candidates
 from app.services.montage import render_montage
 from app.services.pexels import import_video_file, search_videos
 from app.services.probe import probe_media
-from app.services.peers import configured_peers, get_peer_json
+from app.services.peers import configured_peers, get_peer_json, post_peer_json
 from app.services.renderer import PRESETS
 from app.services.thumbnail import extract_thumbnail
 from app.services.voiceover import synthesize_voiceover
@@ -220,6 +221,111 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
         if not Path(asset.file_path).is_file():
             raise FileNotFoundError("A project scene file disappeared from media storage")
     return assets[:needed]
+
+
+def sync_project_memory(project_id: int, db: Session) -> dict:
+    """Optionally store a private, idempotent completion summary in Memora."""
+    project = db.get(VideoProject, project_id)
+    if project is None:
+        raise ValueError("Video project not found")
+    if project.status != "completed":
+        raise ValueError("Only completed projects can be written to Memora")
+    if project.memora_memory_status == "stored" and project.memora_memory_id:
+        return {"status": "stored", "memory_id": project.memora_memory_id, "idempotent_replay": True}
+    settings = get_settings()
+    if not settings.memora_write_enabled:
+        project.memora_memory_status = "disabled"
+        db.commit()
+        return {"status": "disabled", "memory_id": None}
+    if "memora" not in configured_peers():
+        project.memora_memory_status = "not_configured"
+        db.commit()
+        return {"status": "not_configured", "memory_id": None}
+    pack = {}
+    if project.content_pack_id:
+        record = db.get(ContentPack, project.content_pack_id)
+        if record is not None:
+            try:
+                pack = json.loads(record.pack_json or "{}")
+            except ValueError:
+                pack = {}
+    try:
+        asset_ids = [int(value) for value in json.loads(project.asset_ids_json or "[]")][:4]
+    except (ValueError, TypeError):
+        asset_ids = []
+    source_urls = []
+    for asset_id in asset_ids:
+        asset = db.get(Asset, asset_id)
+        source = db.get(Source, asset.source_id) if asset and asset.source_id else None
+        if source and source.source_url:
+            source_urls.append(str(source.source_url)[:2048])
+    title_options = pack.get("title_options", []) if isinstance(pack.get("title_options"), list) else []
+    research_items = pack.get("intelx_research_context", [])
+    if not isinstance(research_items, list):
+        research_items = []
+    summary = {
+        "event": "video_project_completed",
+        "project_key": project.project_key,
+        "project_id": project.id,
+        "topic": project.topic,
+        "video_format": project.video_format,
+        "target_seconds": project.target_seconds,
+        "content_pack_id": project.content_pack_id,
+        "render_job_id": project.render_job_id,
+        "asset_ids": asset_ids,
+        "title_options": [str(value)[:100] for value in title_options[:5]],
+        "research_status": str(pack.get("research_status") or "not_available"),
+        "research_report_ids": [
+            str(item.get("report_id"))[:120]
+            for item in research_items
+            if isinstance(item, dict) and item.get("report_id")
+        ][:5],
+        "trend_source_url": project.trend_source_url or None,
+        "completed_at": project.completed_at.isoformat() if project.completed_at else None,
+    }
+    payload = {
+        "content_text": "VyralX completed a video project.\n" + json.dumps(summary, ensure_ascii=False, sort_keys=True),
+        "agent_id": "vyralx",
+        "user_id": "default_user",
+        "workspace_id": "default_workspace",
+        "task_id": f"vyralx-project-{project.id}",
+        "idempotency_key": "vyralx-project-" + sha256(project.project_key.encode("utf-8")).hexdigest()[:32],
+        "target_namespace_path": "memora://vyralx/private",
+        "memory_type": "episodic",
+        "source": "vyralx",
+        "source_type": "project_completion",
+        "trust_level": "unverified",
+        "evidence_refs": list(dict.fromkeys(
+            source_urls
+            + ([project.trend_source_url] if project.trend_source_url else [])
+            + ["https://www.pexels.com/license/"]
+        ))[:20],
+        "provenance": {
+            "project_key": project.project_key,
+            "project_id": project.id,
+            "render_job_id": project.render_job_id,
+            "research_status": summary["research_status"],
+        },
+        "confidence": 0.65,
+        "importance": 0.35,
+        "purpose": "private project completion record for VyralX continuity",
+    }
+    project.memora_memory_status = "pending"
+    db.commit()
+    try:
+        result = post_peer_json("memora", "/api/v1/memories", payload, timeout_seconds=8.0)
+        memory_id = str(result.get("id") or result.get("memory_id") or "").strip() if isinstance(result, dict) else ""
+        if not memory_id:
+            raise RuntimeError("Memora response did not include a memory ID")
+        project.memora_memory_id = memory_id[:128]
+        project.memora_memory_status = "stored"
+        db.commit()
+        return {"status": "stored", "memory_id": project.memora_memory_id, "idempotent_replay": False}
+    except Exception as exc:
+        project.memora_memory_status = "failed"
+        db.commit()
+        log.warning("Memora project memory write failed project_id=%s error_type=%s", project.id, type(exc).__name__)
+        return {"status": "failed", "memory_id": None, "error_type": type(exc).__name__}
 
 
 def execute_project_pipeline(project_id: int, db: Session) -> None:
