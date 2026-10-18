@@ -50,6 +50,17 @@ def test_project_pipeline_persists_render_captions_provenance_and_qa(tmp_path, m
 
     monkeypatch.setattr(project_pipeline, "render_montage", fake_render)
     monkeypatch.setattr(project_pipeline, "probe_media", fake_probe)
+    monkeypatch.setattr(
+        project_pipeline,
+        "analyze_media_signals",
+        lambda *_args, **_kwargs: {
+            "status": "analyzed",
+            "black_intervals": [],
+            "silence_intervals": [],
+            "audio_analyzed": False,
+            "thresholds": {},
+        },
+    )
     monkeypatch.setattr(project_pipeline, "extract_thumbnail", fake_thumbnail)
     monkeypatch.setattr(project_pipeline, "sync_project_memory", lambda _project_id, _db: {"status": "disabled"})
 

@@ -24,6 +24,7 @@ from app.services.renderer import PRESETS
 from app.services.thumbnail import extract_thumbnail
 from app.services.rights import is_project_scene_publishable
 from app.services.project_quality import build_project_quality_report
+from app.services.media_quality import analyze_media_signals
 from app.services.intelx import normalize_intelx_reports
 from app.services.voiceover import synthesize_voiceover
 
@@ -621,6 +622,19 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
         extract_thumbnail(rendered, thumbnail, min(1.0, max(0.0, project.target_seconds / 4)))
         if not thumbnail.is_file() or thumbnail.stat().st_size <= 0:
             raise RuntimeError("Thumbnail generation did not produce a usable image")
+        signal_analysis = analyze_media_signals(
+            rendered,
+            ffmpeg_bin=str(getattr(settings, "ffmpeg_bin", "ffmpeg")),
+            actual_duration=actual_duration,
+            audio_stream_count=int(metadata.get("audio_stream_count") or 0),
+            timeout_seconds=max(
+                30,
+                min(
+                    int(getattr(settings, "max_render_seconds", 14400)),
+                    int(actual_duration * 2 + 15),
+                ),
+            ),
+        )
         scene_rights_checks = []
         for asset in assets:
             source = db.get(Source, asset.source_id) if asset.source_id else None
@@ -643,6 +657,7 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             caption_text=caption_text,
             thumbnail_path=thumbnail,
             scene_rights_checks=scene_rights_checks,
+            signal_analysis=signal_analysis,
         )
         content_record.pack_json = json.dumps(pack, ensure_ascii=False)
         render_job.status = "completed"

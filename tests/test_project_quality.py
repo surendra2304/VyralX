@@ -26,6 +26,12 @@ def test_complete_project_report_is_ready_for_operator_review(tmp_path):
         caption_text="Hello world",
         thumbnail_path=thumbnail,
         scene_rights_checks=[True, True, True],
+        signal_analysis={
+            "status": "analyzed",
+            "black_intervals": [],
+            "silence_intervals": [],
+            "audio_analyzed": True,
+        },
     )
 
     assert report["status"] == "ready_for_operator_review"
@@ -34,6 +40,7 @@ def test_complete_project_report_is_ready_for_operator_review(tmp_path):
     assert {item["id"] for item in report["checks"]} >= {
         "duration", "dimensions", "audio_track", "narration_file", "voiceover_duration",
         "caption_coverage", "caption_timing", "thumbnail", "scene_provenance",
+        "black_frames", "silence_gaps",
     }
 
 
@@ -70,3 +77,37 @@ def test_quality_report_surfaces_caption_and_source_warnings(tmp_path):
     assert checks["caption_coverage"] == "warning"
     assert checks["caption_timing"] == "warning"
     assert checks["scene_provenance"] == "warning"
+
+
+
+def test_signal_level_qa_warns_on_black_frames_and_long_silence():
+    report = build_project_quality_report(
+        target_seconds=60,
+        actual_duration=60,
+        expected_width=1920,
+        expected_height=1080,
+        actual_width=1920,
+        actual_height=1080,
+        audio_stream_count=1,
+        voiceover_requested=False,
+        voiceover_path=None,
+        voiceover_duration=None,
+        subtitle_path=None,
+        subtitle_segments=[],
+        caption_text="",
+        thumbnail_path=None,
+        scene_rights_checks=[True],
+        signal_analysis={
+            "status": "analyzed",
+            "black_intervals": [{"start_seconds": 10, "end_seconds": 11, "duration_seconds": 1}],
+            "silence_intervals": [{"start_seconds": 20, "end_seconds": 30, "duration_seconds": 10}],
+            "audio_analyzed": True,
+        },
+    )
+
+    checks = {item["id"]: item for item in report["checks"]}
+    assert checks["black_frames"]["status"] == "warning"
+    assert checks["silence_gaps"]["status"] == "warning"
+    assert checks["black_frames"]["actual"]["count"] == 1
+    assert checks["silence_gaps"]["actual"]["count"] == 1
+    assert report["automatic_publish_approval"] is False
