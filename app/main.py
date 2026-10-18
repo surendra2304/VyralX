@@ -250,6 +250,8 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
                 pack = {}
             content_preview = {
                 "hook": str(pack.get("hook") or "")[:1000],
+                "script": str(pack.get("script") or "")[:12000],
+                "scene_plan": pack.get("scene_plan", [])[:8] if isinstance(pack.get("scene_plan"), list) else [],
                 "title_options": [str(value)[:100] for value in pack.get("title_options", [])[:8]],
                 "description": str(pack.get("description") or "")[:4500],
                 "tags": [str(value)[:100] for value in pack.get("tags", [])[:30]],
