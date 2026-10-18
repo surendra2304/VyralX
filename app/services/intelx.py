@@ -24,7 +24,7 @@ def normalize_intelx_reports(data: Any, topic: str) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         report_id = str(item.get("report_id") or item.get("id") or item.get("document_id") or "").strip()[:120]
-        title = str(item.get("title") or item.get("headline") or item.get("name") or "").strip()[:300]
+        title = str(item.get("title") or item.get("headline") or item.get("name") or item.get("asset_or_sector") or "").strip()[:300]
         summary = str(item.get("summary") or item.get("abstract") or item.get("description") or "").strip()[:1200]
         findings = item.get("key_findings", [])
         findings = [findings] if isinstance(findings, str) else findings

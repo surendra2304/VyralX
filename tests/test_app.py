@@ -230,14 +230,14 @@ def test_project_captions_are_persisted_and_download_requires_completed_project(
         caption_file = settings.data_dir / "subtitles" / f"project-{project_id}-attempt-1.srt"
         caption_file.parent.mkdir(parents=True, exist_ok=True)
         caption_file.write_text(
-            "1\\n00:00:00,000 --> 00:00:02,000\\nReview this caption.\\n",
+            "1\n00:00:00,000 --> 00:00:02,000\nReview this caption.\n",
             encoding="utf-8",
         )
 
         response = client.get(f"/api/projects/{project_id}/captions")
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("application/x-subrip")
-        assert "Review this caption." in response.text
+            "1\n00:00:00,000 --> 00:00:02,000\nReview this caption.\n",
         project_summary = client.get(f"/api/projects/{project_id}").json()
         assert project_summary["captions_download_path"] == f"/api/projects/{project_id}/captions"
 

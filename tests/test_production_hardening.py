@@ -82,6 +82,25 @@ def test_intelx_normalization_requires_traceability_and_filters_irrelevant_repor
     assert reports[0]["key_findings"] == ["Output changes with sunlight."]
 
 
+def test_intelx_normalization_accepts_live_sector_report_shape():
+    reports = normalize_intelx_reports([
+        {
+            "report_id": "ix-solar-01",
+            "asset_or_sector": "Solar power",
+            "published_at": "2026-10-10T00:00:00Z",
+            "summary": "Solar panel efficiency increases with direct irradiance.",
+            "key_findings": ["Solar panel output varies with sunlight."],
+            "tags": ["renewable energy"],
+            "sentiment_score": 0.2,
+        }
+    ], "solar power generation")
+    assert len(reports) == 1
+    assert reports[0]["report_id"] == "ix-solar-01"
+    assert reports[0]["title"] == "Solar power"
+    assert reports[0]["published_at"] == "2026-10-10T00:00:00Z"
+    assert reports[0]["key_findings"] == ["Solar panel output varies with sunlight."]
+
+
 def test_inference_receives_only_topic_matched_intelx_context(monkeypatch):
     from app.services import content as content_service
 
