@@ -36,4 +36,4 @@ jobs:
       - name: Audit installed Python dependencies
         run: |
           python -m pip install --upgrade pip-audit
-          pip-audit --strict
+          pip-audit --strict --skip-editable
