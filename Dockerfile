@@ -5,7 +5,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-n
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY app ./app
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . \
+    && python -m pip uninstall -y setuptools wheel
 RUN mkdir -p /app/data /app/media /app/renders /app/secrets && chown -R appuser:appuser /app
 USER appuser
 EXPOSE 8000
