@@ -308,7 +308,7 @@ def get_video_project(project_id: int, db: Session = Depends(get_db)):
     project = db.get(VideoProject, project_id)
     if project is None:
         raise HTTPException(404, "Video project not found")
-    return _project_summary(project)
+    return _project_summary(project, db)
 
 
 @app.post("/api/projects/{project_id}/retry", dependencies=[Depends(require_api_key)])
