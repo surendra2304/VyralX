@@ -1046,7 +1046,7 @@ def test_youtube_upload_resumes_from_server_confirmed_offset(tmp_path, monkeypat
         def post(self, *args, **kwargs):
             return FakeResponse(200, {"Location": session_uri})
 
-        def put(self, url, *, data, headers, timeout):
+        def put(self, url, *, data, headers, timeout, allow_redirects=False):
             content_range = headers["Content-Range"]
             if content_range == "bytes 0-3/10":
                 return FakeResponse(308, {"Range": "bytes=0-3"})
@@ -1069,7 +1069,7 @@ def test_youtube_upload_resumes_from_server_confirmed_offset(tmp_path, monkeypat
         def post(self, *args, **kwargs):
             raise AssertionError("A valid saved session must be resumed, not re-created")
 
-        def put(self, url, *, data, headers, timeout):
+        def put(self, url, *, data, headers, timeout, allow_redirects=False):
             content_range = headers["Content-Range"]
             if content_range == "bytes */10":
                 return FakeResponse(308, {"Range": "bytes=0-3"})

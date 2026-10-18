@@ -366,6 +366,7 @@ def _probe_upload_session(session, session_uri: str, file_size: int) -> tuple[in
                 "Content-Type": "video/*",
             },
             timeout=_UPLOAD_HTTP_TIMEOUT,
+            allow_redirects=False,
         )
     except (RequestException, OSError, TimeoutError):
         raise UploadOutcomeUnknown(
@@ -444,6 +445,7 @@ def _start_upload_session(
                 "X-Upload-Content-Type": "video/*",
             },
             timeout=_UPLOAD_HTTP_TIMEOUT,
+            allow_redirects=False,
         )
     except (RequestException, OSError, TimeoutError) as exc:
         # No video bytes have been sent yet, so the worker may safely retry after review.
@@ -622,6 +624,7 @@ def upload_video(
                             "Content-Range": f"bytes {first}-{last}/{file_size}",
                         },
                         timeout=_UPLOAD_HTTP_TIMEOUT,
+                        allow_redirects=False,
                     )
                 except (RequestException, OSError, TimeoutError):
                     # The server may have received all, some or none of this chunk.
