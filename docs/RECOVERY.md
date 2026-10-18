@@ -25,5 +25,5 @@ This runbook is the durable handoff point when a ChatGPT session, browser, netwo
 
 - Never commit credentials, OAuth tokens, .env files, private user data or cloud secrets.
 - Never assume that a green GitHub workflow proves Oracle Cloud, Dokploy, YouTube OAuth or FRIDAY peer services are healthy; those require live checks.
-- Do not blindly retry uncertain external side effects, especially YouTube uploads. Follow the upload recovery instructions in Operations.
+- Do not blindly retry uncertain external side effects, especially YouTube uploads. Follow the upload recovery instructions in Operations. A publish job in the internal `resumable` state keeps its attempt count and provider session; the worker waits out its 30-second cooldown, then probes YouTube for the authoritative byte offset before sending more data. Jobs in `uncertain` still require manual provider reconciliation.
 - A scheduled workflow is an independent monitor, not an always-running AI coding agent. It cannot restart a stopped ChatGPT response or continue unfinished reasoning. A separate persistent worker would need an explicit task queue, durable checkpoints, bounded retries and safe authorization.

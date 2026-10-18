@@ -52,9 +52,11 @@ Discovery results are leads only. A task can create a pending publish request, b
 | POST | \`/api/jobs/render/{job_id}/retry\` | Requeue a failed render within configured retry limits |
 | POST | \`/api/jobs/publish/{job_id}/retry\` | Return a failed upload to pending approval for review |
 | POST | \`/api/jobs/publish/{job_id}/resolve\` | Reconcile an upload interrupted in an uncertain state |
-| Worker recovery | internal `resumable` status | A valid saved YouTube session is probed and resumed from the provider-confirmed byte offset; invalid or mismatched state stays `uncertain` |
+
 | POST | \`/api/analytics/refresh\` | Save public view/like/comment snapshots for VyralX videos |
 | GET | \`/api/analytics\` | List stored video performance snapshots |
+
+When a worker restarts during a resumable YouTube upload, a matching private session checkpoint restores an internal `resumable` state. The worker probes the saved YouTube session and continues from the provider-confirmed offset. Invalid or mismatched receipts remain `uncertain`; they are not automatically re-uploaded.
 
 ## End-to-end projects
 

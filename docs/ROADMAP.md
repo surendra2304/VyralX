@@ -34,7 +34,7 @@ This file distinguishes implemented repository capability from external producti
 - [x] Explicit publish request and separate approval before upload.
 - [x] Revalidate every montage asset's license evidence at request creation and immediately before upload; append Pexels creator/source credits.
 - [x] Official YouTube OAuth token loading and resumable upload path.
-- [x] Restart recovery that marks interrupted external uploads uncertain instead of blindly retrying.
+- [x] Restart recovery finalizes provider-confirmed successes, resumes valid YouTube sessions without incrementing the attempt, and leaves missing/mismatched sessions `uncertain` rather than blindly retrying.
 - [x] Public views/likes/comments snapshot history.
 - [ ] Verify OAuth scope/client, channel permission, quota, private test upload and scheduled publish in the real account.
 - [x] Add deterministic project QA for output duration/dimensions, requested audio, narration file/duration, caption file/word coverage/cue timing, thumbnail presence and scene provenance; QA warnings require operator review and never auto-approve.

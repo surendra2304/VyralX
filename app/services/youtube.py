@@ -731,7 +731,7 @@ def upload_video(
                     offset = 0
                     stalls = 0
                     continue
-                if 500 <= status <= 599:
+                if 300 <= status < 400 or 500 <= status <= 599:
                     try:
                         remote_offset, completed_id = _probe_upload_session(
                             session, session_uri, file_size
@@ -775,7 +775,7 @@ def upload_video(
                         stalls += 1
                         if stalls > _UPLOAD_STALL_LIMIT:
                             raise UploadOutcomeUnknown(
-                                "YouTube server errors persisted without upload progress; reconcile before retrying"
+                                "YouTube returned unexpected redirects/server errors without upload progress; reconcile before retrying"
                             )
                     else:
                         offset, stalls = remote_offset, 0

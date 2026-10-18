@@ -1184,6 +1184,11 @@ def test_worker_recovers_interrupted_upload_to_resumable_without_bumping_attempt
             assert recovered.status == "resumable"
             assert recovered.attempts == 4
             assert counts["uploads_resumable"] >= 1
+            # Recent pauses observe a cooldown rather than retrying the same broken
+            # connection every worker poll; the same attempt resumes after backoff.
+            assert claim_publish_job(db) is None
+            recovered.updated_at = datetime.now(timezone.utc) - timedelta(minutes=2)
+            db.commit()
             assert claim_publish_job(db) == job_id
             db.refresh(recovered)
             assert recovered.status == "uploading"
@@ -1196,4 +1201,110 @@ def test_worker_recovers_interrupted_upload_to_resumable_without_bumping_attempt
                 db.query(PublishJob).filter(PublishJob.id == job_id).delete()
                 if render_id is not None:
                     db.query(RenderJob).filter(RenderJob.id == render_id).delete()
+                db.commit()
+
+
+def test_worker_keeps_upload_resumable_after_recoverable_transport_failure(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.models import Asset, PublishJob, RenderJob, Source
+    from app.services import youtube as youtube_service
+    from app.worker import process_publish_job
+
+    video = tmp_path / "reviewed-render.mp4"
+    video.write_bytes(b"resumable-upload-fixture")
+    settings = SimpleNamespace(youtube_token_file=tmp_path / "secrets" / "youtube-token.json")
+    monkeypatch.setattr(youtube_service, "get_settings", lambda: settings)
+
+    job_id = render_id = asset_id = source_id = None
+    try:
+        with SessionLocal() as db:
+            source = Source(
+                title="Resumable fixture source",
+                source_url="https://media.example/resumable-test",
+                platform="manual",
+                creator="Test owner",
+                license_name="Written permission",
+                permission_reference="permission-reference-for-test",
+                rights_verified=True,
+            )
+            db.add(source)
+            db.flush()
+            asset = Asset(
+                source_id=source.id,
+                title="Resumable fixture asset",
+                file_path=str(video),
+                rights_verified=True,
+                duration_seconds=10,
+                width=1080,
+                height=1920,
+            )
+            db.add(asset)
+            db.flush()
+            render = RenderJob(
+                asset_id=asset.id,
+                preset="shorts",
+                status="completed",
+                output_path=str(video),
+                options_json="{}",
+            )
+            db.add(render)
+            db.flush()
+            job = PublishJob(
+                asset_id=asset.id,
+                render_job_id=render.id,
+                title="Resumable transport recovery",
+                description="",
+                tags_json="[]",
+                privacy_status="private",
+                status="uploading",
+                attempts=4,
+                approved_at=datetime.now(timezone.utc),
+            )
+            db.add(job)
+            db.commit()
+            job_id, render_id, asset_id, source_id = job.id, render.id, asset.id, source.id
+
+        def fake_upload_video(path, **kwargs):
+            assert kwargs["publish_job_id"] == job_id
+            assert kwargs["upload_attempt"] == 4
+            assert youtube_service.write_upload_session_checkpoint(
+                job_id,
+                4,
+                session_uri=(
+                    "https://www.googleapis.com/upload/youtube/v3/videos"
+                    "?uploadType=resumable&upload_id=worker-catch"
+                ),
+                file_path=path,
+                file_size=video.stat().st_size,
+                file_sha256=youtube_service._file_sha256(video),
+                metadata_sha256="d" * 64,
+                confirmed_offset=0,
+            )
+            raise youtube_service.UploadOutcomeUnknown(
+                "temporary connection error after session creation; retry session probe"
+            )
+
+        monkeypatch.setattr("app.worker.upload_video", fake_upload_video)
+        process_publish_job(job_id)
+
+        with SessionLocal() as db:
+            saved = db.get(PublishJob, job_id)
+            assert saved is not None
+            assert saved.status == "resumable"
+            assert saved.attempts == 4
+            assert "resume the same attempt" in saved.error
+            assert youtube_service.load_upload_session_checkpoint(job_id, 4) is not None
+    finally:
+        if job_id is not None:
+            youtube_service.clear_upload_session_checkpoint(job_id)
+            youtube_service.clear_upload_success_checkpoint(job_id)
+            with SessionLocal() as db:
+                db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+                if render_id is not None:
+                    db.query(RenderJob).filter(RenderJob.id == render_id).delete()
+                if asset_id is not None:
+                    db.query(Asset).filter(Asset.id == asset_id).delete()
+                if source_id is not None:
+                    db.query(Source).filter(Source.id == source_id).delete()
                 db.commit()

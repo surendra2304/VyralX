@@ -10,10 +10,10 @@ import logging
 import os
 import signal
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import case, select, update
+from sqlalchemy import and_, case, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -46,6 +46,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 log = logging.getLogger("vyralx.worker")
+UPLOAD_RESUME_BACKOFF_SECONDS = 30
 _stopping = False
 
 
@@ -95,9 +96,22 @@ def claim_render_job(db: Session) -> int | None:
 
 
 def claim_publish_job(db: Session) -> int | None:
+    now = utcnow()
+    resume_before = now - timedelta(seconds=UPLOAD_RESUME_BACKOFF_SECONDS)
     candidate = db.scalar(
         select(PublishJob.id)
-        .where(PublishJob.status.in_(("queued", "resumable")))
+        .where(
+            or_(
+                PublishJob.status == "queued",
+                and_(
+                    PublishJob.status == "resumable",
+                    or_(
+                        PublishJob.updated_at.is_(None),
+                        PublishJob.updated_at <= resume_before,
+                    ),
+                ),
+            )
+        )
         .order_by(
             case(
                 (PublishJob.status == "resumable", 0),
@@ -110,6 +124,9 @@ def claim_publish_job(db: Session) -> int | None:
     )
     if candidate is None:
         return None
+    candidate_status = db.scalar(
+        select(PublishJob.status).where(PublishJob.id == candidate)
+    )
     now = utcnow()
     result = db.execute(
         update(PublishJob)
@@ -124,12 +141,21 @@ def claim_publish_job(db: Session) -> int | None:
                 else_=PublishJob.attempts,
             ),
             started_at=now,
+            completed_at=None,
             updated_at=now,
             error="",
         )
     )
     db.commit()
-    return int(candidate) if result.rowcount == 1 else None
+    if result.rowcount != 1:
+        return None
+    claimed_id = int(candidate)
+    if candidate_status == "queued":
+        # A queued job is a new attempt. Stale receipts from a previous failed or
+        # manually resolved attempt must not block session initialization.
+        clear_upload_success_checkpoint(claimed_id)
+        clear_upload_session_checkpoint(claimed_id)
+    return claimed_id
 
 
 
@@ -399,9 +425,34 @@ def process_publish_job(job_id: int) -> None:
             job.error = ""
             log.info("YouTube upload completed job_id=%s video_id=%s", job.id, video_id)
         except UploadOutcomeUnknown as exc:
-            job.status = "uncertain"
-            job.error = str(exc)[:3000]
-            log.error("YouTube upload outcome uncertain job_id=%s; manual reconciliation required", job.id)
+            session_state = load_upload_session_checkpoint(job.id, job.attempts)
+            render_path = Path(render.output_path).resolve()
+            can_resume = bool(
+                session_state
+                and render_path.is_file()
+                and str(render_path) == session_state["file_path"]
+                and render_path.stat().st_size == session_state["file_size"]
+            )
+            if can_resume:
+                # upload_video probes the provider session and rechecks the content
+                # hash before sending another chunk; this is not a blind retry.
+                job.status = "resumable"
+                job.error = (
+                    "Upload paused with a saved YouTube session. The worker will verify provider "
+                    "progress and resume the same attempt; if state no longer matches, it will "
+                    "require manual reconciliation."
+                )
+                log.warning(
+                    "YouTube upload paused with resumable session job_id=%s: %s",
+                    job.id, str(exc)[:500],
+                )
+            else:
+                job.status = "uncertain"
+                job.error = str(exc)[:3000]
+                log.error(
+                    "YouTube upload outcome uncertain job_id=%s; manual reconciliation required",
+                    job.id,
+                )
         except Exception as exc:
             job.status = "failed"
             job.error = f"{type(exc).__name__}: {exc}"[:3000]
