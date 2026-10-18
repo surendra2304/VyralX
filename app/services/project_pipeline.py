@@ -290,6 +290,8 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             raise RuntimeError(f"Rendered duration {actual_duration:.2f}s differs from target {project.target_seconds}s")
         if int(metadata.get("width") or 0) != expected_width or int(metadata.get("height") or 0) != expected_height:
             raise RuntimeError("Rendered dimensions do not match the selected video format")
+        if project.use_voiceover and int(metadata.get("audio_stream_count") or 0) < 1:
+            raise RuntimeError("Voiceover was requested but the rendered video has no audio stream")
         thumbnail = settings.render_dir / f"{project.project_key}-thumbnail.jpg"
         extract_thumbnail(rendered, thumbnail, min(1.0, max(0.0, project.target_seconds / 4)))
         if not thumbnail.is_file() or thumbnail.stat().st_size <= 0:
