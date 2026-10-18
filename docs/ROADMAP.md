@@ -63,7 +63,7 @@ This file distinguishes implemented repository capability from external producti
 - [x] Example environment file and API/architecture/operations documentation.
 - [x] Run and fix all CI checks on the latest branch head (Ruff, pytest, Docker image build, and Compose validation passed for the verified head; rerun after subsequent changes).
 - [x] Add a strict resolved-Python dependency vulnerability audit to CI; the first green run is required before merge.
-- [x] Add a full-history repository secret scan and HIGH/CRITICAL fixed-vulnerability container scan to CI; retain green scan evidence for the release candidate.
+- [ ] Add a full-history repository secret scan and HIGH/CRITICAL fixed-vulnerability container scan to CI; keep the gate green on the final release candidate.
 - [ ] Pin the container base image by immutable digest and lock resolved application dependencies before immutable production release; investigate and rotate any historical credentials surfaced by secret scanning.
 - [ ] Validate the actual external Docker network and Dokploy stack before deploy.
 - [ ] Test persistence across recreation, encrypted backup and a successful restore.
