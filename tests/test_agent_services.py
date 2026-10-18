@@ -1209,9 +1209,10 @@ def test_worker_recovers_interrupted_upload_to_resumable_without_bumping_attempt
                 db.commit()
 
 
-def test_worker_keeps_upload_resumable_after_recoverable_transport_failure(tmp_path, monkeypatch):
+def test_worker_checks_sentinel_policy_and_keeps_upload_resumable_after_transport_failure(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
+    from app import worker
     from app.models import Asset, PublishJob, RenderJob, Source
     from app.services import youtube as youtube_service
     from app.worker import process_publish_job
@@ -1220,6 +1221,15 @@ def test_worker_keeps_upload_resumable_after_recoverable_transport_failure(tmp_p
     video.write_bytes(b"resumable-upload-fixture")
     settings = SimpleNamespace(youtube_token_file=tmp_path / "secrets" / "youtube-token.json")
     monkeypatch.setattr(youtube_service, "get_settings", lambda: settings)
+    monkeypatch.setattr(worker.settings, "sentinel_required_for_publish", True)
+    monkeypatch.setattr(worker.settings, "sentinel_policy_path", "/api/v1/vyralx/publish-policy")
+    policy_requests = []
+
+    def allow_policy(peer_name, path, payload):
+        policy_requests.append((peer_name, path, payload))
+        return {"allowed": True, "decision": "allow"}
+
+    monkeypatch.setattr(worker, "post_peer_json", allow_policy)
 
     job_id = render_id = asset_id = source_id = None
     try:
@@ -1292,6 +1302,20 @@ def test_worker_keeps_upload_resumable_after_recoverable_transport_failure(tmp_p
 
         monkeypatch.setattr("app.worker.upload_video", fake_upload_video)
         process_publish_job(job_id)
+
+        assert len(policy_requests) == 1
+        peer_name, policy_path, payload = policy_requests[0]
+        assert peer_name == "sentinel"
+        assert policy_path == "/api/v1/vyralx/publish-policy"
+        assert payload == {
+            "job_id": job_id,
+            "asset_id": asset_id,
+            "title": "Resumable transport recovery",
+            "privacy_status": "private",
+            "scheduled_at": "",
+            "operator_review_acknowledged": True,
+            "rights_verified": True,
+        }
 
         with SessionLocal() as db:
             saved = db.get(PublishJob, job_id)
