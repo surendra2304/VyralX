@@ -43,7 +43,6 @@ def source_is_publishable(source: Source | None) -> bool:
     return True
 
 
-
 def is_project_scene_publishable(asset: Asset | None, source: Source | None) -> bool:
     """Validate a project's Pexels provenance before using it in a render.
 
@@ -57,6 +56,7 @@ def is_project_scene_publishable(asset: Asset | None, source: Source | None) -> 
         and source_is_publishable(source)
     )
 
+
 def verified_render_sources(render: RenderJob, db: Session) -> list[tuple[Asset, Source]]:
     """Resolve every source clip encoded in a render job, not only the primary asset."""
     try:
@@ -68,16 +68,23 @@ def verified_render_sources(render: RenderJob, db: Session) -> list[tuple[Asset,
         raise ValueError("Render montage_asset_ids must be an array")
     asset_ids: list[int] = []
     for raw in raw_ids:
+        # bool is an int subclass, but it is never a valid persisted asset ID.
+        if isinstance(raw, bool) or (isinstance(raw, float) and not raw.is_integer()):
+            raise ValueError("Render references an invalid asset ID")
         try:
             asset_id = int(raw)
         except (TypeError, ValueError):
             raise ValueError("Render references an invalid asset ID") from None
-        if asset_id > 0 and asset_id not in asset_ids:
+        if asset_id <= 0:
+            raise ValueError("Render references an invalid asset ID")
+        if asset_id not in asset_ids:
             asset_ids.append(asset_id)
+        if len(asset_ids) > 8:
+            raise ValueError("Render must reference between 1 and 8 source assets")
     if render.asset_id not in asset_ids:
         asset_ids.insert(0, render.asset_id)
-    if not asset_ids or len(asset_ids) > 4:
-        raise ValueError("Render must reference between 1 and 4 source assets")
+    if not asset_ids or len(asset_ids) > 8:
+        raise ValueError("Render must reference between 1 and 8 source assets")
     verified: list[tuple[Asset, Source]] = []
     for asset_id in asset_ids:
         asset = db.get(Asset, asset_id)
@@ -103,7 +110,7 @@ def append_stock_attribution(description: str, source_records: list[tuple[Asset,
     lines: list[str] = []
     seen: set[str] = set()
     for _, source in source_records:
-        if str(source.platform or "").casefold() != "pexels":
+        if str(source.platform or "").strip().casefold() != "pexels":
             continue
         url = str(source.source_url or "").strip()
         license_url = str(source.permission_reference or "").strip()

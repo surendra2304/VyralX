@@ -15,29 +15,41 @@ def _timestamp(seconds: float) -> str:
 
 
 def write_srt(segments: list[dict], destination: str | Path) -> Path:
-    """Write plain-text SRT cues; strip markup and reject invalid or overlapping cues."""
+    """Write valid SRT cues, validating order/overlap at millisecond precision."""
     target = Path(destination).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     lines: list[str] = []
-    previous_start = -1.0
-    previous_end = -1.0
+    previous_start_ms = -1
+    previous_end_ms = -1
     for index, cue in enumerate(segments, start=1):
         try:
             start = float(cue["start_seconds"])
             end = float(cue["end_seconds"])
         except (KeyError, TypeError, ValueError):
             raise ValueError("Each caption requires numeric start and end times") from None
-        text = str(cue.get("text", "")).strip()
+        text = re.sub(r"<[^>]*>", "", str(cue.get("text", ""))).replace("\x00", "").strip()
         if not math.isfinite(start) or not math.isfinite(end) or not text or start < 0 or end <= start:
             raise ValueError("Each caption requires text and a finite positive time range")
-        if start < previous_start:
-            raise ValueError("Caption segments must be ordered by start time")
-        if start < previous_end:
-            raise ValueError("Caption segments must not overlap")
-        previous_start = start
-        previous_end = end
-        text = re.sub(r"<[^>]*>", "", text).replace("\x00", "")
-        lines.extend([str(index), f"{_timestamp(start)} --> {_timestamp(end)}", text, ""])
+
+        # SRT timestamps only preserve milliseconds. Distinct float values can
+        # collapse to the same timestamp or overlap when rounded for the file.
+        start_ms = round(start * 1000)
+        end_ms = round(end * 1000)
+        if end_ms <= start_ms:
+            raise ValueError("Caption cue must span at least 1 millisecond after SRT timestamp rounding")
+        if start_ms < previous_start_ms:
+            raise ValueError("Caption segments must be ordered by start time after SRT timestamp rounding")
+        if start_ms < previous_end_ms:
+            raise ValueError("Caption segments must not overlap after SRT timestamp rounding")
+
+        previous_start_ms = start_ms
+        previous_end_ms = end_ms
+        lines.extend([
+            str(index),
+            f"{_timestamp(start_ms / 1000)} --> {_timestamp(end_ms / 1000)}",
+            text,
+            "",
+        ])
     target.write_text("\n".join(lines), encoding="utf-8")
     return target
 

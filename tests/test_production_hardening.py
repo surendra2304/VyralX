@@ -5,11 +5,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.models import Source
+from app.models import Asset, Source
 from app.services.captions import segment_script, write_srt
 from app.services.content import _extract_json, generate_content_pack
 from app.services.intelx import normalize_intelx_reports
-from app.services.rights import append_stock_attribution, source_is_publishable
+from app.services.rights import (
+    append_stock_attribution,
+    source_is_publishable,
+    verified_render_sources,
+)
 
 
 def test_long_script_captioning_preserves_all_words():
@@ -58,6 +62,74 @@ def test_stock_credits_fail_closed_when_full_urls_do_not_fit():
     )
     with pytest.raises(ValueError, match="attribution exceeds"):
         append_stock_attribution("Short intro", [(SimpleNamespace(id=1), source)])
+
+
+def test_stock_attribution_normalizes_platform_whitespace():
+    source = SimpleNamespace(
+        platform=" Pexels ",
+        source_url="https://www.pexels.com/video/123456/",
+        creator="Creator",
+        permission_reference="https://www.pexels.com/license/",
+    )
+
+    description = append_stock_attribution(
+        "Original video description", [(SimpleNamespace(id=1), source)]
+    )
+
+    assert "Stock footage credits:" in description
+    assert "https://www.pexels.com/video/123456/" in description
+    assert "https://www.pexels.com/license/" in description
+
+
+def test_render_rights_gate_supports_all_eight_montage_scenes():
+    records = {}
+    for asset_id in range(1, 9):
+        source_id = 1000 + asset_id
+        records[(Asset, asset_id)] = SimpleNamespace(
+            id=asset_id, rights_verified=True, source_id=source_id
+        )
+        records[(Source, source_id)] = SimpleNamespace(
+            id=source_id,
+            platform="pexels",
+            source_url=f"https://www.pexels.com/video/{asset_id}/",
+            rights_verified=True,
+            license_name="Pexels Content License",
+            permission_reference="https://www.pexels.com/license/",
+        )
+
+    class FakeSession:
+        def get(self, model, key):
+            return records.get((model, key))
+
+    render = SimpleNamespace(
+        asset_id=1,
+        options_json=json.dumps({"montage_asset_ids": list(range(1, 9))}),
+    )
+    verified = verified_render_sources(render, FakeSession())
+
+    assert len(verified) == 8
+    assert [asset.id for asset, _ in verified] == list(range(1, 9))
+
+
+def test_render_rights_gate_rejects_invalid_asset_ids():
+    class EmptySession:
+        def get(self, model, key):
+            return None
+
+    render = SimpleNamespace(
+        asset_id=1,
+        options_json=json.dumps({"montage_asset_ids": [-1]}),
+    )
+    with pytest.raises(ValueError, match="invalid asset ID"):
+        verified_render_sources(render, EmptySession())
+
+
+def test_srt_rejects_cues_that_collapse_to_zero_milliseconds(tmp_path: Path):
+    with pytest.raises(ValueError, match="at least 1 millisecond"):
+        write_srt(
+            [{"start_seconds": 0.0001, "end_seconds": 0.0004, "text": "Too short"}],
+            tmp_path / "collapsed.srt",
+        )
 
 
 def test_intelx_normalization_requires_traceability_and_filters_irrelevant_reports():

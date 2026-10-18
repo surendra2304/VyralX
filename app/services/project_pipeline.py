@@ -415,6 +415,17 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
                 content_record.voiceover_status = "ready"
                 db.commit()
 
+        voiceover_duration: float | None = None
+        if project.use_voiceover:
+            voiceover_metadata = probe_media(voice_path)
+            voiceover_duration = float(voiceover_metadata.get("duration_seconds") or 0)
+            if (
+                not math.isfinite(voiceover_duration)
+                or voiceover_duration <= 0
+                or int(voiceover_metadata.get("audio_stream_count") or 0) < 1
+            ):
+                raise RuntimeError("Narration file is not readable audio with a positive duration")
+
         caption_text = str(pack.get("voiceover") or script) if project.use_voiceover else script
         segments = segment_script(caption_text, project.target_seconds)
         subtitle_dir = settings.data_dir / "subtitles"
@@ -489,6 +500,7 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             audio_stream_count=int(metadata.get("audio_stream_count") or 0),
             voiceover_requested=project.use_voiceover,
             voiceover_path=voice_path or None,
+            voiceover_duration=voiceover_duration,
             subtitle_path=subtitle_path,
             subtitle_segments=segments,
             caption_text=caption_text,
