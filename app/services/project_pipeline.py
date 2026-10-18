@@ -26,7 +26,7 @@ from app.services.rights import is_project_scene_publishable
 from app.services.project_quality import build_project_quality_report
 from app.services.media_quality import analyze_media_signals
 from app.services.intelx import normalize_intelx_reports
-from app.services.voiceover import synthesize_voiceover
+from app.services.voiceover import synthesize_voiceover, synthesize_voiceover_with_captions
 
 log = logging.getLogger("vyralx.projects")
 
@@ -543,6 +543,9 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             raise ValueError("Inference produced an empty script")
         assets = _ensure_scene_assets(project, pack, db)
 
+        caption_text = str(pack.get("voiceover") or script) if project.use_voiceover else script
+        segments: list[dict] | None = None
+        caption_alignment_status = "estimated" if project.use_voiceover else "not_applicable"
         voice_path = ""
         if project.use_voiceover:
             existing_voice = Path(content_record.voiceover_path).resolve() if content_record.voiceover_path else None
@@ -553,11 +556,41 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
                 and existing_voice.is_file()
             ):
                 voice_path = str(existing_voice)
+                cached_segments = pack.get("caption_segments")
+                if (
+                    isinstance(cached_segments, list)
+                    and cached_segments
+                    and pack.get("caption_alignment_status") == "measured_chunk"
+                ):
+                    segments = cached_segments
+                    caption_alignment_status = "measured_chunk"
             else:
-                voice = synthesize_voiceover(str(pack.get("voiceover") or script), target_seconds=project.target_seconds)
-                voice_path = str(voice["file_path"])
+                provider = str(getattr(settings, "tts_provider", "espeak")).strip().lower()
+                if provider == "espeak":
+                    voice = synthesize_voiceover_with_captions(
+                        caption_text,
+                        target_seconds=project.target_seconds,
+                    )
+                    voice_path = str(voice["file_path"])
+                    generated_segments = voice.get("caption_segments")
+                    if not isinstance(generated_segments, list) or not generated_segments:
+                        raise RuntimeError("Measured voiceover did not return caption timing segments")
+                    segments = generated_segments
+                    caption_alignment_status = str(
+                        voice.get("caption_alignment_status") or "estimated"
+                    )
+                    pack["caption_segments"] = segments
+                else:
+                    voice = synthesize_voiceover(caption_text, target_seconds=project.target_seconds)
+                    voice_path = str(voice["file_path"])
+                    # External TTS returns audio bytes but no forced-alignment result.
+                    # Never claim that its captions are synchronized based on duration alone.
+                    pack.pop("caption_segments", None)
+                    caption_alignment_status = "estimated"
+                pack["caption_alignment_status"] = caption_alignment_status
                 content_record.voiceover_path = voice_path
                 content_record.voiceover_status = "ready"
+                content_record.pack_json = json.dumps(pack, ensure_ascii=False)
                 db.commit()
 
         voiceover_duration: float | None = None
@@ -571,8 +604,14 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             ):
                 raise RuntimeError("Narration file is not readable audio with a positive duration")
 
-        caption_text = str(pack.get("voiceover") or script) if project.use_voiceover else script
-        segments = segment_script(caption_text, project.target_seconds)
+        if segments is None:
+            segments = segment_script(caption_text, project.target_seconds)
+            if project.use_voiceover:
+                caption_alignment_status = "estimated"
+                pack.pop("caption_segments", None)
+                pack["caption_alignment_status"] = caption_alignment_status
+                content_record.pack_json = json.dumps(pack, ensure_ascii=False)
+                db.commit()
         subtitle_dir = settings.data_dir / "subtitles"
         subtitle_dir.mkdir(parents=True, exist_ok=True)
         subtitle_path = subtitle_dir / f"project-{project.id}-attempt-{project.attempts}.srt"
@@ -665,6 +704,7 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             thumbnail_path=thumbnail,
             scene_rights_checks=scene_rights_checks,
             signal_analysis=signal_analysis,
+            caption_alignment_status=caption_alignment_status,
         )
         content_record.pack_json = json.dumps(pack, ensure_ascii=False)
         render_job.status = "completed"
