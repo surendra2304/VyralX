@@ -59,6 +59,7 @@ class LayerEntryFingerprint:
 class ImageLayers:
     platform: str
     layers: tuple[dict[str, Any], ...]
+    diff_ids: tuple[str, ...]
 
 
 def _hash_file(path: Path) -> str:
@@ -286,12 +287,32 @@ def _read_image_layers(path: str | Path) -> list[ImageLayers]:
                 return
             if media_type in _MANIFEST_TYPES:
                 layers = payload.get("layers")
-                if not isinstance(layers, list):
-                    raise OCIArtifactError(f"invalid OCI layer list: {digest}")
+                config_descriptor = payload.get("config")
+                if not isinstance(layers, list) or not isinstance(config_descriptor, dict):
+                    raise OCIArtifactError(f"invalid OCI manifest config/layers: {digest}")
+                config_digest_value = config_descriptor.get("digest")
+                config_match = (
+                    _SHA256.fullmatch(config_digest_value)
+                    if isinstance(config_digest_value, str)
+                    else None
+                )
+                if config_match is None:
+                    raise OCIArtifactError(f"invalid OCI image config digest: {digest}")
+                config_digest = config_match.group(0)
+                config_blob_path = f"blobs/sha256/{config_digest.split(':', 1)[1]}"
+                config_payload = read_layout_json(config_blob_path, f"image config {config_digest}")
+                rootfs = config_payload.get("rootfs")
+                raw_diff_ids = rootfs.get("diff_ids") if isinstance(rootfs, dict) else []
+                diff_ids = (
+                    tuple(item for item in raw_diff_ids if isinstance(item, str))
+                    if isinstance(raw_diff_ids, list)
+                    else ()
+                )
                 result.append(
                     ImageLayers(
                         _platform_label(resolved_platform),
                         tuple(layer for layer in layers if isinstance(layer, dict)),
+                        diff_ids,
                     )
                 )
 
@@ -396,6 +417,30 @@ def _append_layer_diagnostics(
                 f"{left.platform} layer {layer_index} digest differs: "
                 f"{left_digest} != {right_digest}"
             )
+            left_diff_id = (
+                left.diff_ids[layer_index - 1]
+                if layer_index - 1 < len(left.diff_ids)
+                else None
+            )
+            right_diff_id = (
+                right.diff_ids[layer_index - 1]
+                if layer_index - 1 < len(right.diff_ids)
+                else None
+            )
+            if left_diff_id and right_diff_id and left_diff_id == right_diff_id:
+                differences.append(
+                    f"  layer {layer_index}: uncompressed rootfs diff_id matches "
+                    f"({left_diff_id}); investigate OCI compression/serialization."
+                )
+            elif left_diff_id and right_diff_id:
+                differences.append(
+                    f"  layer {layer_index}: uncompressed rootfs diff_id differs: "
+                    f"{left_diff_id} != {right_diff_id}"
+                )
+            else:
+                differences.append(
+                    f"  layer {layer_index}: rootfs diff_id is missing from an image config."
+                )
             try:
                 left_entries = _layer_entries(first_path, left_digest)
                 right_entries = _layer_entries(second_path, right_digest)

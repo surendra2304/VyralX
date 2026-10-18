@@ -36,9 +36,11 @@ COPY pyproject.toml uv.lock README.md ./
 COPY app ./app
 
 # uv 0.13.1 recognizes require-build-hashes and enforces build-constraint hashes.
-# Avoid retaining ephemeral wheel/build caches in the runtime layer.
+# Avoid retaining ephemeral wheel/build caches in the runtime layer. uv's optional
+# uv_cache.json records wall-clock install time, so remove it and its RECORD entry.
 RUN python -m pip install --no-cache-dir "uv==0.13.1" \
     && uv sync --frozen --no-editable --no-cache \
+    && python -c 'from pathlib import Path; sites=Path("/app/.venv/lib/python3.11/site-packages"); infos=list(sites.glob("vyralx-*.dist-info")); assert len(infos)==1, infos; info=infos[0]; cache=info/"uv_cache.json"; record=info/"RECORD"; prefix=(info.name+"/uv_cache.json,").encode(); rows=record.read_bytes().splitlines(keepends=True); matches=[row for row in rows if row.startswith(prefix)]; assert cache.is_file() and len(matches)==1, (cache, matches); record.write_bytes(b"".join(row for row in rows if not row.startswith(prefix))); cache.unlink()' \
     && python -m pip uninstall -y setuptools wheel uv \
     && rm -rf /root/.cache/uv /root/.cache/pip
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import io
 import json
@@ -48,23 +49,34 @@ def _write_archive(
     path: Path,
     *,
     layer_content: bytes = b"sample OCI layer",
+    compression_level: int | None = None,
     corrupt_blob: bool = False,
     unsafe_member: bool = False,
     member_mtime: int = 0,
     wrong_descriptor_size: bool = False,
 ) -> None:
-    layer_blob = _layer_tar(layer_content)
+    uncompressed_layer = _layer_tar(layer_content)
+    layer_blob = (
+        gzip.compress(uncompressed_layer, compresslevel=compression_level, mtime=0)
+        if compression_level is not None
+        else uncompressed_layer
+    )
+    layer_media_type = (
+        "application/vnd.oci.image.layer.v1.tar+gzip"
+        if compression_level is not None
+        else "application/vnd.oci.image.layer.v1.tar"
+    )
     config = _json_bytes(
         {
             "architecture": "amd64",
             "os": "linux",
             "rootfs": {
                 "type": "layers",
-                "diff_ids": ["sha256:" + hashlib.sha256(layer_blob).hexdigest()],
+                "diff_ids": ["sha256:" + hashlib.sha256(uncompressed_layer).hexdigest()],
             },
         }
     )
-    layer_descriptor = _descriptor(layer_blob, "application/vnd.oci.image.layer.v1.tar")
+    layer_descriptor = _descriptor(layer_blob, layer_media_type)
     config_descriptor = _descriptor(config, "application/vnd.oci.image.config.v1+json")
     manifest = _json_bytes(
         {
@@ -138,6 +150,20 @@ def test_different_image_layer_fails_and_reports_changed_file_path(tmp_path: Pat
     assert any("OCI member differs" in item for item in details)
     assert any("linux/amd64 layer 1" in item for item in details)
     assert any("file bytes differ: payload.txt" in item for item in details)
+    assert any("uncompressed rootfs diff_id differs" in item for item in details)
+
+
+def test_different_compression_with_identical_uncompressed_layer_is_diagnosed(tmp_path: Path):
+    first = tmp_path / "gzip-level-one.oci.tar"
+    second = tmp_path / "gzip-level-nine.oci.tar"
+    _write_archive(first, compression_level=1)
+    _write_archive(second, compression_level=9)
+
+    identical, details, _, _ = compare_oci_artifacts(first, second)
+
+    assert not identical
+    assert any("uncompressed rootfs diff_id matches" in item for item in details)
+    assert any("archive blob differs but member fingerprints match" in item for item in details)
 
 
 def test_corrupt_blob_is_rejected_even_when_its_filename_claims_another_digest(tmp_path: Path):
