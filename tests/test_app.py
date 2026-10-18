@@ -53,6 +53,7 @@ def test_pending_publish_listing_exposes_final_description_and_tags():
 
 
 def test_publish_listing_includes_project_qa_snapshot():
+    import json
     from uuid import uuid4
     from app.database import SessionLocal
 
