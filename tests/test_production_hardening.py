@@ -103,6 +103,7 @@ def test_render_rights_gate_supports_all_eight_montage_scenes():
 
     render = SimpleNamespace(
         asset_id=1,
+        project_id=45,
         options_json=json.dumps({"montage_asset_ids": list(range(1, 9))}),
     )
     verified = verified_render_sources(render, FakeSession())
@@ -130,6 +131,32 @@ def test_stock_attribution_keeps_creator_credit_when_description_mentions_urls()
     assert description.count("https://www.pexels.com/video/123456/") == 2
 
 
+def test_project_render_rights_gate_requires_explicit_complete_scene_list():
+    class EmptySession:
+        def get(self, model, key):
+            return None
+
+    missing_scene_list = SimpleNamespace(asset_id=1, project_id=5, options_json="{}")
+    with pytest.raises(ValueError, match="must include montage_asset_ids"):
+        verified_render_sources(missing_scene_list, EmptySession())
+
+    one_scene = SimpleNamespace(
+        asset_id=1,
+        project_id=5,
+        options_json=json.dumps({"montage_asset_ids": [1]}),
+    )
+    with pytest.raises(ValueError, match="between 2 and 8"):
+        verified_render_sources(one_scene, EmptySession())
+
+    missing_primary = SimpleNamespace(
+        asset_id=1,
+        project_id=5,
+        options_json=json.dumps({"montage_asset_ids": [2, 3]}),
+    )
+    with pytest.raises(ValueError, match="include its primary asset"):
+        verified_render_sources(missing_primary, EmptySession())
+
+
 def test_render_rights_gate_rejects_invalid_asset_ids():
     class EmptySession:
         def get(self, model, key):
@@ -151,6 +178,15 @@ def test_render_rights_gate_rejects_non_object_options():
     render = SimpleNamespace(asset_id=1, options_json="[]")
     with pytest.raises(ValueError, match="JSON object"):
         verified_render_sources(render, EmptySession())
+
+
+def test_srt_flattens_newlines_inside_caption_text(tmp_path: Path):
+    output = write_srt(
+        [{"start_seconds": 0, "end_seconds": 2, "text": "<b>First line</b>\n\nSecond line\r\n"}],
+        tmp_path / "multiline.srt",
+    )
+    cue_text = output.read_text(encoding="utf-8").splitlines()[2]
+    assert cue_text == "First line Second line"
 
 
 def test_srt_rejects_cues_that_collapse_to_zero_milliseconds(tmp_path: Path):

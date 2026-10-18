@@ -27,7 +27,11 @@ def write_srt(segments: list[dict], destination: str | Path) -> Path:
             end = float(cue["end_seconds"])
         except (KeyError, TypeError, ValueError):
             raise ValueError("Each caption requires numeric start and end times") from None
-        text = re.sub(r"<[^>]*>", "", str(cue.get("text", ""))).replace("\x00", "").strip()
+        # Keep all cue text on a single logical line so untrusted text cannot
+        # inject additional SRT cues or corrupt the subtitle structure.
+        text = " ".join(
+            re.sub(r"<[^>]*>", "", str(cue.get("text", ""))).replace("\x00", "").split()
+        )
         if not math.isfinite(start) or not math.isfinite(end) or not text or start < 0 or end <= start:
             raise ValueError("Each caption requires text and a finite positive time range")
 
