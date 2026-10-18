@@ -20,6 +20,7 @@ def test_complete_project_report_is_ready_for_operator_review(tmp_path):
         audio_stream_count=1,
         voiceover_requested=True,
         voiceover_path=voice,
+        voiceover_duration=45.0,
         subtitle_path=captions,
         subtitle_segments=[{"start_seconds": 0, "end_seconds": 45, "text": "Hello world"}],
         caption_text="Hello world",
@@ -31,7 +32,7 @@ def test_complete_project_report_is_ready_for_operator_review(tmp_path):
     assert report["warning_count"] == 0
     assert report["automatic_publish_approval"] is False
     assert {item["id"] for item in report["checks"]} >= {
-        "duration", "dimensions", "audio_track", "narration_file",
+        "duration", "dimensions", "audio_track", "narration_file", "voiceover_duration",
         "caption_coverage", "caption_timing", "thumbnail", "scene_provenance",
     }
 
@@ -52,6 +53,7 @@ def test_quality_report_surfaces_caption_and_source_warnings(tmp_path):
         audio_stream_count=0,
         voiceover_requested=True,
         voiceover_path=None,
+        voiceover_duration=5.0,
         subtitle_path=captions,
         subtitle_segments=[{"start_seconds": 1, "end_seconds": 20, "text": "Different words"}],
         caption_text="Expected words",
@@ -64,6 +66,7 @@ def test_quality_report_surfaces_caption_and_source_warnings(tmp_path):
     checks = {item["id"]: item["status"] for item in report["checks"]}
     assert checks["audio_track"] == "warning"
     assert checks["narration_file"] == "warning"
+    assert checks["voiceover_duration"] == "warning"
     assert checks["caption_coverage"] == "warning"
     assert checks["caption_timing"] == "warning"
     assert checks["scene_provenance"] == "warning"

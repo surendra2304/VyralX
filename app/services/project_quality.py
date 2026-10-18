@@ -32,6 +32,7 @@ def build_project_quality_report(
     audio_stream_count: int,
     voiceover_requested: bool,
     voiceover_path: str | Path | None,
+    voiceover_duration: float | None,
     subtitle_path: str | Path | None,
     subtitle_segments: list[dict[str, Any]],
     caption_text: str,
@@ -77,8 +78,27 @@ def build_project_quality_report(
         add("narration_file", "Narration asset", voice_ok,
             "Narration file exists and is non-empty." if voice_ok else "Narration file is missing or empty.",
             "present" if voice_ok else "missing", "non-empty audio file")
+        try:
+            measured_voiceover_seconds = float(voiceover_duration)
+        except (TypeError, ValueError):
+            measured_voiceover_seconds = math.nan
+        minimum_voiceover_seconds = int(target_seconds) * 0.75
+        maximum_voiceover_seconds = int(target_seconds) + 1.5
+        voiceover_duration_ok = (
+            math.isfinite(measured_voiceover_seconds)
+            and measured_voiceover_seconds > 0
+            and minimum_voiceover_seconds <= measured_voiceover_seconds <= maximum_voiceover_seconds
+        )
+        add(
+            "voiceover_duration", "Narration timing", voiceover_duration_ok,
+            "Narration duration fits the target window." if voiceover_duration_ok
+            else "Narration is substantially shorter than the target or exceeds it; review script density and timing.",
+            round(measured_voiceover_seconds, 3) if math.isfinite(measured_voiceover_seconds) else None,
+            f"{minimum_voiceover_seconds:.1f}–{maximum_voiceover_seconds:.1f} seconds",
+        )
     else:
         add("audio_track", "Narration track", None, "Narration was not requested.")
+        add("voiceover_duration", "Narration timing", None, "Narration was not requested.")
 
     subtitle_ok = _has_file(subtitle_path) and bool(subtitle_segments)
     add("subtitle_file", "Caption file", subtitle_ok,

@@ -43,7 +43,6 @@ def source_is_publishable(source: Source | None) -> bool:
     return True
 
 
-
 def is_project_scene_publishable(asset: Asset | None, source: Source | None) -> bool:
     """Validate a project's Pexels provenance before using it in a render.
 
@@ -57,27 +56,47 @@ def is_project_scene_publishable(asset: Asset | None, source: Source | None) -> 
         and source_is_publishable(source)
     )
 
+
 def verified_render_sources(render: RenderJob, db: Session) -> list[tuple[Asset, Source]]:
     """Resolve every source clip encoded in a render job, not only the primary asset."""
     try:
         options = json.loads(render.options_json or "{}")
     except (TypeError, ValueError):
         raise ValueError("Render has invalid persisted options") from None
-    raw_ids = options.get("montage_asset_ids", []) if isinstance(options, dict) else []
+    if not isinstance(options, dict):
+        raise ValueError("Render options must be a JSON object")
+    is_project_render = getattr(render, "project_id", None) is not None
+    if is_project_render and "montage_asset_ids" not in options:
+        raise ValueError("Project render must include montage_asset_ids")
+    raw_ids = options.get("montage_asset_ids", [])
     if not isinstance(raw_ids, list):
         raise ValueError("Render montage_asset_ids must be an array")
     asset_ids: list[int] = []
     for raw in raw_ids:
+        # bool is an int subclass, but it is never a valid persisted asset ID.
+        if isinstance(raw, bool) or (isinstance(raw, float) and not raw.is_integer()):
+            raise ValueError("Render references an invalid asset ID")
         try:
             asset_id = int(raw)
         except (TypeError, ValueError):
             raise ValueError("Render references an invalid asset ID") from None
-        if asset_id > 0 and asset_id not in asset_ids:
+        if asset_id <= 0:
+            raise ValueError("Render references an invalid asset ID")
+        if asset_id not in asset_ids:
             asset_ids.append(asset_id)
-    if render.asset_id not in asset_ids:
-        asset_ids.insert(0, render.asset_id)
-    if not asset_ids or len(asset_ids) > 4:
-        raise ValueError("Render must reference between 1 and 4 source assets")
+        if len(asset_ids) > 8:
+            raise ValueError("Render must reference between 1 and 8 source assets")
+
+    if is_project_render:
+        if not 2 <= len(asset_ids) <= 8:
+            raise ValueError("Project render must reference between 2 and 8 source assets")
+        if render.asset_id not in asset_ids:
+            raise ValueError("Project render must include its primary asset in montage_asset_ids")
+    else:
+        if render.asset_id not in asset_ids:
+            asset_ids.insert(0, render.asset_id)
+        if not asset_ids or len(asset_ids) > 8:
+            raise ValueError("Render must reference between 1 and 8 source assets")
     verified: list[tuple[Asset, Source]] = []
     for asset_id in asset_ids:
         asset = db.get(Asset, asset_id)
@@ -98,22 +117,28 @@ def append_stock_attribution(description: str, source_records: list[tuple[Asset,
     if limit < 1:
         raise ValueError("Description limit must be positive")
     description = str(description or "").strip()
-    if len(description) > limit:
-        raise ValueError("Description exceeds the limit; shorten it before publishing")
+    if len(description.encode("utf-8")) > limit:
+        raise ValueError("Description exceeds the 5000-byte limit; shorten it before publishing")
     lines: list[str] = []
     seen: set[str] = set()
     for _, source in source_records:
-        if str(source.platform or "").casefold() != "pexels":
+        if str(source.platform or "").strip().casefold() != "pexels":
             continue
         url = str(source.source_url or "").strip()
         license_url = str(source.permission_reference or "").strip()
         if not url or not license_url:
             raise ValueError("Pexels attribution requires both a source URL and license reference")
-        if url in seen or (url in description and license_url in description):
+        if url in seen:
+            continue
+        # Creator metadata is untrusted provider input; normalize whitespace so
+        # it cannot inject extra lines into the description's attribution block.
+        creator = " ".join(str(source.creator or "Pexels creator").split())[:300] or "Pexels creator"
+        credit_line = f"- {creator} (Pexels): {url} — License: {license_url}"
+        if credit_line in description:
+            seen.add(url)
             continue
         seen.add(url)
-        creator = str(source.creator or "Pexels creator").strip()[:300] or "Pexels creator"
-        lines.append(f"- {creator} (Pexels): {url} — License: {license_url}")
+        lines.append(credit_line)
     if not lines:
         return description
     heading = "Stock footage credits:"
@@ -123,13 +148,16 @@ def append_stock_attribution(description: str, source_records: list[tuple[Asset,
     else:
         block = heading + "\n" + "\n".join(lines)
         separator = "\n\n" if description else ""
-    available = limit - len(separator) - len(block)
-    if available < 0:
+    separator_bytes = len(separator.encode("utf-8"))
+    block_bytes = len(block.encode("utf-8"))
+    available_bytes = limit - separator_bytes - block_bytes
+    if available_bytes < 0:
         raise ValueError("Required stock attribution exceeds the description limit")
-    intro = description[:available].rstrip()
+    encoded_intro = description.encode("utf-8")[:available_bytes]
+    intro = encoded_intro.decode("utf-8", errors="ignore").rstrip()
     if len(intro) < len(description) and " " in intro:
         intro = intro[:intro.rfind(" ")].rstrip()
     result = (intro + separator + block).strip()
-    if len(block) > limit or len(result) > limit:
+    if block_bytes > limit or len(result.encode("utf-8")) > limit:
         raise ValueError("Required stock attribution exceeds the description limit")
     return result

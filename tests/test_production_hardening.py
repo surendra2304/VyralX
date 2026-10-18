@@ -5,11 +5,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.models import Source
+from app.models import Asset, Source
 from app.services.captions import segment_script, write_srt
 from app.services.content import _extract_json, generate_content_pack
 from app.services.intelx import normalize_intelx_reports
-from app.services.rights import append_stock_attribution, source_is_publishable
+from app.services.rights import (
+    append_stock_attribution,
+    source_is_publishable,
+    verified_render_sources,
+)
 
 
 def test_long_script_captioning_preserves_all_words():
@@ -60,6 +64,179 @@ def test_stock_credits_fail_closed_when_full_urls_do_not_fit():
         append_stock_attribution("Short intro", [(SimpleNamespace(id=1), source)])
 
 
+def test_stock_attribution_respects_utf8_byte_budget():
+    source = SimpleNamespace(
+        platform="pexels",
+        source_url="https://www.pexels.com/video/123456/",
+        creator="Creator",
+        permission_reference="https://www.pexels.com/license/",
+    )
+    description = append_stock_attribution("é" * 2490, [(SimpleNamespace(id=1), source)])
+
+    assert len(description.encode("utf-8")) <= 5000
+    assert "Stock footage credits:" in description
+    assert "- Creator (Pexels): https://www.pexels.com/video/123456/" in description
+    assert "�" not in description
+
+
+def test_stock_attribution_normalizes_platform_whitespace():
+    source = SimpleNamespace(
+        platform=" Pexels ",
+        source_url="https://www.pexels.com/video/123456/",
+        creator="Creator",
+        permission_reference="https://www.pexels.com/license/",
+    )
+
+    description = append_stock_attribution(
+        "Original video description", [(SimpleNamespace(id=1), source)]
+    )
+
+    assert "Stock footage credits:" in description
+    assert "https://www.pexels.com/video/123456/" in description
+    assert "https://www.pexels.com/license/" in description
+
+
+def test_render_rights_gate_supports_all_eight_montage_scenes():
+    records = {}
+    for asset_id in range(1, 9):
+        source_id = 1000 + asset_id
+        records[(Asset, asset_id)] = SimpleNamespace(
+            id=asset_id, rights_verified=True, source_id=source_id
+        )
+        records[(Source, source_id)] = SimpleNamespace(
+            id=source_id,
+            platform="pexels",
+            source_url=f"https://www.pexels.com/video/{asset_id}/",
+            rights_verified=True,
+            license_name="Pexels Content License",
+            permission_reference="https://www.pexels.com/license/",
+        )
+
+    class FakeSession:
+        def get(self, model, key):
+            return records.get((model, key))
+
+    render = SimpleNamespace(
+        asset_id=1,
+        project_id=45,
+        options_json=json.dumps({"montage_asset_ids": list(range(1, 9))}),
+    )
+    verified = verified_render_sources(render, FakeSession())
+
+    assert len(verified) == 8
+    assert [asset.id for asset, _ in verified] == list(range(1, 9))
+
+
+def test_stock_attribution_keeps_creator_credit_when_description_mentions_urls():
+    source = SimpleNamespace(
+        platform="pexels",
+        source_url="https://www.pexels.com/video/123456/",
+        creator="Creator\nInjected line",
+        permission_reference="https://www.pexels.com/license/",
+    )
+    original = (
+        "Source: https://www.pexels.com/video/123456/\n"
+        "License: https://www.pexels.com/license/"
+    )
+
+    description = append_stock_attribution("Original description\n" + original, [(SimpleNamespace(id=1), source)])
+
+    assert "Stock footage credits:" in description
+    assert "- Creator Injected line (Pexels): https://www.pexels.com/video/123456/" in description
+    assert description.count("https://www.pexels.com/video/123456/") == 2
+
+
+def test_project_render_rights_gate_requires_explicit_complete_scene_list():
+    class EmptySession:
+        def get(self, model, key):
+            return None
+
+    missing_scene_list = SimpleNamespace(asset_id=1, project_id=5, options_json="{}")
+    with pytest.raises(ValueError, match="must include montage_asset_ids"):
+        verified_render_sources(missing_scene_list, EmptySession())
+
+    one_scene = SimpleNamespace(
+        asset_id=1,
+        project_id=5,
+        options_json=json.dumps({"montage_asset_ids": [1]}),
+    )
+    with pytest.raises(ValueError, match="between 2 and 8"):
+        verified_render_sources(one_scene, EmptySession())
+
+    missing_primary = SimpleNamespace(
+        asset_id=1,
+        project_id=5,
+        options_json=json.dumps({"montage_asset_ids": [2, 3]}),
+    )
+    with pytest.raises(ValueError, match="include its primary asset"):
+        verified_render_sources(missing_primary, EmptySession())
+
+
+def test_render_rights_gate_rejects_invalid_asset_ids():
+    class EmptySession:
+        def get(self, model, key):
+            return None
+
+    render = SimpleNamespace(
+        asset_id=1,
+        options_json=json.dumps({"montage_asset_ids": [-1]}),
+    )
+    with pytest.raises(ValueError, match="invalid asset ID"):
+        verified_render_sources(render, EmptySession())
+
+
+def test_render_rights_gate_rejects_non_object_options():
+    class EmptySession:
+        def get(self, model, key):
+            return None
+
+    render = SimpleNamespace(asset_id=1, options_json="[]")
+    with pytest.raises(ValueError, match="JSON object"):
+        verified_render_sources(render, EmptySession())
+
+
+def test_srt_flattens_newlines_inside_caption_text(tmp_path: Path):
+    output = write_srt(
+        [{"start_seconds": 0, "end_seconds": 2, "text": "<b>First line</b>\n\nSecond line\r\n"}],
+        tmp_path / "multiline.srt",
+    )
+    cue_text = output.read_text(encoding="utf-8").splitlines()[2]
+    assert cue_text == "First line Second line"
+
+
+def test_srt_rejects_cues_that_collapse_to_zero_milliseconds(tmp_path: Path):
+    with pytest.raises(ValueError, match="at least 1 millisecond"):
+        write_srt(
+            [{"start_seconds": 0.0001, "end_seconds": 0.0004, "text": "Too short"}],
+            tmp_path / "collapsed.srt",
+        )
+
+
+def test_friday_envelope_rejects_conflicting_inputs_and_payload():
+    from app.schemas import UniverseTaskEnvelope
+
+    with pytest.raises(ValueError, match="inputs and payload must match"):
+        UniverseTaskEnvelope(
+            task_id="friday-contract-conflict",
+            task_type="content.generate",
+            action="content.generate",
+            inputs={"topic": "How solar panels work"},
+            payload={"topic": "How basketball works"},
+        )
+
+
+def test_friday_envelope_accepts_legacy_payload_only():
+    from app.schemas import UniverseTaskEnvelope
+
+    envelope = UniverseTaskEnvelope(
+        task_id="friday-contract-payload-only",
+        action="content.generate",
+        payload={"topic": "How solar panels work"},
+    )
+
+    assert envelope.inputs == envelope.payload
+
+
 def test_intelx_normalization_requires_traceability_and_filters_irrelevant_reports():
     reports = normalize_intelx_reports({
         "items": [
@@ -80,6 +257,80 @@ def test_intelx_normalization_requires_traceability_and_filters_irrelevant_repor
     assert reports[0]["report_id"] == "solar-1"
     assert reports[0]["source_url"] == "https://intelx.example/solar/1"
     assert reports[0]["key_findings"] == ["Output changes with sunlight."]
+
+
+def test_intelx_normalization_unwraps_nested_provider_envelopes_and_rejects_no_signal():
+    reports = normalize_intelx_reports(
+        {
+            "status": "success",
+            "result": {
+                "reports": [
+                    {
+                        "report_id": "ix-solar-nested",
+                        "title": "Solar power market update",
+                        "summary": "Solar generation capacity expanded this year.",
+                    },
+                    {
+                        "report_id": "ix-no-signal",
+                        "title": "---",
+                        "summary": "!!!",
+                    },
+                ]
+            },
+        },
+        "solar power",
+    )
+
+    assert [item["report_id"] for item in reports] == ["ix-solar-nested"]
+
+
+def test_intelx_fetch_reports_and_status_from_live_style_envelope(monkeypatch):
+    from app.services import project_pipeline
+
+    monkeypatch.setattr(project_pipeline, "configured_peers", lambda: {"intelx"})
+    monkeypatch.setattr(
+        project_pipeline,
+        "get_peer_json",
+        lambda *args, **kwargs: {
+            "result": {
+                "reports": [
+                    {
+                        "report_id": "ix-solar-fetch",
+                        "title": "Solar power trends",
+                        "summary": "Solar capacity grew over the past year.",
+                        "source_url": "https://intelx.example/reports/ix-solar-fetch",
+                    },
+                    {
+                        "report_id": "ix-basketball-fetch",
+                        "title": "Basketball championship",
+                        "summary": "Teams competed in the finals.",
+                    },
+                ]
+            }
+        },
+    )
+
+    reports, status = project_pipeline._fetch_intelx_research(
+        SimpleNamespace(id=72, topic="Solar power")
+    )
+
+    assert status == "used"
+    assert [item["report_id"] for item in reports] == ["ix-solar-fetch"]
+    assert reports[0]["source_url"] == "https://intelx.example/reports/ix-solar-fetch"
+
+
+def test_intelx_fetch_reports_not_configured_and_unavailable(monkeypatch):
+    from app.services import project_pipeline
+
+    project = SimpleNamespace(id=73, topic="Solar power")
+    monkeypatch.setattr(project_pipeline, "configured_peers", lambda: set())
+    assert project_pipeline._fetch_intelx_research(project) == ([], "not_configured")
+
+    monkeypatch.setattr(project_pipeline, "configured_peers", lambda: {"intelx"})
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("provider exception must not be persisted")
+    monkeypatch.setattr(project_pipeline, "get_peer_json", unavailable)
+    assert project_pipeline._fetch_intelx_research(project) == ([], "unavailable")
 
 
 def test_intelx_normalization_accepts_live_sector_report_shape():

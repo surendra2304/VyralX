@@ -5,7 +5,7 @@ from app.main import app
 from app.services.renderer import PRESETS
 from app.services.rights import source_is_publishable
 from app.config import Settings
-from app.models import Source
+from app.models import ContentPack, PublishJob, RenderJob, Source, VideoProject
 from app.schemas import PublishRequest
 import pytest
 
@@ -14,6 +14,231 @@ client = TestClient(app)
 def test_health_and_dashboard():
     assert client.get("/health").json()["service"] == "vyralx"
     assert "VyralX Control Room" in client.get("/").text
+
+def test_pending_publish_listing_exposes_final_description_and_tags():
+    from app.database import SessionLocal
+    from uuid import uuid4
+
+    description = (
+        "An original video description.\n\nStock footage credits:\n"
+        "- Pexels creator (Pexels): https://www.pexels.com/video/123456/ "
+        "— License: https://www.pexels.com/license/"
+    )
+    with SessionLocal() as db:
+        job = PublishJob(
+            asset_id=987654,
+            render_job_id=987655,
+            title="Operator review fixture " + uuid4().hex[:8],
+            description=description,
+            tags_json='["solar", "education"]',
+            privacy_status="private",
+            status="pending_approval",
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        job_id = job.id
+
+    try:
+        response = client.get("/api/publish")
+        assert response.status_code == 200
+        row = next(item for item in response.json() if item["id"] == job_id)
+        assert row["description"] == description
+        assert row["tags"] == ["solar", "education"]
+        assert row["status"] == "pending_approval"
+    finally:
+        with SessionLocal() as db:
+            db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+            db.commit()
+
+
+def test_publish_listing_includes_project_qa_snapshot():
+    import json
+    from uuid import uuid4
+    from app.database import SessionLocal
+
+    project_key = "qa-review-" + uuid4().hex[:12]
+    with SessionLocal() as db:
+        pack = ContentPack(
+            topic="Test video topic",
+            video_format="shorts",
+            status="generated",
+            pack_json=json.dumps({
+                "production_qa": {
+                    "status": "review_required",
+                    "warning_count": 2,
+                    "passed_count": 5,
+                    "checks": [{"id": "caption_timing", "status": "warning"}],
+                    "automatic_publish_approval": False,
+                }
+            }),
+        )
+        db.add(pack)
+        db.flush()
+        project = VideoProject(
+            project_key=project_key,
+            topic="Test video topic",
+            video_format="shorts",
+            target_seconds=45,
+            status="completed",
+            content_pack_id=pack.id,
+        )
+        db.add(project)
+        db.flush()
+        render = RenderJob(
+            asset_id=987654,
+            preset="shorts",
+            status="completed",
+            output_path="/not-downloaded-by-this-list-test.mp4",
+            project_id=project.id,
+            options_json="{}",
+        )
+        db.add(render)
+        db.flush()
+        job = PublishJob(
+            asset_id=987654,
+            render_job_id=render.id,
+            title="Project QA review fixture " + uuid4().hex[:8],
+            description="Review test description",
+            status="pending_approval",
+        )
+        db.add(job)
+        db.commit()
+        job_id, render_id, project_id, pack_id = job.id, render.id, project.id, pack.id
+
+    try:
+        response = client.get("/api/publish")
+        assert response.status_code == 200
+        row = next(item for item in response.json() if item["id"] == job_id)
+        assert row["production_qa"]["status"] == "review_required"
+        assert row["production_qa"]["warning_count"] == 2
+        assert row["production_qa"]["checks"][0]["id"] == "caption_timing"
+    finally:
+        with SessionLocal() as db:
+            db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+            db.query(RenderJob).filter(RenderJob.id == render_id).delete()
+            db.query(VideoProject).filter(VideoProject.id == project_id).delete()
+            db.query(ContentPack).filter(ContentPack.id == pack_id).delete()
+            db.commit()
+
+
+def test_dashboard_requires_reviewing_final_publish_description():
+    html = client.get("/").text
+    assert "Review final description and stock attributions" in html
+    assert "Review production QA" in html
+    assert "I reviewed the final render, title, description and creator credits" in html
+    assert "Download MP4 for review" in html
+
+
+def test_publish_approval_refreshes_changed_attribution_before_queuing(tmp_path, monkeypatch):
+    from uuid import uuid4
+
+    from app import main as main_module
+    from app.database import SessionLocal
+    from app.models import Asset, RenderJob, Source
+
+    monkeypatch.setattr(main_module.settings, "youtube_upload_enabled", True)
+    render_path = tmp_path / "completed-render.mp4"
+    render_path.write_bytes(b"test render placeholder")
+    suffix = uuid4().hex[:10]
+    with SessionLocal() as db:
+        source = Source(
+            title="Attribution review source",
+            source_url=f"https://www.pexels.com/video/{suffix}/",
+            platform="pexels",
+            creator="Current Pexels Creator",
+            license_name="Pexels Content License",
+            permission_reference="https://www.pexels.com/license/",
+            rights_verified=True,
+            status="licensed",
+        )
+        db.add(source)
+        db.flush()
+        asset = Asset(
+            source_id=source.id,
+            title="Attribution review asset",
+            file_path=str(tmp_path / "source.mp4"),
+            rights_verified=True,
+        )
+        db.add(asset)
+        db.flush()
+        render = RenderJob(
+            asset_id=asset.id,
+            preset="shorts",
+            status="completed",
+            output_path=str(render_path),
+            options_json="{}",
+        )
+        db.add(render)
+        db.flush()
+        job = PublishJob(
+            asset_id=asset.id,
+            render_job_id=render.id,
+            title="Attribution review test",
+            description="Original description without generated credits",
+            tags_json='["education"]',
+            privacy_status="private",
+            status="pending_approval",
+        )
+        db.add(job)
+        db.commit()
+        source_id, asset_id, render_id, job_id = source.id, asset.id, render.id, job.id
+
+    try:
+        response = client.post(f"/api/publish/{job_id}/execute")
+        assert response.status_code == 409
+        assert "review the refreshed description" in response.json()["detail"].lower()
+        with SessionLocal() as db:
+            saved = db.get(PublishJob, job_id)
+            assert saved is not None and saved.status == "pending_approval"
+            assert "Current Pexels Creator" in saved.description
+            assert "Stock attribution changed" in saved.error
+    finally:
+        with SessionLocal() as db:
+            db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+            db.query(RenderJob).filter(RenderJob.id == render_id).delete()
+            db.query(Asset).filter(Asset.id == asset_id).delete()
+            db.query(Source).filter(Source.id == source_id).delete()
+            db.commit()
+
+
+def test_publish_metadata_obeys_youtube_title_description_and_tag_limits():
+    with pytest.raises(ValueError, match="cannot contain"):
+        PublishRequest(asset_id=1, render_job_id=1, title="Invalid <title>")
+
+    with pytest.raises(ValueError, match="UTF-8 bytes"):
+        PublishRequest(
+            asset_id=1,
+            render_job_id=1,
+            title="Unicode description",
+            description="é" * 2501,
+        )
+
+    exact_budget = PublishRequest(
+        asset_id=1,
+        render_job_id=1,
+        title="Valid title",
+        tags=["a" * 250, "b" * 249],
+    )
+    assert exact_budget.tags == ["a" * 250, "b" * 249]
+
+    with pytest.raises(ValueError, match="500-character API limit"):
+        PublishRequest(
+            asset_id=1,
+            render_job_id=1,
+            title="Tag overflow",
+            tags=["a" * 251, "b" * 249],
+        )
+
+    normalized = PublishRequest(
+        asset_id=1,
+        render_job_id=1,
+        title="  Clean title  ",
+        tags=[" solar ", "solar", "wind energy", ""],
+    )
+    assert normalized.title == "Clean title"
+    assert normalized.tags == ["solar", "wind energy"]
+
 
 def test_render_presets_are_defined():
     assert PRESETS["shorts"] == (1080, 1920)
@@ -125,7 +350,11 @@ def test_canonical_friday_task_contract_and_idempotent_replay(monkeypatch):
         assert replay.status_code == 202
         assert replay.json()["idempotent_replay"] is True
 
-        changed = {**payload, "inputs": {"topic": "different topic"}}
+        changed = {
+            **payload,
+            "inputs": {"topic": "different topic"},
+            "payload": {"topic": "different topic"},
+        }
         conflict = client.post("/v1/task/execute", json=changed)
         assert conflict.status_code == 409
 

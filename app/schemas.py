@@ -60,6 +60,45 @@ class PublishRequest(BaseModel):
     scheduled_at: datetime | None = None
     confirm_rights: bool = False
 
+    @field_validator("title")
+    @classmethod
+    def validate_youtube_title(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("YouTube title must not be blank")
+        if "<" in value or ">" in value:
+            raise ValueError("YouTube title cannot contain '<' or '>'")
+        return value
+
+    @field_validator("description")
+    @classmethod
+    def validate_youtube_description(cls, value: str) -> str:
+        if "<" in value or ">" in value:
+            raise ValueError("YouTube description cannot contain '<' or '>'")
+        if len(value.encode("utf-8")) > 5000:
+            raise ValueError("YouTube description must not exceed 5000 UTF-8 bytes")
+        return value.strip()
+
+    @field_validator("tags")
+    @classmethod
+    def validate_youtube_tags(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            tag = raw.strip()
+            key = tag.casefold()
+            if not tag or key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(tag)
+        # YouTube counts commas between tag items and quotation marks around
+        # tags that contain spaces toward the 500-character snippet.tags limit.
+        budget = sum(len(tag) + (2 if " " in tag else 0) for tag in cleaned)
+        budget += max(0, len(cleaned) - 1)
+        if budget > 500:
+            raise ValueError("YouTube tags must fit within the 500-character API limit")
+        return cleaned
+
     @field_validator("scheduled_at")
     @classmethod
     def validate_scheduled_at(cls, value: datetime | None) -> datetime | None:
@@ -174,6 +213,8 @@ class UniverseTaskEnvelope(BaseModel):
         if not isinstance(data, dict):
             return data
         data = dict(data)
+        if "inputs" in data and "payload" in data and data["inputs"] != data["payload"]:
+            raise ValueError("inputs and payload must match when both are provided")
         if "payload" in data and "inputs" not in data:
             data["inputs"] = data["payload"]
         elif "inputs" in data and "payload" not in data:
