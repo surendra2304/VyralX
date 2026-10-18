@@ -154,6 +154,8 @@ class VideoProject(Base):
     render_job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     primary_asset_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     thumbnail_path: Mapped[str] = mapped_column(String(2048), default="")
+    memora_memory_id: Mapped[str] = mapped_column(String(128), default="")
+    memora_memory_status: Mapped[str] = mapped_column(String(32), default="disabled")
     asset_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     error: Mapped[str] = mapped_column(Text, default="")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
