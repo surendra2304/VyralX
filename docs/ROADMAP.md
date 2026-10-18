@@ -40,7 +40,8 @@ This file distinguishes implemented repository capability from external producti
 - [x] Add FFmpeg signal-level scans for sustained black frames and long silence gaps; analysis failures become operator-QA warnings and never auto-approve.
 - [x] Add FFmpeg integrated loudness, true-peak, and clipping-sample metrics to production QA; incomplete measurements remain review warnings.
 - [x] Add measured phrase/chunk-level caption-to-speech timing for local eSpeak narration; estimated external/cached timings trigger a QA warning.
-- [ ] Add phoneme/word-level forced alignment and confirm a channel-specific loudness standard against real rendered samples.
+- [x] Add an optional authenticated word-level forced-alignment adapter with transcript/timing validation and a QA-visible safe fallback; live aligner remains unverified.
+- [ ] Add phoneme-level alignment and confirm a channel-specific loudness standard against real rendered samples.
 - [ ] Add upload session checkpoint/idempotency support to narrow the uncertain state window further.
 
 ## Track D — FRIDAY Universe mesh

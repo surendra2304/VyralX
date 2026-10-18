@@ -124,12 +124,13 @@ def build_project_quality_report(
     timing_ok = bool(subtitle_segments)
     expected_caption_end = float(target_seconds)
     expected_caption_end_label = "target duration"
-    if voiceover_requested and caption_alignment_status == "measured_chunk":
+    if voiceover_requested and caption_alignment_status in {"measured_chunk", "word_forced"}:
         measured_duration = _finite_number(voiceover_duration)
         if measured_duration is not None and measured_duration > 0:
             expected_caption_end = measured_duration
             expected_caption_end_label = "measured narration duration"
     previous_end = 0.0
+    first_start: float | None = None
     for index, cue in enumerate(subtitle_segments):
         try:
             start = float(cue["start_seconds"])
@@ -137,15 +138,32 @@ def build_project_quality_report(
         except (KeyError, TypeError, ValueError):
             timing_ok = False
             break
-        if (not math.isfinite(start) or not math.isfinite(end) or start < previous_end
-                or end <= start or not str(cue.get("text") or "").strip()):
+        if (
+            not math.isfinite(start)
+            or not math.isfinite(end)
+            or start < previous_end
+            or end <= start
+            or end > expected_caption_end + 0.15
+            or not str(cue.get("text") or "").strip()
+        ):
             timing_ok = False
             break
-        if index == 0 and start > 0.05:
-            timing_ok = False
-            break
+        if first_start is None:
+            first_start = start
+            if caption_alignment_status != "word_forced" and start > 0.05:
+                timing_ok = False
+                break
         previous_end = end
-    timing_ok = timing_ok and abs(previous_end - expected_caption_end) <= 0.05
+    if caption_alignment_status == "word_forced":
+        allowed_edge_silence = max(2.0, expected_caption_end * 0.10)
+        timing_ok = (
+            timing_ok
+            and first_start is not None
+            and first_start <= min(1.0, expected_caption_end * 0.10)
+            and expected_caption_end - previous_end <= allowed_edge_silence
+        )
+    else:
+        timing_ok = timing_ok and abs(previous_end - expected_caption_end) <= 0.05
     add("caption_timing", "Caption timing", bool(timing_ok),
         f"Caption cues are ordered, non-overlapping, and span the {expected_caption_end_label}."
         if timing_ok else f"Caption cues have invalid timing or do not span the {expected_caption_end_label}.",
@@ -153,6 +171,13 @@ def build_project_quality_report(
 
     if not voiceover_requested:
         add("caption_sync", "Caption-to-speech alignment", None, "Narration was not requested.")
+    elif caption_alignment_status == "word_forced":
+        add(
+            "caption_sync", "Caption-to-speech alignment", bool(subtitle_segments),
+            "Caption cues passed transcript and word-timestamp validation against the configured forced aligner."
+            if subtitle_segments else "Forced alignment returned no caption cues.",
+            caption_alignment_status, "validated word-level narration alignment",
+        )
     elif caption_alignment_status == "measured_chunk":
         add(
             "caption_sync", "Caption-to-speech alignment", bool(subtitle_segments),
@@ -161,10 +186,15 @@ def build_project_quality_report(
             caption_alignment_status, "measured chunk-level narration timing",
         )
     else:
+        message = (
+            "Word-level alignment was unavailable; review fallback cue timing and playback before publishing."
+            if caption_alignment_status == "alignment_fallback"
+            else "Caption timings are estimated rather than derived from measured narration chunks; review playback and align cues before publishing."
+        )
         add(
             "caption_sync", "Caption-to-speech alignment", False,
-            "Caption timings are estimated rather than derived from measured narration chunks; review playback and align cues before publishing.",
-            caption_alignment_status or "unknown", "measured chunk-level narration timing",
+            message,
+            caption_alignment_status or "unknown", "validated word-level or measured chunk-level narration timing",
         )
 
     thumbnail_ok = _has_file(thumbnail_path)

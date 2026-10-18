@@ -172,3 +172,52 @@ def test_caption_alignment_warning_distinguishes_estimated_and_not_applicable():
     assert "not word-level forced alignment" in next(
         item["message"] for item in measured["checks"] if item["id"] == "caption_sync"
     )
+
+
+def test_word_forced_alignment_is_accepted_with_measured_audio_edge_silence(tmp_path):
+    voice = tmp_path / "voice.wav"
+    captions = tmp_path / "captions.srt"
+    thumbnail = tmp_path / "thumbnail.jpg"
+    voice.write_bytes(b"audio")
+    captions.write_text(
+        "1\\n00:00:00,180 --> 00:00:01,900\\nSolar panels work. Clean power helps.\\n",
+        encoding="utf-8",
+    )
+    thumbnail.write_bytes(b"image")
+    report = build_project_quality_report(
+        target_seconds=2,
+        actual_duration=2.0,
+        expected_width=1080,
+        expected_height=1920,
+        actual_width=1080,
+        actual_height=1920,
+        audio_stream_count=1,
+        voiceover_requested=True,
+        voiceover_path=voice,
+        voiceover_duration=2.2,
+        subtitle_path=captions,
+        subtitle_segments=[
+            {"start_seconds": 0.18, "end_seconds": 0.8, "text": "Solar panels work."},
+            {"start_seconds": 1.1, "end_seconds": 1.9, "text": "Clean power helps."},
+        ],
+        caption_text="Solar panels work. Clean power helps.",
+        thumbnail_path=thumbnail,
+        scene_rights_checks=[True],
+        caption_alignment_status="word_forced",
+        signal_analysis={
+            "status": "analyzed",
+            "black_intervals": [],
+            "silence_intervals": [],
+            "audio_analyzed": True,
+            "audio_metrics": {
+                "status": "analyzed",
+                "integrated_loudness_lufs": -16.0,
+                "true_peak_dbfs": -1.2,
+                "clipped_samples": 0,
+            },
+        },
+    )
+    checks = {item["id"]: item for item in report["checks"]}
+    assert checks["caption_sync"]["status"] == "passed"
+    assert checks["caption_timing"]["status"] == "passed"
+    assert report["automatic_publish_approval"] is False
