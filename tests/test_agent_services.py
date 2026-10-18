@@ -58,6 +58,10 @@ def test_content_pack_parser_requires_complete_contract():
         "thumbnail_brief": "Thumbnail concept",
     }
     parsed = _extract_json(__import__("json").dumps(full_pack))
+    fenced = _extract_json("```json\\n" + __import__("json").dumps(full_pack) + "\\n```")
+    assert fenced["script"] == "An original script"
+    prefaced = _extract_json("Here is the requested object:\\n" + __import__("json").dumps(full_pack))
+    assert prefaced["title_options"] == ["A title"]
     assert parsed["tags"] == ["one", "two"]
     with pytest.raises(ValueError, match="missing fields"):
         _extract_json('{"hook":"incomplete"}')
