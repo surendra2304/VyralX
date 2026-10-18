@@ -47,6 +47,8 @@ python -m venv .venv
 pip install -e ".[dev]"
 cp .env.example .env
 uvicorn app.main:app --host 127.0.0.1 --port 8000
+# In a second terminal, from the same project/venv:
+python -m app.worker
 pytest
 ruff check app tests scripts
 \`\`\`
@@ -80,7 +82,7 @@ The stable machine-readable contract is at \`GET /api/agent/manifest\`. Peer hea
 
 ## End-to-end topic-to-video projects
 
-Use \`POST /api/projects\` to queue a complete project without holding the request open. The worker generates an original script/scene plan through Inference, searches official Pexels stock results for each scene, downloads up to four permitted clips after explicit license confirmation, produces timed captions, creates local eSpeak narration by default (or uses a separately configured external TTS provider), renders a 9:16 Shorts or 16:9 landscape montage, and extracts a thumbnail.
+Use \`POST /api/projects\` to queue a complete project without holding the request open. The worker generates an original script/scene plan through Inference, searches official Pexels stock results for each scene, downloads up to four permitted clips after explicit license confirmation, produces timed captions, creates local eSpeak narration by default (or uses a separately configured external TTS provider), renders a 9:16 Shorts or 16:9 landscape montage, and extracts a thumbnail, then checks the final duration, dimensions, and requested audio track before marking the project complete.
 
 Poll \`GET /api/projects/{project_id}\` or list via \`GET /api/projects\`. A completed project returns a primary asset ID, all scene asset IDs, content-pack ID, completed render-job ID, thumbnail path and authenticated render-download path. Use the primary asset ID and render-job ID to create a publish request, then inspect and approve it separately. Failed project attempts can be retried within the configured limit; existing downloaded scenes and the content pack are reused when available.
 
