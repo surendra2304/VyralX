@@ -67,7 +67,8 @@ This file distinguishes implemented repository capability from external producti
 - [x] Run and fix all CI checks on the latest branch head (Ruff, pytest, Docker image build, and Compose validation passed for the verified head; rerun after subsequent changes).
 - [x] Add a strict resolved-Python dependency vulnerability audit to CI; the first green run is required before merge.
 - [x] Add full-history Gitleaks secret scanning and Trivy HIGH/CRITICAL fixed-vulnerability scanning for the built image's OS and Python libraries; release candidates still require a green scan on the exact final commit.
-- [ ] Pin the container base image by immutable digest and lock resolved application dependencies before immutable production release; investigate and rotate any historical credentials surfaced by secret scanning.
+- [x] Pin the Python base image to its immutable multi-platform index digest; refresh only through a reviewed update and a green container scan.
+- [ ] Lock resolved application dependencies before immutable production release; investigate and rotate any historical credentials surfaced by secret scanning.
 - [ ] Validate the actual external Docker network and Dokploy stack before deploy.
 - [ ] Test persistence across recreation, encrypted backup and a successful restore.
 - [ ] Profile memory/CPU on the current AMD interim VM and separately on the target ARM VM.
