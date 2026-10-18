@@ -116,8 +116,100 @@ def _fetch_intelx_research(project: VideoProject) -> tuple[list[dict], str]:
         return [], "unavailable"
 
 
+_MEMORA_PRIVATE_NAMESPACE = "memora://vyralx/private"
+_MEMORA_ERROR_STATES = {"error", "failed", "failure", "rejected", "blocked"}
+
+
+class _MemoraProviderError(RuntimeError):
+    """Memora explicitly returned an error envelope or failed status."""
+
+
+
+def _memora_collection_items(value, *, depth: int = 0) -> list | None:
+    """Unwrap known JSON collection envelopes without treating success metadata as memories."""
+    if depth > 4:
+        return None
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, dict):
+        return None
+    status = str(value.get("status") or "").strip().casefold()
+    if value.get("error") or value.get("success") is False or status in _MEMORA_ERROR_STATES:
+        raise _MemoraProviderError("Memora search returned an error envelope")
+    for key in ("items", "memories", "results", "matches"):
+        if isinstance(value.get(key), list):
+            return value[key]
+    for key in ("result", "response", "payload", "data"):
+        nested = value.get(key)
+        if isinstance(nested, (dict, list)):
+            items = _memora_collection_items(nested, depth=depth + 1)
+            if items is not None:
+                return items
+    return None
+
+
+def _normalize_memora_memory(item: dict) -> dict | None:
+    """Project one provider result into the bounded, untrusted continuity schema."""
+    record = dict(item)
+    for key in ("memory", "document", "record"):
+        nested = record.get(key)
+        if isinstance(nested, dict):
+            record = {**record, **nested}
+            break
+
+    namespace = record.get("namespace_path") or record.get("target_namespace_path") or record.get("namespace")
+    if namespace and str(namespace).rstrip("/") != _MEMORA_PRIVATE_NAMESPACE:
+        return None
+
+    memory_id = str(record.get("id") or record.get("memory_id") or record.get("document_id") or "").strip()
+    raw_content = record.get("content_text") or record.get("content") or record.get("text") or ""
+    if isinstance(raw_content, dict):
+        raw_content = raw_content.get("text") or raw_content.get("content_text") or ""
+    content = str(raw_content or "").strip()
+    if not memory_id or not content:
+        return None
+
+    try:
+        importance = float(record.get("importance", 0.0))
+    except (TypeError, ValueError):
+        importance = 0.0
+    if not math.isfinite(importance):
+        importance = 0.0
+    importance = min(1.0, max(0.0, importance))
+    return {
+        "id": memory_id[:120],
+        "memory_type": str(record.get("memory_type") or record.get("type") or "")[:40],
+        "content_text": content[:1200],
+        "importance": importance,
+        "created_at": str(record.get("created_at") or record.get("stored_at") or "")[:80],
+    }
+
+
+def _memora_memory_receipt(response: dict) -> str:
+    """Extract a real memory ID; never mark a failed provider envelope as stored."""
+    current: object = response
+    for _ in range(5):
+        if not isinstance(current, dict):
+            break
+        status = str(current.get("status") or "").strip().casefold()
+        if current.get("error") or current.get("success") is False or status in _MEMORA_ERROR_STATES:
+            raise RuntimeError("Memora write returned an error envelope")
+        memory_id = str(current.get("memory_id") or current.get("id") or current.get("document_id") or "").strip()
+        if memory_id:
+            return memory_id[:128]
+        nested = next(
+            (current[key] for key in ("memory", "receipt", "result", "response", "data")
+             if isinstance(current.get(key), dict)),
+            None,
+        )
+        if nested is None:
+            break
+        current = nested
+    raise RuntimeError("Memora response did not include a successful memory receipt")
+
+
 def _fetch_memora_context(project: VideoProject) -> tuple[list[dict], str]:
-    """Read bounded prior VyralX project memories from its private namespace only."""
+    """Read bounded, topic-relevant VyralX memories from its private namespace only."""
     settings = get_settings()
     if not settings.memora_read_enabled:
         return [], "disabled"
@@ -129,26 +221,36 @@ def _fetch_memora_context(project: VideoProject) -> tuple[list[dict], str]:
             "/v1/memories/search",
             {
                 "q": project.topic[:500],
-                "namespace_path": "memora://vyralx/private",
+                "namespace_path": _MEMORA_PRIVATE_NAMESPACE,
                 "limit": 5,
                 "min_score": 0.2,
             },
             timeout_seconds=8.0,
         )
-        if not isinstance(result, list):
-            return [], "unavailable"
+        if isinstance(result, dict) and (
+            result.get("error")
+            or result.get("success") is False
+            or str(result.get("status") or "").strip().casefold() in _MEMORA_ERROR_STATES
+        ):
+            log.warning("Memora search returned an error envelope project_id=%s", project.id)
+            return [], "provider_error"
+        result_items = _memora_collection_items(result)
+        if result_items is None:
+            return [], "invalid_response"
         items = []
-        for item in result[:5]:
-            if not isinstance(item, dict):
+        for raw_item in result_items[:30]:
+            if not isinstance(raw_item, dict):
                 continue
-            items.append({
-                "id": str(item.get("id") or "")[:120],
-                "memory_type": str(item.get("memory_type") or "")[:40],
-                "content_text": str(item.get("content_text") or "")[:1200],
-                "importance": item.get("importance", 0.0),
-                "created_at": str(item.get("created_at") or "")[:80],
-            })
+            item = _normalize_memora_memory(raw_item)
+            if item is None:
+                continue
+            items.append(item)
+            if len(items) == 5:
+                break
         return items, "used" if items else "no_matches"
+    except _MemoraProviderError as exc:
+        log.warning("Memora search provider error project_id=%s error_type=%s", project.id, type(exc).__name__)
+        return [], "provider_error"
     except Exception as exc:
         log.warning("Optional Memora context unavailable project_id=%s error_type=%s", project.id, type(exc).__name__)
         return [], "unavailable"
@@ -397,10 +499,8 @@ def sync_project_memory(project_id: int, db: Session) -> dict:
     db.commit()
     try:
         result = post_peer_json("memora", "/v1/memories", payload, timeout_seconds=8.0)
-        memory_id = str(result.get("id") or result.get("memory_id") or "").strip() if isinstance(result, dict) else ""
-        if not memory_id:
-            raise RuntimeError("Memora response did not include a memory ID")
-        project.memora_memory_id = memory_id[:128]
+        memory_id = _memora_memory_receipt(result)
+        project.memora_memory_id = memory_id
         project.memora_memory_status = "stored"
         db.commit()
         return {"status": "stored", "memory_id": project.memora_memory_id, "idempotent_replay": False}
