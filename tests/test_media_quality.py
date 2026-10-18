@@ -21,6 +21,9 @@ def test_signal_analyzer_parses_black_frames_and_closed_and_trailing_silence(tmp
                 "[silencedetect @ 0x2] silence_start: 11.200000\n"
                 "[silencedetect @ 0x2] silence_end: 14.400000 | silence_duration: 3.200000\n"
                 "[silencedetect @ 0x2] silence_start: 59.000000\n"
+                "[Parsed_ebur128_2 @ 0x3] I: -16.0 LUFS\n"
+                "[Parsed_ebur128_2 @ 0x3] Peak: -1.2 dBFS\n"
+                "[Parsed_astats_1 @ 0x4] Number of samples clipped: 0\n"
             ),
         )
 
@@ -35,6 +38,12 @@ def test_signal_analyzer_parses_black_frames_and_closed_and_trailing_silence(tmp
 
     assert result["status"] == "analyzed"
     assert result["audio_analyzed"] is True
+    assert result["audio_metrics"] == {
+        "status": "analyzed",
+        "integrated_loudness_lufs": -16.0,
+        "true_peak_dbfs": -1.2,
+        "clipped_samples": 0,
+    }
     assert result["black_intervals"] == [
         {"start_seconds": 3.0, "end_seconds": 4.25, "duration_seconds": 1.25}
     ]
@@ -45,6 +54,8 @@ def test_signal_analyzer_parses_black_frames_and_closed_and_trailing_silence(tmp
     assert captured["command"][0] == "ffmpeg-test"
     assert "-vf" in captured["command"] and "blackdetect=" in captured["command"][captured["command"].index("-vf") + 1]
     assert "-af" in captured["command"] and "silencedetect=" in captured["command"][captured["command"].index("-af") + 1]
+    audio_filter = captured["command"][captured["command"].index("-af") + 1]
+    assert "astats=" in audio_filter and "ebur128=" in audio_filter
     assert captured["kwargs"]["timeout"] == 90
     assert captured["kwargs"]["check"] is False
 
@@ -67,6 +78,7 @@ def test_signal_analyzer_skips_audio_filter_when_render_has_no_audio(tmp_path, m
 
     assert result["status"] == "analyzed"
     assert result["audio_analyzed"] is False
+    assert result["audio_metrics"]["status"] == "not_applicable"
     assert result["silence_intervals"] == []
     assert "-vf" in captured["command"]
     assert "-af" not in captured["command"]
@@ -111,3 +123,18 @@ def test_signal_analyzer_handles_missing_files_and_invalid_durations(tmp_path, m
     )
     assert invalid["status"] == "unavailable"
     assert invalid["error_type"] == "invalid_duration"
+
+
+
+def test_audio_metrics_remain_partial_when_ffmpeg_omits_a_measurement():
+    metrics = media_quality._parse_audio_metrics(
+        "[Parsed_ebur128_2] I: -18.0 LUFS\n"
+        "[Parsed_ebur128_2] Peak: -0.5 dBFS\n"
+    )
+
+    assert metrics == {
+        "status": "partial",
+        "integrated_loudness_lufs": -18.0,
+        "true_peak_dbfs": -0.5,
+        "clipped_samples": None,
+    }
