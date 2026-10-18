@@ -127,7 +127,7 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
             assets.append(asset)
             source = db.get(Source, asset.source_id) if asset.source_id else None
             if source and source.platform == "pexels":
-                match = re.search(r"/video/(\d+)", source.source_url)
+                match = re.search(r"/video/[^/?#]*?(\d+)(?:/|$)", source.source_url)
                 if match:
                     used_video_ids.add(int(match.group(1)))
 
