@@ -63,7 +63,9 @@ def verified_render_sources(render: RenderJob, db: Session) -> list[tuple[Asset,
         options = json.loads(render.options_json or "{}")
     except (TypeError, ValueError):
         raise ValueError("Render has invalid persisted options") from None
-    raw_ids = options.get("montage_asset_ids", []) if isinstance(options, dict) else []
+    if not isinstance(options, dict):
+        raise ValueError("Render options must be a JSON object")
+    raw_ids = options.get("montage_asset_ids", [])
     if not isinstance(raw_ids, list):
         raise ValueError("Render montage_asset_ids must be an array")
     asset_ids: list[int] = []
@@ -116,11 +118,17 @@ def append_stock_attribution(description: str, source_records: list[tuple[Asset,
         license_url = str(source.permission_reference or "").strip()
         if not url or not license_url:
             raise ValueError("Pexels attribution requires both a source URL and license reference")
-        if url in seen or (url in description and license_url in description):
+        if url in seen:
+            continue
+        # Creator metadata is untrusted provider input; normalize whitespace so
+        # it cannot inject extra lines into the description's attribution block.
+        creator = " ".join(str(source.creator or "Pexels creator").split())[:300] or "Pexels creator"
+        credit_line = f"- {creator} (Pexels): {url} — License: {license_url}"
+        if credit_line in description:
+            seen.add(url)
             continue
         seen.add(url)
-        creator = str(source.creator or "Pexels creator").strip()[:300] or "Pexels creator"
-        lines.append(f"- {creator} (Pexels): {url} — License: {license_url}")
+        lines.append(credit_line)
     if not lines:
         return description
     heading = "Stock footage credits:"

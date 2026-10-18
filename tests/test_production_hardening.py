@@ -111,6 +111,25 @@ def test_render_rights_gate_supports_all_eight_montage_scenes():
     assert [asset.id for asset, _ in verified] == list(range(1, 9))
 
 
+def test_stock_attribution_keeps_creator_credit_when_description_mentions_urls():
+    source = SimpleNamespace(
+        platform="pexels",
+        source_url="https://www.pexels.com/video/123456/",
+        creator="Creator\nInjected line",
+        permission_reference="https://www.pexels.com/license/",
+    )
+    original = (
+        "Source: https://www.pexels.com/video/123456/\n"
+        "License: https://www.pexels.com/license/"
+    )
+
+    description = append_stock_attribution("Original description\n" + original, [(SimpleNamespace(id=1), source)])
+
+    assert "Stock footage credits:" in description
+    assert "- Creator Injected line (Pexels): https://www.pexels.com/video/123456/" in description
+    assert description.count("https://www.pexels.com/video/123456/") == 2
+
+
 def test_render_rights_gate_rejects_invalid_asset_ids():
     class EmptySession:
         def get(self, model, key):
@@ -121,6 +140,16 @@ def test_render_rights_gate_rejects_invalid_asset_ids():
         options_json=json.dumps({"montage_asset_ids": [-1]}),
     )
     with pytest.raises(ValueError, match="invalid asset ID"):
+        verified_render_sources(render, EmptySession())
+
+
+def test_render_rights_gate_rejects_non_object_options():
+    class EmptySession:
+        def get(self, model, key):
+            return None
+
+    render = SimpleNamespace(asset_id=1, options_json="[]")
+    with pytest.raises(ValueError, match="JSON object"):
         verified_render_sources(render, EmptySession())
 
 
