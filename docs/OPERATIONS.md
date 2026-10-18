@@ -92,7 +92,8 @@ The adapter does not install or host a speech-alignment model by itself. Keep th
 - /health only confirms the API process is responding.
 - /ready checks DB connectivity and FFmpeg; with WORKER_REQUIRED=true, it also verifies fresh worker heartbeat.
 - RenderJob left in running after a worker restart becomes failed. Inspect logs/output and use a bounded retry if safe.
-- PublishJob left in uploading becomes uncertain. The provider may have accepted the upload. Check YouTube Studio/API state and then call the resolve endpoint with uploaded plus a video ID, or not_uploaded only after confirming no video exists. Never blindly repeat an uncertain upload.
+- If YouTube returned a video ID but the worker stopped before committing the job state, a private atomic checkpoint scoped to the publish-job ID and upload attempt lets startup recovery finalize that confirmed success. The checkpoint is removed after a successful database commit.
+- A PublishJob left in uploading without a matching success checkpoint becomes uncertain. Check YouTube Studio/API state, then resolve it as uploaded with a video ID or as not_uploaded only after confirming no video exists. The checkpoint does not resume an in-flight transfer; never blindly repeat an uncertain upload.
 - A task left running after restart becomes failed; submit a new task after checking possible side effects.
 - Failed render/upload jobs retain an error description and attempt count.
 

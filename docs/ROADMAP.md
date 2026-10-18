@@ -43,7 +43,8 @@ This file distinguishes implemented repository capability from external producti
 - [x] Add measured phrase/chunk-level caption-to-speech timing for local eSpeak narration; estimated external/cached timings trigger a QA warning.
 - [x] Add an optional authenticated word-level forced-alignment adapter with transcript/timing validation and a QA-visible safe fallback; live aligner remains unverified.
 - [ ] Add phoneme-level alignment and confirm a channel-specific loudness standard against real rendered samples.
-- [ ] Add upload session checkpoint/idempotency support to narrow the uncertain state window further.
+- [x] Persist an atomic private upload-success receipt scoped to publish-job ID and attempt so restart recovery can commit a provider-confirmed video ID from the post-response/pre-database window.
+- [ ] Persist and restore resumable-session transfer progress and reconcile interrupted in-flight transfers with YouTube before retrying.
 
 ## Track D — FRIDAY Universe mesh
 
