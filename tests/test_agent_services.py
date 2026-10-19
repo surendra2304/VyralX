@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -963,7 +964,9 @@ def test_youtube_success_checkpoint_is_private_and_attempt_scoped(tmp_path, monk
     assert youtube_service.write_upload_success_checkpoint(42, 3, "abcdefghijk") is True
     checkpoint = settings.youtube_token_file.parent / "upload-checkpoints" / "42.json"
     assert checkpoint.is_file()
-    assert checkpoint.stat().st_mode & 0o777 == 0o600
+    # POSIX mode bits are meaningful on Linux CI/production, not on Windows.
+    if os.name == "posix":
+        assert checkpoint.stat().st_mode & 0o777 == 0o600
     assert youtube_service.load_upload_success_checkpoint(42, 3) == "abcdefghijk"
     assert youtube_service.load_upload_success_checkpoint(42, 2) is None
 
@@ -1124,7 +1127,9 @@ def test_upload_session_checkpoint_is_private_and_attempt_scoped(tmp_path, monke
     )
     path = settings.youtube_token_file.parent / "upload-checkpoints" / "73.session.json"
     assert path.is_file()
-    assert path.stat().st_mode & 0o777 == 0o600
+    # POSIX mode bits are meaningful on Linux CI/production, not on Windows.
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o777 == 0o600
     loaded = youtube_service.load_upload_session_checkpoint(73, 5)
     assert loaded is not None
     assert loaded["confirmed_offset"] == 256
@@ -1204,9 +1209,10 @@ def test_worker_recovers_interrupted_upload_to_resumable_without_bumping_attempt
                 db.commit()
 
 
-def test_worker_keeps_upload_resumable_after_recoverable_transport_failure(tmp_path, monkeypatch):
+def test_worker_checks_sentinel_policy_and_keeps_upload_resumable_after_transport_failure(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
+    from app import worker
     from app.models import Asset, PublishJob, RenderJob, Source
     from app.services import youtube as youtube_service
     from app.worker import process_publish_job
@@ -1215,6 +1221,15 @@ def test_worker_keeps_upload_resumable_after_recoverable_transport_failure(tmp_p
     video.write_bytes(b"resumable-upload-fixture")
     settings = SimpleNamespace(youtube_token_file=tmp_path / "secrets" / "youtube-token.json")
     monkeypatch.setattr(youtube_service, "get_settings", lambda: settings)
+    monkeypatch.setattr(worker.settings, "sentinel_required_for_publish", True)
+    monkeypatch.setattr(worker.settings, "sentinel_policy_path", "/api/v1/vyralx/publish-policy")
+    policy_requests = []
+
+    def allow_policy(peer_name, path, payload):
+        policy_requests.append((peer_name, path, payload))
+        return {"allowed": True, "decision": "allow"}
+
+    monkeypatch.setattr(worker, "post_peer_json", allow_policy)
 
     job_id = render_id = asset_id = source_id = None
     try:
@@ -1287,6 +1302,21 @@ def test_worker_keeps_upload_resumable_after_recoverable_transport_failure(tmp_p
 
         monkeypatch.setattr("app.worker.upload_video", fake_upload_video)
         process_publish_job(job_id)
+
+        assert len(policy_requests) == 1
+        peer_name, policy_path, payload = policy_requests[0]
+        assert peer_name == "sentinel"
+        assert policy_path == "/api/v1/vyralx/publish-policy"
+        assert payload == {
+            "action": "youtube.publish",
+            "job_id": job_id,
+            "asset_id": asset_id,
+            "title": "Resumable transport recovery",
+            "privacy_status": "private",
+            "scheduled_at": "",
+            "operator_review_acknowledged": True,
+            "rights_verified": True,
+        }
 
         with SessionLocal() as db:
             saved = db.get(PublishJob, job_id)

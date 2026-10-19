@@ -40,17 +40,18 @@ The Compose template attaches both containers to the existing \`friday_mesh\` ne
 
 Requirements: Python 3.11+, FFmpeg/FFprobe and eSpeak NG (`espeak-ng`) for the default local narration provider. The Docker image installs these binaries.
 
+Install the same pinned packaging tool and lockfile-based environment used by CI:
+
 \`\`\`bash
-python -m venv .venv
-# Linux/macOS: source .venv/bin/activate
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
-cp .env.example .env
-uvicorn app.main:app --host 127.0.0.1 --port 8000
-# In a second terminal, from the same project/venv:
-python -m app.worker
-pytest
-ruff check app tests scripts
+python -m pip install "uv==0.13.1"
+uv sync --frozen --extra dev
+# Windows PowerShell: Copy-Item .env.example .env
+# Linux/macOS: cp .env.example .env
+uv run --frozen --extra dev uvicorn app.main:app --host 127.0.0.1 --port 8000
+# In a second terminal, from the same project:
+uv run --frozen --extra dev python -m app.worker
+uv run --frozen --extra dev pytest
+uv run --frozen --extra dev ruff check app tests scripts
 \`\`\`
 
 Visit \`http://127.0.0.1:8000\` for the operator dashboard and \`http://127.0.0.1:8000/docs\` for interactive API docs. Development can bypass the placeholder key only when \`APP_ENV=development\`; never expose that mode to the internet.

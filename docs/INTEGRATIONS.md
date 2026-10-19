@@ -45,15 +45,15 @@ References: [IntelX route](https://github.com/surendra2304/IntelX/blob/c236a6bbe
 
 References: [Memora router](https://github.com/surendra2304/Memora/blob/4e744cdf9ae6f4756c51a36bffbbc86ab14684a2/apps/api/routers/v1_memories.py), [Memora authentication](https://github.com/surendra2304/Memora/blob/4e744cdf9ae6f4756c51a36bffbbc86ab14684a2/apps/api/dependencies.py), [VyralX peer client](https://github.com/surendra2304/VyralX/blob/bcaafa9d92c887f7a0b01b15a26039d41a795c30/app/services/peers.py).
 
-## Sentinel publish gate — NOT contract-compatible yet
+## Sentinel publish gate — source contract wired; live rollout pending
 
-VyralX's optional worker hook sends a generic policy payload containing `action: "youtube.publish"`, `job_id`, `asset_id`, `title`, `privacy_status`, and `scheduled_at`. It expects an explicit `allowed: true` or `decision: "allow"/"approved"`.
+When enabled, VyralX calls `POST /api/v1/vyralx/publish-policy` and expects an explicit `allowed: true` or `decision: "allow"/"approved"`. It sends the policy request fields required by the dedicated Sentinel contract: `job_id`, `asset_id`, `title`, `privacy_status`, `scheduled_at`, `operator_review_acknowledged`, and `rights_verified`. The approval assertion is derived from the recorded `approved_at` timestamp; the rights assertion is true only after the primary source and every source in the render have verified rights evidence and repeat-use checks passed. Missing approval or source-rights evidence must deny publication.
 
-The currently verified Sentinel route `POST /api/v1/friday/gate/review` is a **software delivery/review gate**. Its request requires `task_id` and accepts project files/manifests/commit metadata; its response uses `verdict` (`PASSED`, `BLOCKED`, or `REQUIRES_APPROVAL`) and `blocks_delivery`. That is not the same request or response contract as VyralX's generic `youtube.publish` hook. Do **not** configure that software-review route as `SENTINEL_POLICY_PATH`.
+The dedicated authenticated, default-deny endpoint is under [Sentinel PR #4](https://github.com/surendra2304/Sentinel/pull/4), which is **open and not merged** as of this revision. Sentinel's current `main` still exposes `POST /api/v1/friday/gate/review`, a software delivery/review gate; do not point VyralX at that incompatible endpoint. VyralX defaults to the dedicated path but leaves `SENTINEL_REQUIRED_FOR_PUBLISH=false`. Keep the gate disabled until Sentinel PR #4 is accepted and deployed, shared credentials are configured in the secret store, and authenticated default-deny/allow contract tests pass against the live private network.
 
-Until Sentinel exposes a dedicated, authenticated publish-policy endpoint with a documented fail-closed schema, leave `SENTINEL_REQUIRED_FOR_PUBLISH=false`. If the flag is enabled against an incompatible or missing endpoint, VyralX should fail closed and refuse the upload rather than infer approval.
+Sentinel's `rights_verified` field is an assertion from VyralX after its local checks; Sentinel does not independently establish media licensing or human review. The Sentinel policy endpoint returns a decision only and never uploads media.
 
-References: [VyralX publish worker](https://github.com/surendra2304/VyralX/blob/bcaafa9d92c887f7a0b01b15a26039d41a795c30/app/worker.py), [Sentinel gate schema and route](https://github.com/surendra2304/Sentinel/blob/a710963424b43589f89bdf75776b3b6027d4ca1c/sentinel/core/review/gated_reviewer.py), [Sentinel route registration](https://github.com/surendra2304/Sentinel/blob/a710963424b43589f89bdf75776b3b6027d4ca1c/sentinel/apps/api/main.py).
+References: [VyralX publish worker](https://github.com/surendra2304/VyralX/blob/feat/mesh-preflight/app/worker.py), [Sentinel publish policy contract](https://github.com/surendra2304/Sentinel/blob/feat/vyralx-publish-policy-endpoint/docs/VYRALX_PUBLISH_POLICY.md).
 
 ## Deployment acceptance checklist
 

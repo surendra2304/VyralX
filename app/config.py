@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     sentinel_url: str = ""
     sentinel_api_key: str = ""
     sentinel_required_for_publish: bool = False
-    sentinel_policy_path: str = ""
+    sentinel_policy_path: str = "/api/v1/vyralx/publish-policy"
     pexels_api_key: str = ""
     youtube_data_api_key: str = ""
     youtube_client_secrets_file: Path = Path("./secrets/youtube-client-secret.json")

@@ -63,10 +63,17 @@ This file distinguishes implemented repository capability from external producti
 - [x] Containerized API and worker with non-root user, dropped capabilities, resource caps and heartbeat health.
 - [x] CI workflow for Ruff, pytest and Docker build.
 - [x] Example environment file and API/architecture/operations documentation.
+- [x] Add read-only mesh preflight CLI with optional authenticated IntelX/Memora contract reads, explicit opt-in Inference generation probe, secret-free reports, and regression tests.
 - [x] Run and fix all CI checks on the latest branch head (Ruff, pytest, Docker image build, and Compose validation passed for the verified head; rerun after subsequent changes).
 - [x] Add a strict resolved-Python dependency vulnerability audit to CI; the first green run is required before merge.
 - [x] Add full-history Gitleaks secret scanning and Trivy HIGH/CRITICAL fixed-vulnerability scanning for the built image's OS and Python libraries; release candidates still require a green scan on the exact final commit.
-- [ ] Pin the container base image by immutable digest and lock resolved application dependencies before immutable production release; investigate and rotate any historical credentials surfaced by secret scanning.
+- [x] Pin the Python base image to its immutable multi-platform index digest; refresh only through a reviewed update and a green container scan.
+- [x] Lock resolved application and development dependencies in `uv.lock`; use frozen sync for CI and production container installs.
+- [x] Pin Debian package indexes to an immutable dated Snapshot archive and run the container vulnerability scan before updating its timestamp.
+- [x] Pin and hash-check PEP 517 build-isolation dependencies (`setuptools==84.0.0`, `wheel==0.48.0`) separately from runtime `uv.lock`.
+- [x] Add a SHA-256-verifying OCI archive comparator and regression tests for identical contents, changed layers, corrupted blobs, and unsafe archive paths.
+- [x] Compare two clean image builds and inspect generated artifacts before claiming bit-for-bit image reproducibility. GitHub Actions run [#339, attempt 2](https://github.com/surendra2304/VyralX/actions/runs/39158945611) passed on commit `d2689f3` for Linux/amd64; repeat this gate on the exact final release commit.
+- [ ] Investigate and rotate any historical credentials if secret-scanning evidence indicates confirmed exposure.
 - [ ] Validate the actual external Docker network and Dokploy stack before deploy.
 - [ ] Test persistence across recreation, encrypted backup and a successful restore.
 - [ ] Profile memory/CPU on the current AMD interim VM and separately on the target ARM VM.

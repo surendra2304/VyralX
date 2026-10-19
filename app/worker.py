@@ -394,17 +394,28 @@ def process_publish_job(job_id: int) -> None:
         _heartbeat("busy", f"publish:{job.id}")
         try:
             if settings.sentinel_required_for_publish:
+                policy_request = {
+                    "action": "youtube.publish",
+                    "job_id": job.id,
+                    "asset_id": asset.id,
+                    "title": job.title,
+                    "privacy_status": job.privacy_status,
+                    "scheduled_at": job.scheduled_at or "",
+                    "operator_review_acknowledged": job.approved_at is not None,
+                    "rights_verified": bool(
+                        asset.rights_verified
+                        and source_is_publishable(source)
+                        and render_sources
+                        and all(
+                            source_asset.rights_verified and source_is_publishable(source_record)
+                            for source_asset, source_record in render_sources
+                        )
+                    ),
+                }
                 policy = post_peer_json(
                     "sentinel",
                     settings.sentinel_policy_path,
-                    {
-                        "action": "youtube.publish",
-                        "job_id": job.id,
-                        "asset_id": asset.id,
-                        "title": job.title,
-                        "privacy_status": job.privacy_status,
-                        "scheduled_at": job.scheduled_at,
-                    },
+                    policy_request,
                 )
                 allowed = policy.get("allowed") is True or policy.get("decision") in {"allow", "approved"}
                 if not allowed:

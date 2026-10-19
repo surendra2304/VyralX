@@ -4,13 +4,22 @@ This runbook describes the repository implementation; it does not claim that liv
 
 ## Local verification
 
-    python -m pip install -e ".[dev]"
-    ruff check app tests scripts
-    pytest
+    python -m pip install "uv==0.13.1"
+    uv sync --frozen --extra dev
+    uv run --frozen --extra dev ruff check app tests scripts
+    uv run --frozen --extra dev pytest
     docker build -t vyralx:local .
     API_KEY=ci-only-not-a-real-secret docker compose config --quiet
 
 CI runs Ruff, pytest, the Docker build, Compose validation, a strict Python dependency audit, a full-history Gitleaks secret scan, and a Trivy scan of OS and Python-library vulnerabilities in the built image. Trivy gates known fixed HIGH/CRITICAL vulnerabilities and leaves unfixed advisories visible in the scan output; the image must still be assessed before a production release. The container installs the application and then removes packaging-only `setuptools` and `wheel` so vulnerable build tooling is not shipped in the runtime image. GitHub Actions used by CI are pinned to commit SHAs, with version comments for review. Keep those pins current through reviewed dependency update PRs. Scan output and status are available in the latest GitHub Actions run. A clean scan does not prove that historical secrets were never exposed elsewhere; any confirmed credential exposure still requires revocation/rotation.
+
+## Base-image pin and remaining dependency-lock gate
+
+The Dockerfile pins the multi-platform index digest for the Official Python 3.11.17 slim-bookworm image instead of relying on the moving `3.11-slim` tag. See the [Official Python image tag details](https://hub.docker.com/layers/library/python/3.11-slim-bookworm/). Refresh the digest only through a reviewed change followed by the full container vulnerability scan and CI. The multi-platform index lets the runtime select the matching architecture, including x86-64 and ARM64.
+
+Resolved application and development dependencies are recorded in `uv.lock`. CI verifies the lock and runs tests against `uv sync --frozen`; Docker installs the production project from that lock without the dev extra. The lock/sync/image workflows pin uv to 0.13.1 because this release recognizes and enforces require-build-hashes; uv 0.12.x warns that this setting is unknown and does not enforce the build-dependency hash gate. The Python base image is pinned by digest and APT uses the immutable Debian Snapshot timestamp `20261017T000000Z` for both Bookworm and its security archive; update that snapshot only through a reviewed change and a clean Trivy scan. Snapshot entries set `Check-Valid-Until: no` because historic archive metadata expires; package signature validation still uses Debian's archive keyring. The project's isolated PEP 517 build dependencies are pinned to `setuptools==84.0.0` and `wheel==0.48.0`, with SHA-256 hashes enforced by uv through `tool.uv.build-constraint-dependencies` and `require-build-hashes`. These are deliberately separate from the application runtime lock because build isolation occurs before the project is installed. A bit-for-bit reproducibility claim still requires comparing two clean image builds and accounting for build timestamps and other toolchain-generated metadata.
+
+The tested helper scripts/compare_oci_images.py FIRST.oci.tar SECOND.oci.tar validates the OCI layout, checks descriptor sizes and SHA-256 blob digests, and compares every OCI layout member and exact payload bytes while intentionally ignoring outer tar member ordering and timestamps. Exit code 0 means identical OCI payloads, 1 means valid but different payloads, and 2 means an invalid or corrupt archive. The comparator alone is not evidence that two production builds match; run it on outputs from separate no-cache builds of the exact same commit and platform.
 
 ## Deployment topology
 
@@ -88,7 +97,7 @@ Local eSpeak is the default zero-key narration provider in the container. Extern
 
 ### Optional word-level caption alignment
 
-Set CAPTION_ALIGNMENT_URL to the base URL of a trusted private alignment service and CAPTION_ALIGNMENT_API_KEY to its high-entropy key. CAPTION_ALIGNMENT_PATH defaults to /v1/align, CAPTION_ALIGNMENT_TIMEOUT_SECONDS defaults to 90 (allowed range 1–300), and CAPTION_ALIGNMENT_LANGUAGE defaults to en. Keep the service reachable only from the VyralX private network where possible; credentials belong in the deployment secret store, never in Git.
+Set CAPTION_ALIGNMENT_URL to the base URL of a trusted private alignment service and CAPTION_ALIGNMENT_API_KEY to its high-entropy key. CAPTION_ALIGNMENT_PATH defaults to /v1/align, CAPTION_ALIGNMENT_TIMEOUT_SECONDS defaults to 90 (allowed range 1 to 300), and CAPTION_ALIGNMENT_LANGUAGE defaults to en. Keep the service reachable only from the VyralX private network where possible; credentials belong in the deployment secret store, never in Git.
 
 VyralX sends a multipart POST with audio_file, text, and language fields, authenticated with Bearer and X-API-Key headers. The service should return JSON containing words as a list of objects with word (or text), start, and end in seconds. A response shaped as segments[].words[] is also accepted. One timestamp row per transcript word is required. VyralX verifies word count/order, finite non-overlapping timestamps, and audio bounds, then groups validated word timings into phrase-sized SRT cues.
 
@@ -126,3 +135,20 @@ Repository CI cannot prove live credentials, external APIs, Oracle resources, re
 ## Interrupted implementation sessions
 
 Use the [interruption recovery runbook](RECOVERY.md) to resume safely from the latest GitHub commit, inspect CI failures, and continue from an existing branch without duplicating work. The scheduled Recovery Watch workflow creates or updates one incident when main CI fails and closes it after a later green run; it does not resume ChatGPT execution or deploy code.
+
+## Read-only mesh preflight
+
+Run `python scripts/mesh_preflight.py` from the repository root before a deployment. The default invocation validates partial/invalid peer configuration and checks `/health` for each configured FRIDAY, Inference, IntelX, Memora, and Sentinel peer. Optional unconfigured peers are reported as skipped; configured optional peers that are unhealthy are warnings. Use `--require-peer NAME` for peers that must be available, and repeat it for multiple peers.
+
+Use active checks only when ready to contact the live service:
+
+```powershell
+python scripts/mesh_preflight.py --require-peer intelx --probe intelx
+python scripts/mesh_preflight.py --require-peer memora --probe memora
+python scripts/mesh_preflight.py --require-peer inference --probe-inference
+python scripts/mesh_preflight.py --json
+```
+
+The IntelX and Memora probes make authenticated reads only. Memora is queried in `memora://vyralx/private`; this preflight never writes a memory or modifies provider state. When Memora read or write is enabled in VyralX, Memora is automatically treated as required. `--probe-inference` actively generates a short test content pack and discards it, and may consume model/provider quota; it is deliberately opt-in. The report excludes keys, base URLs, response bodies and generated content. Exit code `1` means at least one required/configuration/active-contract check failed; optional peer health warnings do not fail the run.
+
+If `SENTINEL_REQUIRED_FOR_PUBLISH=true`, preflight fails because the currently documented Sentinel software-review endpoint does not satisfy VyralX's `youtube.publish` authorization contract. Keep this flag disabled until a dedicated publish-policy endpoint and its explicit deny/allow responses are implemented and verified. A successful preflight proves only the checks it ran at that time; it does not prove YouTube OAuth/upload permission, deploy correctness, database backup/restore, or end-to-end mesh behavior not explicitly probed.
