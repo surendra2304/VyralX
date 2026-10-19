@@ -395,6 +395,7 @@ def process_publish_job(job_id: int) -> None:
         try:
             if settings.sentinel_required_for_publish:
                 policy_request = {
+                    "action": "youtube.publish",
                     "job_id": job.id,
                     "asset_id": asset.id,
                     "title": job.title,
