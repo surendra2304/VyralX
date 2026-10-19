@@ -1308,6 +1308,7 @@ def test_worker_checks_sentinel_policy_and_keeps_upload_resumable_after_transpor
         assert peer_name == "sentinel"
         assert policy_path == "/api/v1/vyralx/publish-policy"
         assert payload == {
+            "action": "youtube.publish",
             "job_id": job_id,
             "asset_id": asset_id,
             "title": "Resumable transport recovery",
