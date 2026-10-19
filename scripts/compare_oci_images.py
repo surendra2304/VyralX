@@ -23,6 +23,21 @@ _MANIFEST_TYPES = {
     "application/vnd.oci.image.manifest.v1+json",
     "application/vnd.docker.distribution.manifest.v2+json",
 }
+_CONFIG_TYPES = {
+    "application/vnd.oci.image.config.v1+json",
+    "application/vnd.docker.container.image.v1+json",
+}
+_LAYER_TYPES = {
+    "application/vnd.oci.image.layer.v1.tar",
+    "application/vnd.oci.image.layer.v1.tar+gzip",
+    "application/vnd.oci.image.layer.v1.tar+zstd",
+    "application/vnd.oci.image.layer.nondistributable.v1.tar",
+    "application/vnd.oci.image.layer.nondistributable.v1.tar+gzip",
+    "application/vnd.oci.image.layer.nondistributable.v1.tar+zstd",
+    "application/vnd.docker.image.rootfs.diff.tar",
+    "application/vnd.docker.image.rootfs.diff.tar.gzip",
+    "application/vnd.docker.image.rootfs.foreign.diff.tar.gzip",
+}
 
 
 class OCIArtifactError(ValueError):
@@ -165,8 +180,13 @@ def inspect_oci_archive(path: str | Path) -> OCIArtifact:
             raise OCIArtifactError(f"blob content does not match its path digest: {name}")
         blob_paths[f"sha256:{digest}"] = name
 
-    def validate_descriptor(descriptor: Any) -> tuple[str, str, str]:
-        """Validate any descriptor target, including opaque config/layer blobs."""
+    def validate_descriptor(
+        descriptor: Any,
+        *,
+        expected_media_types: set[str] | None = None,
+        role: str = "descriptor",
+    ) -> tuple[str, str, str]:
+        """Validate a blob descriptor and, when known, its role-specific media type."""
         if not isinstance(descriptor, dict):
             raise OCIArtifactError("OCI index or manifest contains an invalid descriptor")
         digest_value = descriptor.get("digest")
@@ -188,6 +208,8 @@ def inspect_oci_archive(path: str | Path) -> OCIArtifact:
         media_type = descriptor.get("mediaType")
         if not isinstance(media_type, str) or not media_type:
             raise OCIArtifactError("OCI descriptor has an invalid media type")
+        if expected_media_types is not None and media_type not in expected_media_types:
+            raise OCIArtifactError(f"OCI {role} has an unsupported media type: {media_type}")
         return digest, blob_path, media_type
 
     visited: set[str] = set()
@@ -217,9 +239,9 @@ def inspect_oci_archive(path: str | Path) -> OCIArtifact:
         layers = payload.get("layers")
         if not isinstance(config, dict) or not isinstance(layers, list):
             raise OCIArtifactError(f"OCI manifest is missing config or layers: {digest}")
-        validate_descriptor(config)
+        validate_descriptor(config, expected_media_types=_CONFIG_TYPES, role="config")
         for layer in layers:
-            validate_descriptor(layer)
+            validate_descriptor(layer, expected_media_types=_LAYER_TYPES, role="layer")
         subject = payload.get("subject")
         if subject is not None:
             validate_descriptor(subject)
@@ -285,7 +307,7 @@ def _read_image_layers(path: str | Path) -> list[ImageLayers]:
                 for child in children:
                     visit(child, resolved_platform, depth + 1)
                 return
-            if media_type in _MANIFEST_TYPES:
+            elif media_type in _MANIFEST_TYPES:
                 layers = payload.get("layers")
                 config_descriptor = payload.get("config")
                 if not isinstance(layers, list) or not isinstance(config_descriptor, dict):
@@ -314,6 +336,11 @@ def _read_image_layers(path: str | Path) -> list[ImageLayers]:
                         tuple(layer for layer in layers if isinstance(layer, dict)),
                         diff_ids,
                     )
+                )
+            else:
+                raise OCIArtifactError(
+                    "unsupported OCI manifest/index media type while diagnosing layer differences: "
+                    f"{media_type}"
                 )
 
         manifests = index.get("manifests")

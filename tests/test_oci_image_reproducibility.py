@@ -54,6 +54,11 @@ def _write_archive(
     unsafe_member: bool = False,
     member_mtime: int = 0,
     wrong_descriptor_size: bool = False,
+    config_media_type: str = "application/vnd.oci.image.config.v1+json",
+    layer_media_type_override: str | None = None,
+    manifest_media_type: str = "application/vnd.oci.image.manifest.v1+json",
+    index_media_type: str = "application/vnd.oci.image.index.v1+json",
+    nested_index: bool = False,
 ) -> None:
     uncompressed_layer = _layer_tar(layer_content)
     layer_blob = (
@@ -61,7 +66,7 @@ def _write_archive(
         if compression_level is not None
         else uncompressed_layer
     )
-    layer_media_type = (
+    layer_media_type = layer_media_type_override or (
         "application/vnd.oci.image.layer.v1.tar+gzip"
         if compression_level is not None
         else "application/vnd.oci.image.layer.v1.tar"
@@ -77,29 +82,43 @@ def _write_archive(
         }
     )
     layer_descriptor = _descriptor(layer_blob, layer_media_type)
-    config_descriptor = _descriptor(config, "application/vnd.oci.image.config.v1+json")
+    config_descriptor = _descriptor(config, config_media_type)
     manifest = _json_bytes(
         {
             "schemaVersion": 2,
-            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "mediaType": manifest_media_type,
             "config": config_descriptor,
             "layers": [layer_descriptor],
         }
     )
-    manifest_descriptor = _descriptor(manifest, "application/vnd.oci.image.manifest.v1+json")
+    manifest_descriptor = _descriptor(manifest, manifest_media_type)
     root_descriptor = {
         **manifest_descriptor,
         "platform": {"architecture": "amd64", "os": "linux"},
     }
     if wrong_descriptor_size:
         root_descriptor["size"] += 1
-    root_index = _json_bytes({"schemaVersion": 2, "manifests": [root_descriptor]})
+    extra_blobs: dict[str, bytes] = {}
+    if nested_index:
+        nested_index_payload = _json_bytes(
+            {"schemaVersion": 2, "manifests": [root_descriptor]}
+        )
+        nested_index_descriptor = _descriptor(nested_index_payload, index_media_type)
+        root_index = _json_bytes(
+            {"schemaVersion": 2, "manifests": [nested_index_descriptor]}
+        )
+        extra_blobs[
+            "blobs/sha256/" + hashlib.sha256(nested_index_payload).hexdigest()
+        ] = nested_index_payload
+    else:
+        root_index = _json_bytes({"schemaVersion": 2, "manifests": [root_descriptor]})
     blobs = {
         "blobs/sha256/" + hashlib.sha256(config).hexdigest(): config,
         "blobs/sha256/" + hashlib.sha256(layer_blob).hexdigest(): (
             layer_blob + b"corruption" if corrupt_blob else layer_blob
         ),
         "blobs/sha256/" + hashlib.sha256(manifest).hexdigest(): manifest,
+        **extra_blobs,
     }
     members = {
         "oci-layout": _json_bytes({"imageLayoutVersion": "1.0.0"}),
@@ -187,6 +206,61 @@ def test_descriptor_size_mismatch_is_rejected(tmp_path: Path):
     _write_archive(archive, wrong_descriptor_size=True)
 
     with pytest.raises(OCIArtifactError, match="size does not match"):
+        inspect_oci_archive(archive)
+
+
+def test_supported_docker_config_and_layer_media_types_are_accepted(tmp_path: Path):
+    archive = tmp_path / "docker-media-types.oci.tar"
+    _write_archive(
+        archive,
+        compression_level=9,
+        config_media_type="application/vnd.docker.container.image.v1+json",
+        layer_media_type_override="application/vnd.docker.image.rootfs.diff.tar.gzip",
+    )
+
+    artifact = inspect_oci_archive(archive)
+
+    assert len(artifact.root_digests) == 1
+
+
+def test_nested_indexes_are_recursively_validated_and_diagnosed(tmp_path: Path):
+    first = tmp_path / "nested-first.oci.tar"
+    second = tmp_path / "nested-second.oci.tar"
+    _write_archive(
+        first,
+        nested_index=True,
+        manifest_media_type="application/vnd.docker.distribution.manifest.v2+json",
+        index_media_type="application/vnd.docker.distribution.manifest.list.v2+json",
+        layer_content=b"nested layer one",
+    )
+    _write_archive(
+        second,
+        nested_index=True,
+        manifest_media_type="application/vnd.docker.distribution.manifest.v2+json",
+        index_media_type="application/vnd.docker.distribution.manifest.list.v2+json",
+        layer_content=b"nested layer two",
+    )
+
+    identical, details, _, _ = compare_oci_artifacts(first, second)
+
+    assert not identical
+    assert any("linux/amd64 layer 1 digest differs" in item for item in details)
+    assert any("file bytes differ: payload.txt" in item for item in details)
+
+
+def test_unsupported_config_media_type_is_rejected(tmp_path: Path):
+    archive = tmp_path / "unsupported-config.oci.tar"
+    _write_archive(archive, config_media_type="application/vnd.example.config.v1+json")
+
+    with pytest.raises(OCIArtifactError, match="unsupported media type"):
+        inspect_oci_archive(archive)
+
+
+def test_unsupported_layer_media_type_is_rejected(tmp_path: Path):
+    archive = tmp_path / "unsupported-layer.oci.tar"
+    _write_archive(archive, layer_media_type_override="application/vnd.example.layer.v1.tar")
+
+    with pytest.raises(OCIArtifactError, match="unsupported media type"):
         inspect_oci_archive(archive)
 
 

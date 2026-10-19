@@ -71,7 +71,7 @@ This file distinguishes implemented repository capability from external producti
 - [x] Lock resolved application and development dependencies in `uv.lock`; use frozen sync for CI and production container installs.
 - [x] Pin Debian package indexes to an immutable dated Snapshot archive and run the container vulnerability scan before updating its timestamp.
 - [x] Pin and hash-check PEP 517 build-isolation dependencies (`setuptools==84.0.0`, `wheel==0.48.0`) separately from runtime `uv.lock`.
-- [x] Add a SHA-256-verifying OCI archive comparator and regression tests for identical contents, changed layers, corrupted blobs, and unsafe archive paths.
+- [x] Add a SHA-256-verifying OCI archive comparator with recursive manifest/index validation, explicit OCI/Docker config/layer media-type checks, and regression tests for outer-tar timestamp differences, nested indexes, changed layers, corrupted blobs, unsafe paths, and descriptor-size mismatches.
 - [x] Compare two clean image builds and inspect generated artifacts before claiming bit-for-bit image reproducibility. GitHub Actions run [#339, attempt 2](https://github.com/surendra2304/VyralX/actions/runs/39158945611) passed on commit `d2689f3` for Linux/amd64; repeat this gate on the exact final release commit.
 - [ ] Investigate and rotate any historical credentials if secret-scanning evidence indicates confirmed exposure.
 - [ ] Validate the actual external Docker network and Dokploy stack before deploy.
