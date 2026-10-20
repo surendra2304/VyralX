@@ -487,3 +487,31 @@ def test_repeat_use_blocker_detects_prior_upload_and_respects_explicit_review():
         db.delete(current)
         db.commit()
 
+
+
+@pytest.mark.parametrize(
+    "port_suffix",
+    [":8443", ":not-a-port"],
+)
+def test_rights_gate_rejects_invalid_pexels_media_port(port_suffix: str):
+    source = Source(
+        title="Invalid stock record",
+        platform="pexels",
+        source_url="https" + "://" + "www.pexels.com" + port_suffix + "/video/123/",
+        rights_verified=True,
+        license_name="Pexels Content License",
+        permission_reference="https" + "://" + "www.pexels.com/license/",
+    )
+    assert not source_is_publishable(source)
+
+
+def test_rights_gate_rejects_empty_pexels_video_path():
+    source = Source(
+        title="Invalid stock record",
+        platform="pexels",
+        source_url="https" + "://" + "www.pexels.com/video/",
+        rights_verified=True,
+        license_name="Pexels Content License",
+        permission_reference="https" + "://" + "www.pexels.com/license/",
+    )
+    assert not source_is_publishable(source)
