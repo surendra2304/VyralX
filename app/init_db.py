@@ -1,5 +1,8 @@
 """One-shot schema bootstrap/migration command for Compose and Dokploy."""
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 import app.models  # noqa: F401 — register all tables before create_all()
 from app.config import get_settings
@@ -11,15 +14,25 @@ settings.prepare_directories()
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("vyralx.init")
 
-if __name__ == "__main__":
-    Base.metadata.create_all(bind=engine)
-    run_additive_migrations(engine)
-    receipt = verify_database_connection(engine)
+
+def init_database(engine_to_use=None) -> dict[str, Any]:
+    target_engine = engine_to_use or engine
+    Base.metadata.create_all(bind=target_engine)
+    run_additive_migrations(target_engine)
+    receipt = verify_database_connection(target_engine)
     if not receipt["connected"]:
         log.error("Failed to connect to database: %s", receipt.get("error"))
-        raise SystemExit(1)
+        raise RuntimeError(f"Database initialization failed: {receipt.get('error')}")
     log.info(
         "Database schema initialized successfully. Dialect: %s, Verified tables: %s",
         receipt["dialect"],
         receipt["tables_found"],
     )
+    return receipt
+
+
+if __name__ == "__main__":
+    try:
+        init_database()
+    except Exception:
+        raise SystemExit(1)
