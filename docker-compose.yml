@@ -8,7 +8,7 @@ x-vyralx-common: &vyralx-common
     APP_ENV: production
     PORT: "8000"
     API_KEY: ${API_KEY:?Set API_KEY in Dokploy environment}
-    DATABASE_URL: sqlite:////app/data/vyralx.db
+    DATABASE_URL: ${DATABASE_URL:-postgresql://vyralx_user:lFvCakEtqlmoegjyEQUOlfAS@dokploy-postgres:5432/vyralx_db}
     DATA_DIR: /app/data
     MEDIA_DIR: /app/media
     RENDER_DIR: /app/renders
@@ -50,7 +50,7 @@ x-vyralx-common: &vyralx-common
     SENTINEL_URL: ${SENTINEL_URL:-}
     SENTINEL_API_KEY: ${SENTINEL_API_KEY:-}
     SENTINEL_REQUIRED_FOR_PUBLISH: ${SENTINEL_REQUIRED_FOR_PUBLISH:-false}
-    SENTINEL_POLICY_PATH: ${SENTINEL_POLICY_PATH:-/api/v1/vyralx/publish-policy}
+    SENTINEL_POLICY_PATH: ${SENTINEL_POLICY_PATH:-/v1/security/audit}
   volumes:
     - vyralx-data:/app/data
     - vyralx-media:/app/media

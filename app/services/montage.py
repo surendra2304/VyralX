@@ -1,11 +1,17 @@
 """Multi-scene FFmpeg montage renderer."""
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
 from app.config import get_settings
-from app.services.renderer import PRESETS, _subtitle_filter
+from app.services.renderer import (
+    PRESETS,
+    _posix_resource_limiter,
+    _subtitle_filter,
+    _verify_disk_space,
+)
 
 
 def render_montage(
@@ -17,6 +23,10 @@ def render_montage(
     fit_mode: str = "pad",
     subtitle_file: str | Path | None = None,
     voiceover_path: str | Path | None = None,
+    cpu_threads: int | None = None,
+    max_memory_mb: int | None = None,
+    normalize_loudness: bool = False,
+    loudness_target_lufs: float = -14.0,
 ) -> str:
     """Render licensed/owned clips into one silent-or-narrated montage.
 
@@ -33,6 +43,11 @@ def render_montage(
     if not 15 <= int(target_seconds) <= settings.max_render_seconds:
         raise ValueError("Montage duration is outside the configured limit")
 
+    threads = int(cpu_threads if cpu_threads is not None else getattr(settings, "render_max_cpu_threads", 1))
+    threads = max(1, min(threads, 8))
+    memory_mb = int(max_memory_mb if max_memory_mb is not None else getattr(settings, "render_max_memory_mb", 512))
+    memory_mb = max(64, memory_mb)
+
     media_root = settings.media_dir.resolve()
     sources: list[Path] = []
     for raw in source_paths:
@@ -47,6 +62,7 @@ def render_montage(
     if output_root not in output.parents:
         raise ValueError("Montage output must be inside VyralX render storage")
     output.parent.mkdir(parents=True, exist_ok=True)
+    _verify_disk_space(output)
 
     voice: Path | None = None
     if voiceover_path is not None:
@@ -56,7 +72,7 @@ def render_montage(
 
     width, height = PRESETS[preset]
     segment_seconds = float(target_seconds) / len(sources)
-    command = [settings.ffmpeg_bin, "-hide_banner", "-nostdin", "-y", "-threads", "1"]
+    command = [settings.ffmpeg_bin, "-hide_banner", "-nostdin", "-y", "-threads", str(threads)]
     for source in sources:
         # Loop short stock clips so every scene fills its assigned time slice.
         command.extend(["-stream_loop", "-1", "-i", str(source)])
@@ -91,15 +107,26 @@ def render_montage(
     else:
         filters.append("[joined]null[outv]")
     command.extend(["-filter_complex", ";".join(filters), "-map", "[outv]"])
+
+    audio_filters: list[str] = []
+    if normalize_loudness:
+        target = float(loudness_target_lufs)
+        audio_filters.append(f"loudnorm=I={target:.1f}:LRA=11:TP=-1.5")
+    audio_filters.append("apad")
+    af_chain = ",".join(audio_filters)
+
     if voice is not None:
-        command.extend(["-map", f"{audio_index}:a:0", "-af", "apad", "-c:a", "aac", "-b:a", "128k"])
+        command.extend(["-map", f"{audio_index}:a:0", "-af", af_chain, "-c:a", "aac", "-b:a", "128k"])
     else:
         command.append("-an")
     command.extend([
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-        "-t", str(int(target_seconds)), "-threads", "1", str(output),
+        "-t", str(int(target_seconds)), "-threads", str(threads), str(output),
     ])
+
+    preexec = _posix_resource_limiter(memory_mb) if os.name == "posix" else None
+
     try:
         result = subprocess.run(
             command,
@@ -107,10 +134,15 @@ def render_montage(
             text=True,
             timeout=settings.max_render_seconds,
             check=False,
+            preexec_fn=preexec,
         )
     except subprocess.TimeoutExpired as exc:
         output.unlink(missing_ok=True)
         raise RuntimeError("Montage render exceeded configured time limit") from exc
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
+
     if result.returncode != 0 or not output.is_file() or output.stat().st_size == 0:
         output.unlink(missing_ok=True)
         raise RuntimeError((result.stderr or "FFmpeg montage failed")[-3000:])

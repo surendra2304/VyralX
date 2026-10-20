@@ -317,10 +317,16 @@ def youtube_credentials() -> Credentials:
         raise RuntimeError("YouTube OAuth token file is unreadable or invalid JSON") from None
     credentials = Credentials.from_authorized_user_info(data)
     if credentials.expired and credentials.refresh_token:
-        try:
-            credentials.refresh(Request())
-        except Exception as exc:
-            raise RuntimeError(f"YouTube OAuth refresh failed ({type(exc).__name__})") from None
+        last_exc: Exception | None = None
+        for _ in range(2):
+            try:
+                credentials.refresh(Request())
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+        if last_exc is not None:
+            raise RuntimeError(f"YouTube OAuth refresh failed ({type(last_exc).__name__})") from None
         _atomic_private_write(token_path, credentials.to_json())
     if not credentials.valid:
         raise RuntimeError("YouTube OAuth credentials are invalid or expired")
