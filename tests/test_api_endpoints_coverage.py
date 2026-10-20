@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -9,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.main import app
-from app.models import PublishJob, RenderJob, Source, VideoProject
+from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoProject
 
 client = TestClient(app)
 
@@ -208,3 +210,148 @@ def test_api_pexels_discover(monkeypatch: pytest.MonkeyPatch):
     assert res.status_code == 200
     assert res.json()["count"] == 1
     assert res.json()["items"][0]["video_id"] == 999
+
+
+def test_api_content_and_render_and_publish_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    fake_video = tmp_path / "rendered_clip.mp4"
+    fake_video.write_bytes(b"DATA" * 500)
+
+    monkeypatch.setattr(
+        "app.main.settings",
+        SimpleNamespace(
+            render_dir=tmp_path,
+            media_dir=tmp_path,
+            youtube_upload_enabled=True,
+            youtube_default_privacy="private",
+            max_render_seconds=120,
+            worker_max_attempts=3,
+        ),
+    )
+
+    # 1. Content generation & list
+    dummy_pack = {
+        "hook": "AI generates videos",
+        "script": "Script text",
+        "scene_plan": [],
+        "voiceover": "VO text",
+        "caption": "Captions",
+        "title_options": ["AI Video"],
+        "description": "Desc",
+        "tags": ["ai"],
+        "thumbnail_brief": "Art",
+        "provider_model": "test-model",
+    }
+    monkeypatch.setattr("app.main.generate_content_pack", lambda *a, **kw: dummy_pack)
+
+    res_gen = client.post("/api/content/generate", json={"topic": "Deep Learning"})
+    assert res_gen.status_code == 200
+    pack_id = res_gen.json()["id"]
+
+    res_content = client.get("/api/content")
+    assert res_content.status_code == 200
+    assert any(c["id"] == pack_id for c in res_content.json())
+
+    # 2. Assets and render creation
+    with SessionLocal() as db:
+        src = Source(
+            title="Render Test Source",
+            platform="manual",
+            license_name="Standard Commercial License",
+            permission_reference="PERM-RENDER-123",
+            rights_verified=True,
+        )
+        db.add(src)
+        db.flush()
+
+        asset = Asset(
+            source_id=src.id,
+            title="Render Test Asset",
+            file_path=str(fake_video),
+            duration_seconds=30.0,
+            width=1080,
+            height=1920,
+            rights_verified=True,
+        )
+        db.add(asset)
+        db.commit()
+        asset_id = asset.id
+        src_id = src.id
+
+    try:
+        # List assets
+        res_assets = client.get("/api/assets")
+        assert res_assets.status_code == 200
+        assert any(a["id"] == asset_id for a in res_assets.json())
+
+        # Create render job
+        render_payload = {
+            "asset_id": asset_id,
+            "preset": "shorts",
+            "trim_start_seconds": 0.0,
+            "trim_end_seconds": 15.0,
+            "subtitle_segments": [],
+        }
+        res_render = client.post("/api/render", json=render_payload)
+        assert res_render.status_code == 202
+        render_job_id = res_render.json()["job_id"]
+
+        # List renders
+        res_renders = client.get("/api/render")
+        assert res_renders.status_code == 200
+        assert any(r["id"] == render_job_id for r in res_renders.json())
+
+        # Complete render job to test download & publish
+        with SessionLocal() as db:
+            rj = db.get(RenderJob, render_job_id)
+            rj.status = "completed"
+            rj.output_path = str(fake_video)
+            db.commit()
+
+        # Download render
+        res_dl = client.get(f"/api/render/{render_job_id}/download")
+        assert res_dl.status_code == 200
+        assert len(res_dl.content) == 2000
+
+        # Queue publish
+        publish_payload = {
+            "asset_id": asset_id,
+            "render_job_id": render_job_id,
+            "title": "Published Short",
+            "description": "Short Description",
+            "tags": ["short"],
+            "privacy_status": "private",
+            "confirm_rights": True,
+        }
+        res_pub = client.post("/api/publish", json=publish_payload)
+        assert res_pub.status_code == 200
+        pub_id = res_pub.json()["job_id"]
+
+        # List publish jobs
+        res_pubs = client.get("/api/publish")
+        assert res_pubs.status_code == 200
+        assert any(p["id"] == pub_id for p in res_pubs.json())
+
+        # Execute publish (approve upload)
+        res_exec = client.post(f"/api/publish/{pub_id}/execute", json={"confirm_review": True})
+        assert res_exec.status_code == 202
+        assert res_exec.json()["status"] == "queued"
+
+    finally:
+        with SessionLocal() as db:
+            p = db.get(PublishJob, pub_id) if "pub_id" in locals() else None
+            r = db.get(RenderJob, render_job_id) if "render_job_id" in locals() else None
+            a = db.get(Asset, asset_id)
+            s = db.get(Source, src_id)
+            c = db.get(ContentPack, pack_id)
+            if p:
+                db.delete(p)
+            if r:
+                db.delete(r)
+            if a:
+                db.delete(a)
+            if s:
+                db.delete(s)
+            if c:
+                db.delete(c)
+            db.commit()
+
