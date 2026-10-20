@@ -27,3 +27,21 @@ This runbook is the durable handoff point when a ChatGPT session, browser, netwo
 - Never assume that a green GitHub workflow proves Oracle Cloud, Dokploy, YouTube OAuth or FRIDAY peer services are healthy; those require live checks.
 - Do not blindly retry uncertain external side effects, especially YouTube uploads. Follow the upload recovery instructions in Operations. A publish job in the internal `resumable` state keeps its attempt count and provider session; the worker waits out its 30-second cooldown, then probes YouTube for the authoritative byte offset before sending more data. Jobs in `uncertain` still require manual provider reconciliation.
 - A scheduled workflow is an independent monitor, not an always-running AI coding agent. It cannot restart a stopped ChatGPT response or continue unfinished reasoning. A separate persistent worker would need an explicit task queue, durable checkpoints, bounded retries and safe authorization.
+
+
+## Task 3 engineering checkpoint — 2026-10-21
+
+### Completed source changes
+- `app/services/rights.py`: Pexels provenance now validates the URL authority against the official hosts and only permits HTTPS on the default TLS port. Malformed ports and empty media paths are rejected.
+- `tests/test_production_hardening.py`: regression coverage was added for invalid media ports and empty video paths.
+- Work branch: `automation/friday-universe-task-3`.
+
+### Verification status
+No tests were executed in the ChatGPT automation runtime. The branch has not yet been reviewed by a pull request, and no CI result is available for these changes. Do not merge until focused tests, Ruff, and the full repository CI pass.
+
+### Exact next actions
+1. Inspect the branch head and obtain CI on the branch; fix any failure rather than weakening the rights gate.
+2. Run `uv run --frozen --extra dev ruff check app tests scripts`.
+3. Run `uv run --frozen --extra dev pytest tests/test_production_hardening.py`, then the full CI suite.
+4. Trace `find_repeat_use_blockers` through the final upload gate and add a test that repeat use requires a reviewed decision.
+5. Update this checkpoint with exact run links and pass/fail counts. Do not perform real uploads during tests.
