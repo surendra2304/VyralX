@@ -212,8 +212,239 @@ def test_publish_approval_requires_explicit_server_side_review_acknowledgment():
 
     missing_ack = client.post("/api/publish/987654321/execute")
     assert missing_ack.status_code == 422
-
     assert PublishApprovalRequest(confirm_review=True).confirm_review is True
+
+
+def test_publish_queue_blocks_previously_uploaded_source_until_repeat_use_review(tmp_path):
+    from uuid import uuid4
+
+    from app.database import SessionLocal
+    from app.models import Asset
+
+    suffix = uuid4().hex[:10]
+    render_path = tmp_path / "reviewed-render.mp4"
+    render_path.write_bytes(b"test render placeholder")
+    with SessionLocal() as db:
+        source = Source(
+            title="Previously published source " + suffix,
+            source_url=f"https://media.example/licensed/{suffix}",
+            platform="manual",
+            license_name="Written permission",
+            permission_reference="permission-reference-" + suffix,
+            rights_verified=True,
+        )
+        db.add(source)
+        db.flush()
+        prior_asset = Asset(
+            source_id=source.id,
+            title="Prior published asset " + suffix,
+            file_path=str(tmp_path / "prior-source.mp4"),
+            rights_verified=True,
+        )
+        current_asset = Asset(
+            source_id=source.id,
+            title="Current reuse asset " + suffix,
+            file_path=str(tmp_path / "current-source.mp4"),
+            rights_verified=True,
+        )
+        db.add_all([prior_asset, current_asset])
+        db.flush()
+        prior_render = RenderJob(
+            asset_id=prior_asset.id,
+            preset="shorts",
+            status="completed",
+            output_path=str(tmp_path / "prior-render.mp4"),
+            options_json="{}",
+        )
+        current_render = RenderJob(
+            asset_id=current_asset.id,
+            preset="shorts",
+            status="completed",
+            output_path=str(render_path),
+            options_json="{}",
+        )
+        db.add_all([prior_render, current_render])
+        db.flush()
+        prior_publish = PublishJob(
+            asset_id=prior_asset.id,
+            render_job_id=prior_render.id,
+            title="Prior upload " + suffix,
+            status="uploaded",
+            youtube_video_id="previous_" + suffix,
+        )
+        db.add(prior_publish)
+        db.commit()
+        source_id = source.id
+        prior_asset_id, current_asset_id = prior_asset.id, current_asset.id
+        prior_render_id, current_render_id = prior_render.id, current_render.id
+        prior_publish_id = prior_publish.id
+
+    payload = {
+        "asset_id": current_asset_id,
+        "render_job_id": current_render_id,
+        "title": "Repeat-use gate " + suffix,
+        "confirm_rights": True,
+    }
+    try:
+        blocked = client.post("/api/publish", json=payload)
+        assert blocked.status_code == 409
+        assert "repeat-use permission" in blocked.json()["detail"].lower()
+
+        reviewed = client.post(
+            f"/api/sources/{source_id}/repeat-use-review",
+            json={
+                "repeat_use_allowed": True,
+                "review_notes": "Reviewed written permission for multiple publication uses.",
+            },
+        )
+        assert reviewed.status_code == 200
+        assert reviewed.json()["repeat_use_reviewed_at"] is not None
+
+        queued = client.post("/api/publish", json=payload)
+        assert queued.status_code == 200
+        assert queued.json()["status"] == "pending_approval"
+        job_id = queued.json()["job_id"]
+    finally:
+        with SessionLocal() as db:
+            if "job_id" in locals():
+                db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+            db.query(PublishJob).filter(PublishJob.id == prior_publish_id).delete()
+            db.query(RenderJob).filter(RenderJob.id.in_([prior_render_id, current_render_id])).delete(
+                synchronize_session=False
+            )
+            db.query(Asset).filter(Asset.id.in_([prior_asset_id, current_asset_id])).delete(
+                synchronize_session=False
+            )
+            db.query(Source).filter(Source.id == source_id).delete()
+            db.commit()
+
+
+def test_revoking_repeat_use_after_publish_approval_blocks_worker_upload(tmp_path, monkeypatch):
+    from uuid import uuid4
+
+    from app import main as main_module
+    from app import worker
+    from app.database import SessionLocal
+    from app.models import Asset
+    from app.worker import process_publish_job
+
+    monkeypatch.setattr(main_module.settings, "youtube_upload_enabled", True)
+    suffix = uuid4().hex[:10]
+    source_url = f"https://licensed.example/revoked-repeat-use/{suffix}"
+    render_path = tmp_path / "revoked-repeat-use-render.mp4"
+    render_path.write_bytes(b"test render placeholder")
+    with SessionLocal() as db:
+        source = Source(
+            title="Reviewed repeat-use source " + suffix,
+            source_url=source_url,
+            platform="manual",
+            license_name="Written reuse permission",
+            permission_reference="permission-record-" + suffix,
+            rights_verified=True,
+            status="licensed",
+            repeat_use_allowed=True,
+            repeat_use_reviewed_at=datetime.now(timezone.utc),
+            repeat_use_review_notes="Reviewed written permission for repeat publication.",
+        )
+        db.add(source)
+        db.flush()
+        prior_asset = Asset(
+            source_id=source.id,
+            title="Previously uploaded asset",
+            file_path=str(tmp_path / "prior-source.mp4"),
+            rights_verified=True,
+        )
+        current_asset = Asset(
+            source_id=source.id,
+            title="Approved repeat-use asset",
+            file_path=str(tmp_path / "current-source.mp4"),
+            rights_verified=True,
+        )
+        db.add_all([prior_asset, current_asset])
+        db.flush()
+        prior_render = RenderJob(
+            asset_id=prior_asset.id,
+            preset="shorts",
+            status="completed",
+            output_path=str(tmp_path / "prior-render.mp4"),
+        )
+        current_render = RenderJob(
+            asset_id=current_asset.id,
+            preset="shorts",
+            status="completed",
+            output_path=str(render_path),
+        )
+        db.add_all([prior_render, current_render])
+        db.flush()
+        prior_job = PublishJob(
+            asset_id=prior_asset.id,
+            render_job_id=prior_render.id,
+            title="Prior successful upload",
+            status="uploaded",
+            youtube_video_id="prior-" + suffix,
+        )
+        db.add(prior_job)
+        db.commit()
+        source_id, asset_id, render_id = source.id, current_asset.id, current_render.id
+        prior_asset_id, prior_render_id, prior_job_id = prior_asset.id, prior_render.id, prior_job.id
+
+    job_id = None
+    try:
+        queued = client.post(
+            "/api/publish",
+            json={
+                "asset_id": asset_id,
+                "render_job_id": render_id,
+                "title": "Repeat-use permission revocation test",
+                "confirm_rights": True,
+            },
+        )
+        assert queued.status_code == 200
+        assert queued.json()["status"] == "pending_approval"
+        job_id = queued.json()["job_id"]
+
+        approved = client.post(
+            f"/api/publish/{job_id}/execute",
+            json={"confirm_review": True},
+        )
+        assert approved.status_code == 202
+        assert approved.json()["status"] == "queued"
+
+        revoked = client.post(
+            f"/api/sources/{source_id}/repeat-use-review",
+            json={
+                "repeat_use_allowed": False,
+                "review_notes": "Permission scope no longer allows repeated publication.",
+            },
+        )
+        assert revoked.status_code == 200
+        assert revoked.json()["repeat_use_allowed"] is False
+
+        monkeypatch.setattr(
+            worker,
+            "upload_video",
+            lambda *args, **kwargs: pytest.fail("Revoked repeat-use permission must prevent upload"),
+        )
+        process_publish_job(job_id)
+        with SessionLocal() as db:
+            saved = db.get(PublishJob, job_id)
+            assert saved is not None and saved.status == "failed"
+            assert saved.youtube_video_id == ""
+            assert "not currently approved" in saved.error.lower()
+            assert str(source_id) in saved.error
+    finally:
+        with SessionLocal() as db:
+            if job_id is not None:
+                db.query(PublishJob).filter(PublishJob.id == job_id).delete()
+            db.query(PublishJob).filter(PublishJob.id == prior_job_id).delete()
+            db.query(RenderJob).filter(
+                RenderJob.id.in_([prior_render_id, render_id])
+            ).delete(synchronize_session=False)
+            db.query(Asset).filter(
+                Asset.id.in_([prior_asset_id, asset_id])
+            ).delete(synchronize_session=False)
+            db.query(Source).filter(Source.id == source_id).delete()
+            db.commit()
 
 
 def test_publish_metadata_obeys_youtube_title_description_and_tag_limits():
@@ -577,4 +808,3 @@ def test_source_schema_requires_notes_when_repeat_use_is_claimed():
         repeat_use_review_notes="Reviewed written permission for multiple publication uses.",
     )
     assert valid.repeat_use_allowed is True
-

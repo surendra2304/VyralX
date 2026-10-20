@@ -29,19 +29,26 @@ This runbook is the durable handoff point when a ChatGPT session, browser, netwo
 - A scheduled workflow is an independent monitor, not an always-running AI coding agent. It cannot restart a stopped ChatGPT response or continue unfinished reasoning. A separate persistent worker would need an explicit task queue, durable checkpoints, bounded retries and safe authorization.
 
 
-## Task 3 engineering checkpoint — 2026-10-21
+## Task 3 engineering checkpoint — 2026-10-20
 
 ### Completed source changes
-- `app/services/rights.py`: Pexels provenance now validates the URL authority against the official hosts and only permits HTTPS on the default TLS port. Malformed ports and empty media paths are rejected.
-- `tests/test_production_hardening.py`: regression coverage was added for invalid media ports and empty video paths.
-- Work branch: `automation/friday-universe-task-3`.
+- `app/services/rights.py`: Pexels provenance validates official HTTPS URL authority, rejecting non-official hosts, user-info, non-default TLS ports, malformed ports, and empty paths.
+- `app/main.py` and `app/worker.py`: repeat-use history messages now state permission must be currently approved; the worker rechecks that state immediately before upload.
+- `tests/test_production_hardening.py`: regression coverage includes invalid Pexels ports/paths and repeat-use history detection.
+- `tests/test_app.py`: API coverage proves prior-upload history is blocked until an explicit review is recorded. A new integrated regression approves a publish, revokes its repeat-use permission through the API, and verifies the worker fails the job without invoking the mocked upload provider.
+- `tests/test_agent_services.py`: worker regression confirms an approved queued publish is stopped when repeat-use history has no current permission review; upload is mocked to fail if called.
+- Work branch: `automation/friday-universe-task-3`; head before current uncommitted changes: `c8c2de6`.
 
 ### Verification status
-No tests were executed in the ChatGPT automation runtime. The branch has not yet been reviewed by a pull request, and no CI result is available for these changes. Do not merge until focused tests, Ruff, and the full repository CI pass.
+- `.venv/bin/pytest tests/test_app.py::test_revoking_repeat_use_after_publish_approval_blocks_worker_upload -q` passed (1 test; one Starlette/httpx deprecation warning).
+- `.venv/bin/ruff check app tests scripts` passed; `git diff --check` passed.
+- `.venv/bin/pytest -o addopts= --disable-warnings` passed (153 tests, 1 warning, 1.49s).
+- `uv` is unavailable in the current runtime; prepared `.venv` executables were used.
+- `gh auth status` failed because no GitHub host is authenticated. No PR/Actions status is available; separate publisher must obtain review/CI. No real YouTube upload was performed.
 
 ### Exact next actions
-1. Inspect the branch head and obtain CI on the branch; fix any failure rather than weakening the rights gate.
-2. Run `uv run --frozen --extra dev ruff check app tests scripts`.
-3. Run `uv run --frozen --extra dev pytest tests/test_production_hardening.py`, then the full CI suite.
-4. Trace `find_repeat_use_blockers` through the final upload gate and add a test that repeat use requires a reviewed decision.
-5. Update this checkpoint with exact run links and pass/fail counts. Do not perform real uploads during tests.
+1. Trace resumable/uncertain upload retry reconciliation in `app/worker.py` and provider adapters; implement a focused safe improvement and regression ensuring ambiguous provider responses cannot duplicate an upload.
+2. Keep provider behavior mocked; test timeout, cancellation, retry, and reconciliation behavior relevant to the change. Never initiate a real YouTube upload.
+3. Run `.venv/bin/ruff check app tests scripts`, focused tests, `.venv/bin/pytest -o addopts= --disable-warnings`, and `git diff --check`.
+4. Have the separate publisher obtain PR/CI results; do not create or push a PR from this worker.
+5. Rewrite `.github/friday-continuation/task-3-checkpoint.md`, `.github/friday-continuation/task-3-next-run.md`, and this section with exact results and the next action.
