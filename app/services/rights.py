@@ -21,6 +21,26 @@ def _meaningful(value: str) -> bool:
     )
 
 
+def _is_official_pexels_url(value: str, *, path_prefix: str | None = None, exact_path: str | None = None) -> bool:
+    """Validate the URL authority and permitted TLS port before trusting provenance."""
+    try:
+        parsed = urlsplit(str(value or "").strip())
+        parsed.port  # Reject malformed port strings instead of accepting the hostname alone.
+    except ValueError:
+        return False
+    if parsed.scheme.casefold() != "https":
+        return False
+    if parsed.netloc.casefold() not in {
+        "pexels.com", "www.pexels.com", "pexels.com:443", "www.pexels.com:443"
+    }:
+        return False
+    if path_prefix is not None and not parsed.path.startswith(path_prefix):
+        return False
+    if exact_path is not None and parsed.path.rstrip("/") != exact_path:
+        return False
+    return True
+
+
 def source_is_publishable(source: Source | None) -> bool:
     """Require a meaningful rights record and validate official Pexels provenance."""
     if source is None or not bool(source.rights_verified):
@@ -30,16 +50,15 @@ def source_is_publishable(source: Source | None) -> bool:
     if not _meaningful(license_name) or not _meaningful(evidence):
         return False
     if str(source.platform or "").strip().casefold() == "pexels":
-        media = urlsplit(str(source.source_url or "").strip())
-        license_url = urlsplit(evidence)
+        try:
+            media_path = urlsplit(str(source.source_url or "").strip()).path.rstrip("/")
+        except ValueError:
+            return False
         return (
             license_name.casefold() == "pexels content license"
-            and media.scheme == "https"
-            and media.hostname in {"pexels.com", "www.pexels.com"}
-            and media.path.startswith("/video/")
-            and license_url.scheme == "https"
-            and license_url.hostname in {"pexels.com", "www.pexels.com"}
-            and license_url.path.rstrip("/") == "/license"
+            and _is_official_pexels_url(source.source_url, path_prefix="/video/")
+            and media_path != "/video"
+            and _is_official_pexels_url(evidence, exact_path="/license")
         )
     return True
 
