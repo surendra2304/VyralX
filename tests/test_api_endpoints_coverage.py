@@ -9,6 +9,8 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from sqlalchemy import select
+
 from app.database import SessionLocal
 from app.main import app
 from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoProject
@@ -354,4 +356,130 @@ def test_api_content_and_render_and_publish_flow(tmp_path: Path, monkeypatch: py
             if c:
                 db.delete(c)
             db.commit()
+
+
+def test_api_reconcile_and_thumbnails_and_analytics(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from app.models import VideoMetric
+
+    dummy_render_file = tmp_path / "thumb_render.mp4"
+    dummy_render_file.write_bytes(b"VID" * 100)
+
+    monkeypatch.setattr(
+        "app.main.settings",
+        SimpleNamespace(
+            render_dir=tmp_path,
+            youtube_analytics_enabled=True,
+            youtube_upload_enabled=True,
+        ),
+    )
+
+    with SessionLocal() as db:
+        # Uncertain publish job
+        uncertain_pub = PublishJob(
+            asset_id=1,
+            render_job_id=1,
+            title="Uncertain Job",
+            status="uncertain",
+            error="Interrupted",
+        )
+        # Completed render job
+        completed_render = RenderJob(
+            asset_id=1,
+            preset="shorts",
+            status="completed",
+            output_path=str(dummy_render_file),
+            options_json="{}",
+        )
+        # Uploaded job for analytics
+        uploaded_pub = PublishJob(
+            asset_id=1,
+            render_job_id=1,
+            title="Uploaded Video",
+            status="uploaded",
+            youtube_video_id="yt-metric-test-1",
+        )
+        db.add_all([uncertain_pub, completed_render, uploaded_pub])
+        db.commit()
+        uncertain_id = uncertain_pub.id
+        render_id = completed_render.id
+        uploaded_id = uploaded_pub.id
+
+    try:
+        # 1. Resolve uncertain: decision="uploaded"
+        res_res1 = client.post(
+            f"/api/jobs/publish/{uncertain_id}/resolve",
+            json={"decision": "uploaded", "youtube_video_id": "vid-reconciled-789"},
+        )
+        assert res_res1.status_code == 200
+        assert res_res1.json()["status"] == "uploaded"
+        assert res_res1.json()["youtube_video_id"] == "vid-reconciled-789"
+
+        # Set back to uncertain and test decision="not_uploaded"
+        with SessionLocal() as db:
+            uj = db.get(PublishJob, uncertain_id)
+            uj.status = "uncertain"
+            db.commit()
+
+        res_res2 = client.post(
+            f"/api/jobs/publish/{uncertain_id}/resolve",
+            json={"decision": "not_uploaded", "youtube_video_id": ""},
+        )
+        assert res_res2.status_code == 200
+        assert res_res2.json()["status"] == "pending_approval"
+
+        # 2. Thumbnail extraction & retrieval
+        monkeypatch.setattr("app.main.probe_media", lambda p: {"duration_seconds": 20.0})
+
+        def fake_extract_thumbnail(render_path, dest_path, timestamp):
+            Path(dest_path).write_bytes(b"THUMBNAIL_BYTES")
+            return str(dest_path)
+
+        monkeypatch.setattr("app.main.extract_thumbnail", fake_extract_thumbnail)
+
+        res_thumb = client.post(
+            "/api/thumbnails",
+            json={"render_job_id": render_id, "timestamp_seconds": 5.0},
+        )
+        assert res_thumb.status_code == 201
+
+        res_get_thumb = client.get(f"/api/thumbnails/{render_id}")
+        assert res_get_thumb.status_code == 200
+        assert res_get_thumb.content == b"THUMBNAIL_BYTES"
+
+        # 3. Analytics refresh & list
+        mock_metrics = [
+            {
+                "youtube_video_id": "yt-metric-test-1",
+                "title": "Uploaded Video",
+                "view_count": 500,
+                "like_count": 40,
+                "comment_count": 10,
+            }
+        ]
+        monkeypatch.setattr("app.main.fetch_video_metrics", lambda ids: mock_metrics)
+
+        res_refresh = client.post("/api/analytics/refresh")
+        assert res_refresh.status_code == 200
+        assert res_refresh.json()["snapshots_saved"] == 1
+
+        res_analytics = client.get("/api/analytics")
+        assert res_analytics.status_code == 200
+        assert any(item["youtube_video_id"] == "yt-metric-test-1" for item in res_analytics.json())
+
+    finally:
+        with SessionLocal() as db:
+            u = db.get(PublishJob, uncertain_id)
+            r = db.get(RenderJob, render_id)
+            up = db.get(PublishJob, uploaded_id)
+            if u:
+                db.delete(u)
+            if r:
+                db.delete(r)
+            if up:
+                db.delete(up)
+            # Delete created metrics
+            for m in db.scalars(select(VideoMetric).where(VideoMetric.youtube_video_id == "yt-metric-test-1")).all():
+                db.delete(m)
+            db.commit()
+
 
