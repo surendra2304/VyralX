@@ -664,8 +664,15 @@ async def upload_asset(file: UploadFile = File(...), title: str = "Untitled asse
     if meta["width"] <= 0 or meta["height"] <= 0 or meta["duration_seconds"] <= 0:
         destination.unlink(missing_ok=True)
         raise HTTPException(422, "Uploaded file must contain a readable video stream with positive duration")
-    asset = Asset(source_id=source_id, title=title[:300], file_path=str(destination),
-                  rights_verified=bool(source and source_is_publishable(source)), **meta)
+    asset = Asset(
+        source_id=source_id,
+        title=title[:300],
+        file_path=str(destination),
+        rights_verified=bool(source and source_is_publishable(source)),
+        duration_seconds=float(meta.get("duration_seconds") or 0.0),
+        width=int(meta.get("width") or 0),
+        height=int(meta.get("height") or 0),
+    )
     db.add(asset)
     db.commit()
     db.refresh(asset)
@@ -1094,12 +1101,15 @@ def import_pexels_asset(payload: PexelsImportRequest, db: Session = Depends(get_
         )
         db.add(source)
         db.flush()
+        meta = imported["metadata"]
         asset = Asset(
             source_id=source.id,
             title=imported["title"],
             file_path=str(destination),
             rights_verified=True,
-            **imported["metadata"],
+            duration_seconds=float(meta.get("duration_seconds") or 0.0),
+            width=int(meta.get("width") or 0),
+            height=int(meta.get("height") or 0),
         )
         db.add(asset)
         db.commit()
