@@ -13,7 +13,7 @@ from requests.exceptions import RequestException
 from app.database import SessionLocal
 from app.models import Asset, PublishJob, RenderJob, Source
 from app.services import youtube as yt
-from app.worker import process_publish_job, recover_interrupted_jobs
+from app.worker import process_publish_job
 
 
 def _make_dummy_video(tmp_path: Path, filename: str = "video.mp4", size: int = 2048) -> Path:
@@ -504,4 +504,199 @@ def test_safety_invariant_1_never_blindly_retry_and_uncertain_on_mismatch(
                 if s:
                     db.delete(s)
                 db.commit()
+
+
+def test_resumable_upload_network_drop_then_probe_confirms_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    token_file = tmp_path / "secrets" / "token.json"
+    monkeypatch.setattr(yt, "get_settings", lambda: SimpleNamespace(
+        youtube_token_file=token_file,
+        youtube_upload_enabled=True,
+    ))
+    video = _make_dummy_video(tmp_path, "probe_drop.mp4", size=100)
+
+    fake_creds = MagicMock()
+    fake_creds.valid = True
+    monkeypatch.setattr(yt, "youtube_credentials", lambda: fake_creds)
+
+    class MockInitResponse:
+        status_code = 200
+        headers = {
+            "Location": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=mock_probe_drop",
+        }
+
+    class MockSession:
+        def __init__(self):
+            self.put_calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def post(self, url, **kwargs):
+            return MockInitResponse()
+
+        def put(self, url, **kwargs):
+            self.put_calls += 1
+            if self.put_calls == 1:
+                # First chunk put drops connection
+                raise RequestException("Network connection dropped during chunk write")
+            # Second put is the probe query (Content-Range: bytes */100)
+            res = MagicMock()
+            res.status_code = 200
+            res.json.return_value = {"id": "vid_recovered_after_drop"}
+            return res
+
+    mock_session = MockSession()
+    monkeypatch.setattr(yt, "AuthorizedSession", lambda creds: mock_session)
+
+    vid = yt.upload_video(
+        str(video),
+        title="Probe Drop Test",
+        description="Testing recovery after drop",
+        tags=["probe"],
+        privacy_status="private",
+        category_id="22",
+        publish_job_id=88,
+        upload_attempt=1,
+    )
+
+    assert vid == "vid_recovered_after_drop"
+    assert yt.load_upload_success_checkpoint(88, 1) == "vid_recovered_after_drop"
+    yt.clear_upload_success_checkpoint(88)
+    yt.clear_upload_session_checkpoint(88)
+
+
+def test_resumable_upload_session_expired_and_renewed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    token_file = tmp_path / "secrets" / "token.json"
+    monkeypatch.setattr(yt, "get_settings", lambda: SimpleNamespace(
+        youtube_token_file=token_file,
+        youtube_upload_enabled=True,
+    ))
+    video = _make_dummy_video(tmp_path, "renewed.mp4", size=100)
+
+    fake_creds = MagicMock()
+    fake_creds.valid = True
+    monkeypatch.setattr(yt, "youtube_credentials", lambda: fake_creds)
+
+    sessions_started = 0
+
+    class MockSession:
+        def __init__(self):
+            self.put_calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def post(self, url, **kwargs):
+            nonlocal sessions_started
+            sessions_started += 1
+            res = MagicMock()
+            res.status_code = 200
+            res.headers = {
+                "Location": f"https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=renew_{sessions_started}",
+            }
+            return res
+
+        def put(self, url, **kwargs):
+            self.put_calls += 1
+            if self.put_calls == 1:
+                # Session expired on first chunk upload
+                res = MagicMock()
+                res.status_code = 404
+                return res
+            # Second chunk upload on renewed session succeeds
+            res = MagicMock()
+            res.status_code = 200
+            res.json.return_value = {"id": "vid_renewed_success"}
+            return res
+
+    mock_session = MockSession()
+    monkeypatch.setattr(yt, "AuthorizedSession", lambda creds: mock_session)
+
+    vid = yt.upload_video(
+        str(video),
+        title="Renew Test",
+        description="Testing session renewal",
+        tags=["renew"],
+        privacy_status="private",
+        category_id="22",
+        publish_job_id=89,
+        upload_attempt=1,
+    )
+
+    assert vid == "vid_renewed_success"
+    assert sessions_started == 2
+    yt.clear_upload_success_checkpoint(89)
+    yt.clear_upload_session_checkpoint(89)
+
+
+def test_resumable_upload_stall_limit_exceeded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    token_file = tmp_path / "secrets" / "token.json"
+    monkeypatch.setattr(yt, "get_settings", lambda: SimpleNamespace(
+        youtube_token_file=token_file,
+        youtube_upload_enabled=True,
+    ))
+    video = _make_dummy_video(tmp_path, "stall.mp4", size=100)
+
+    fake_creds = MagicMock()
+    fake_creds.valid = True
+    monkeypatch.setattr(yt, "youtube_credentials", lambda: fake_creds)
+
+    class MockSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def post(self, url, **kwargs):
+            res = MagicMock()
+            res.status_code = 200
+            res.headers = {
+                "Location": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=stall_sess",
+            }
+            return res
+
+        def put(self, url, **kwargs):
+            # Check if this is a probe
+            content_range = kwargs.get("headers", {}).get("Content-Range", "")
+            if content_range.startswith("bytes */"):
+                # Probe says offset is still 0
+                res = MagicMock()
+                res.status_code = 308
+                res.headers = {"Range": "bytes=0--1"}  # offset 0
+                return res
+            # Chunk upload raises connection error
+            raise RequestException("Network connection failed repeatedly")
+
+    monkeypatch.setattr(yt, "AuthorizedSession", lambda creds: MockSession())
+
+    # Probe should return offset 0, so remote_offset == offset stalls
+    monkeypatch.setattr(yt, "_resume_offset_from_response", lambda res, size: 0)
+
+    with pytest.raises(yt.UploadOutcomeUnknown, match="did not advance the resumable upload"):
+        yt.upload_video(
+            str(video),
+            title="Stall Test",
+            description="Testing stall limit",
+            tags=["stall"],
+            privacy_status="private",
+            category_id="22",
+            publish_job_id=90,
+            upload_attempt=1,
+        )
+
+    yt.clear_upload_session_checkpoint(90)
+
 

@@ -2,18 +2,15 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from collections import namedtuple
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from app.database import SessionLocal
-from app.models import Asset, RenderJob, Source, utcnow
+from app.models import Asset, RenderJob, Source
 from app.services.renderer import (
-    MIN_REQUIRED_DISK_BYTES,
     PRESETS,
     _posix_resource_limiter,
     _verify_disk_space,

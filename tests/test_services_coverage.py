@@ -1,11 +1,9 @@
 """Coverage tests for init_db, security, discovery, thumbnail, youtube_analytics, and pexels services."""
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import httpx
 import pytest

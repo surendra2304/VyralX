@@ -227,7 +227,35 @@ def test_task_dispatch_deep(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             assert pub_res["status"] == "pending_approval"
             pub_id = pub_res["publish_job_id"]
 
-            # 5. Unsupported task type
+            # 5. discover.youtube & discover.pexels
+            monkeypatch.setattr(
+                "app.services.task_dispatch.discover_youtube_videos",
+                lambda q, m, o: [{"id": "v1", "view_count": 100}],
+            )
+            monkeypatch.setattr(
+                "app.services.task_dispatch.search_videos",
+                lambda q, max_results=10, orientation="portrait": [{"id": 2}],
+            )
+            d_yt = dispatch_agent_task("discover.youtube", {"query": "tech"}, db)
+            assert d_yt["count"] >= 1
+            d_px = dispatch_agent_task("discover.pexels", {"query": "tech"}, db)
+            assert d_px["count"] >= 1
+
+            # 6. Validation error cases
+            with pytest.raises(ValueError, match="Asset not found"):
+                dispatch_agent_task("render.create", {"asset_id": 999999, "preset": "shorts"}, db)
+
+            with pytest.raises(ValueError, match="confirm_rights must be true"):
+                dispatch_agent_task("publish.request", {
+                    "asset_id": asset_id, "render_job_id": render_id, "title": "Test Title", "confirm_rights": False,
+                }, db)
+
+            with pytest.raises(ValueError, match="confirm_pexels_license must be true"):
+                dispatch_agent_task("project.create", {
+                    "topic": "No license", "confirm_pexels_license": False,
+                }, db)
+
+            # 7. Unsupported task type
             with pytest.raises(ValueError, match="Unsupported task type"):
                 dispatch_agent_task("unsupported.task.type", {}, db)
 

@@ -87,17 +87,27 @@ def test_recover_interrupted_jobs_all_queues():
             video_format="shorts",
             status="running",
         )
-        db.add_all([render, task, proj])
+        # 4. Uploading publish job without checkpoint -> uncertain
+        pub = PublishJob(
+            asset_id=1,
+            render_job_id=1,
+            title="Uploading Publish",
+            status="uploading",
+            attempts=1,
+        )
+        db.add_all([render, task, proj, pub])
         db.commit()
         render_id = render.id
         task_id = task.id
         proj_id = proj.id
+        pub_id = pub.id
 
     try:
         counts = recover_interrupted_jobs()
         assert counts["renders"] >= 1
         assert counts["agent_tasks"] >= 1
         assert counts["projects"] >= 1
+        assert counts["uploads_uncertain"] >= 1
 
         with SessionLocal() as db:
             ref_render = db.get(RenderJob, render_id)
@@ -111,18 +121,56 @@ def test_recover_interrupted_jobs_all_queues():
             ref_proj = db.get(VideoProject, proj_id)
             assert ref_proj.status == "failed"
             assert "Worker restarted while creating this project" in ref_proj.error
+
+            ref_pub = db.get(PublishJob, pub_id)
+            assert ref_pub.status == "uncertain"
+            assert "Check YouTube Studio/API state" in ref_pub.error
     finally:
         with SessionLocal() as db:
             r = db.get(RenderJob, render_id)
             t = db.get(AgentTask, task_id)
             p = db.get(VideoProject, proj_id)
+            pub_item = db.get(PublishJob, pub_id)
             if r:
                 db.delete(r)
             if t:
                 db.delete(t)
             if p:
                 db.delete(p)
+            if pub_item:
+                db.delete(pub_item)
             db.commit()
+
+
+def test_agent_task_deadline_and_retry(monkeypatch: pytest.MonkeyPatch):
+    from app.worker import process_agent_task
+
+    # 1. Expired deadline
+    with SessionLocal() as db:
+        expired_task = AgentTask(
+            task_id="expired-" + uuid4().hex[:10],
+            task_type="discover.pexels",
+            status="queued",
+            action="discover.pexels",
+            deadline="2020-01-01T00:00:00Z",
+            attempts=0,
+        )
+        db.add(expired_task)
+        db.commit()
+        task_id = expired_task.id
+
+    try:
+        process_agent_task(task_id)
+        with SessionLocal() as db:
+            refreshed = db.get(AgentTask, task_id)
+            # Expired deadline raises TimeoutError; since attempts=0 < worker_max_attempts, status set to queued
+            assert "Task deadline expired" in refreshed.error
+    finally:
+        with SessionLocal() as db:
+            item = db.get(AgentTask, task_id)
+            if item:
+                db.delete(item)
+                db.commit()
 
 
 def test_run_once_cycles_through_queues(monkeypatch: pytest.MonkeyPatch):

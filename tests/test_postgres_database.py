@@ -1,9 +1,7 @@
 """Tests for PostgreSQL production database configuration, connection pooling, and persistence."""
 from __future__ import annotations
 
-import os
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -18,7 +16,6 @@ from app.database import (
     verify_database_connection,
     verify_persistence,
 )
-from app.models import Asset, PublishJob, RenderJob, VideoProject
 
 
 def test_mask_url_password():

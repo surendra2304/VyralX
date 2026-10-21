@@ -23,7 +23,7 @@ from app.models import AgentTask, Asset, PublishJob, RenderJob, Source, VideoPro
 from app.services.captions import write_srt
 from app.services.media_quality import analyze_media_signals
 from app.services.montage import render_montage
-from app.services.peers import configured_peers, post_peer_json
+from app.services.peers import post_peer_json
 from app.services.probe import probe_media
 from app.services.project_pipeline import execute_project_pipeline
 from app.services.renderer import render_video
