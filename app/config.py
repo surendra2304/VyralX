@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     inference_tts_voice: str = "alloy"
     inference_tts_timeout_seconds: int = 180
     elevenlabs_api_key: str = ""
-    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+    elevenlabs_voice_id: str = "IKne3meq5aSn9XLyUdCD"
     elevenlabs_model_id: str = "eleven_multilingual_v2"
     elevenlabs_timeout_seconds: int = 120
     caption_alignment_url: str = ""

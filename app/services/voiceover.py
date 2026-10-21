@@ -83,7 +83,7 @@ def synthesize_voiceover(text: str, *, target_seconds: int | None = None) -> dic
         api_key = settings.elevenlabs_api_key.strip()
         if not api_key:
             raise RuntimeError("TTS_PROVIDER=elevenlabs requires ELEVENLABS_API_KEY")
-        voice_id = settings.elevenlabs_voice_id.strip() or "21m00Tcm4TlvDq8ikWAM"
+        voice_id = settings.elevenlabs_voice_id.strip() or "IKne3meq5aSn9XLyUdCD"
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         payload = {
             "text": normalized,

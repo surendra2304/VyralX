@@ -250,7 +250,7 @@ def is_project_scene_publishable(asset: Asset | None, source: Source | None) -> 
         asset is not None
         and asset.rights_verified
         and source is not None
-        and str(source.platform or "").strip().casefold() == "pexels"
+        and str(source.platform or "").strip().casefold() in {"pexels", "unsplash"}
         and source_is_publishable(source)
     )
 
