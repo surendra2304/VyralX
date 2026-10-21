@@ -585,3 +585,14 @@ def test_rights_gate_rejects_pexels_video_path_traversal_and_ambiguous_paths(
         permission_reference="https://www.pexels.com/license/",
     )
     assert not source_is_publishable(source)
+
+def test_rights_gate_accepts_normal_pexels_video_path():
+    source = Source(
+        title="Valid Pexels video page",
+        platform="pexels",
+        source_url="https://www.pexels.com/video/123456-example-clip/",
+        rights_verified=True,
+        license_name="Pexels Content License",
+        permission_reference="https://www.pexels.com/license/",
+    )
+    assert source_is_publishable(source)
