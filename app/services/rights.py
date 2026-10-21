@@ -27,7 +27,7 @@ def _safe_decoded_path(path: str) -> str | None:
     # Repeated decoding catches double-encoded dot segments without allowing
     # arbitrarily nested encodings to evade validation.
     for _ in range(5):
-        if "\\\\" in current or any(ord(char) < 32 or ord(char) == 127 for char in current):
+        if any(ord(char) == 92 or ord(char) < 32 or ord(char) == 127 for char in current):
             return None
         if any(segment in {".", ".."} for segment in current.split("/")):
             return None
