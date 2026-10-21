@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+import posixpath
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -41,9 +42,29 @@ def _is_official_pexels_url(
         return False
     if parsed.netloc.endswith(":") or not parsed.netloc:
         return False
-    if path_prefix is not None and not parsed.path.startswith(path_prefix):
+
+    # Pexels URLs are rights evidence. Do not accept dot segments, encoded traversal,
+    # backslashes, or ambiguous repeated slashes that a browser/proxy may normalize to
+    # a different resource path.
+    decoded_path = unquote(parsed.path)
+    if not decoded_path.startswith("/") or "\\" in decoded_path:
         return False
-    if exact_path is not None and parsed.path.rstrip("/") != exact_path:
+    if any(segment in {".", ".."} for segment in decoded_path.split("/")):
+        return False
+    normalized_path = posixpath.normpath(decoded_path)
+    expected_normalized_path = decoded_path.rstrip("/") or "/"
+    if normalized_path != expected_normalized_path:
+        return False
+
+    if path_prefix is not None:
+        if not normalized_path.startswith(path_prefix):
+            return False
+        remainder = normalized_path[len(path_prefix):]
+        if not remainder:
+            return False
+        if path_prefix == "/video/" and "/" in remainder:
+            return False
+    if exact_path is not None and normalized_path != exact_path:
         return False
     return True
 

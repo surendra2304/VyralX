@@ -538,3 +538,28 @@ def test_repeat_use_blocker_detects_prior_upload_and_respects_explicit_review():
         db.delete(previously_used)
         db.delete(current)
         db.commit()
+
+@pytest.mark.parametrize(
+    "media_url",
+    [
+        "https://www.pexels.com/video/../license/",
+        "https://www.pexels.com/video/%2e%2e/license/",
+        "https://www.pexels.com/video/%2E%2E%2fvideo/123/",
+        "https://www.pexels.com/video//123/",
+        "https://www.pexels.com/video/slug/nested/",
+    ],
+)
+def test_rights_gate_rejects_pexels_video_path_traversal_and_ambiguous_paths(
+    media_url: str,
+):
+    source = Source(
+        title="Ambiguous Pexels path",
+        platform="pexels",
+        source_url=media_url,
+        rights_verified=True,
+        license_name="Pexels Content License",
+        permission_reference="https://www.pexels.com/license/",
+    )
+
+    assert not source_is_publishable(source)
+
