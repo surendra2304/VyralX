@@ -104,8 +104,11 @@ def render_montage(
     segment_seconds = float(target_seconds) / len(sources)
     command = [settings.ffmpeg_bin, "-hide_banner", "-nostdin", "-y", "-threads", str(threads)]
     for source in sources:
-        # Loop short stock clips so every scene fills its assigned time slice.
-        command.extend(["-stream_loop", "-1", "-i", str(source)])
+        # Loop short stock clips or still image assets so every scene fills its assigned time slice.
+        if source.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
+            command.extend(["-loop", "1", "-i", str(source)])
+        else:
+            command.extend(["-stream_loop", "-1", "-i", str(source)])
     audio_index = len(sources)
     if voice is not None:
         command.extend(["-i", str(voice)])

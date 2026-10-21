@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Create a local YouTube OAuth token without printing credentials."""
+import sys
+from pathlib import Path
+
+# Ensure VyralX package is prioritized over other editable workspace agents
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from google_auth_oauthlib.flow import InstalledAppFlow
-
 from app.config import get_settings
 
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
@@ -15,12 +19,19 @@ def main() -> int:
 
     if not client_file.is_file():
         print(
-            "OAuth client file was not found at "
-            f"{client_file}. Place your downloaded Desktop OAuth client JSON there."
+            "ERROR: OAuth client file was not found at "
+            f"{client_file}.\nPlease place your downloaded client_secrets.json in data/credentials/.",
+            flush=True,
         )
         return 2
 
     token_file.parent.mkdir(parents=True, exist_ok=True)
+    print("\n" + "=" * 60, flush=True)
+    print("VyralX YouTube OAuth Authorization", flush=True)
+    print("=" * 60, flush=True)
+    print("Opening browser for Google authorization...", flush=True)
+    print("If your browser does not open automatically, copy the URL below:\n", flush=True)
+
     flow = InstalledAppFlow.from_client_secrets_file(
         str(client_file),
         scopes=[YOUTUBE_UPLOAD_SCOPE],
@@ -36,11 +47,12 @@ def main() -> int:
     try:
         token_file.chmod(0o600)
     except OSError:
-        # Some filesystems (notably Windows mounts) do not support POSIX modes.
         pass
 
-    print(f"YouTube OAuth token saved to {token_file}.")
-    print("Keep this file private; it grants upload access to the connected channel.")
+    print("\n" + "=" * 60, flush=True)
+    print(f"SUCCESS! YouTube OAuth token saved to:\n{token_file}", flush=True)
+    print("VyralX is now fully authorized to publish to your channel!", flush=True)
+    print("=" * 60 + "\n", flush=True)
     return 0
 
 

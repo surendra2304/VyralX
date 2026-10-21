@@ -352,6 +352,49 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
             # Broaden from a scene-specific phrase to the overall topic before failing.
             results = search_videos(project.topic, max_results=15, orientation=orientation)
             chosen = _choose_candidate(results, used_video_ids)
+        if chosen is None and settings.unsplash_access_key:
+            from app.services.unsplash import search_photos, import_photo
+            u_results = search_photos(query, orientation=orientation, per_page=10)
+            if not u_results:
+                u_results = search_photos(project.topic, orientation=orientation, per_page=15)
+            if u_results:
+                u_photo = u_results[0]
+                u_imported = import_photo(
+                    u_photo["id"],
+                    u_photo["download_url"],
+                    title=u_photo["title"] + " — " + query[:180],
+                    creator=u_photo["creator"],
+                    creator_url=u_photo["creator_url"],
+                )
+                u_source = Source(
+                    title=u_imported["title"],
+                    source_url=u_imported["source_url"],
+                    platform="unsplash",
+                    creator=u_imported["creator"],
+                    license_name="Unsplash License",
+                    permission_reference="https://unsplash.com/license",
+                    rights_verified=True,
+                    repeat_use_allowed=bool(getattr(project, "confirm_pexels_repeat_use", False)),
+                    repeat_use_reviewed_at=(utcnow() if getattr(project, "confirm_pexels_repeat_use", False) else None),
+                    repeat_use_review_notes="Unsplash free commercial use license.",
+                    status="licensed",
+                )
+                db.add(u_source)
+                db.flush()
+                u_asset = Asset(
+                    source_id=u_source.id,
+                    title=u_imported["title"],
+                    file_path=u_imported["file_path"],
+                    duration_seconds=float(project.target_seconds) / needed,
+                    width=u_imported["width"],
+                    height=u_imported["height"],
+                    rights_verified=True,
+                )
+                db.add(u_asset)
+                db.flush()
+                assets.append(u_asset)
+                continue
+
         if chosen is None:
             raise RuntimeError(f"No downloadable Pexels MP4 candidate found for scene {index + 1}")
         video, media_file = chosen
