@@ -56,6 +56,58 @@ def test_rights_gate_rejects_placeholder_and_untrusted_pexels_evidence():
     ))
 
 
+@pytest.mark.parametrize(
+    "media_url,license_url",
+    [
+        ("https://www.pexels.com@evil.example/video/123/", "https://www.pexels.com/license/"),
+        ("https://user@www.pexels.com/video/123/", "https://www.pexels.com/license/"),
+        ("https://www.pexels.com:444/video/123/", "https://www.pexels.com/license/"),
+        ("https://www.pexels.com:notaport/video/123/", "https://www.pexels.com/license/"),
+        ("https://www.pexels.com:/video/123/", "https://www.pexels.com/license/"),
+        ("https://www.pexels.com/video/123/", "https://www.pexels.com.evil.example/license/"),
+        ("https://www.pexels.com/video/123/", "https://user@www.pexels.com/license/"),
+        ("https://www.pexels.com/video/123/", "https://www.pexels.com:444/license/"),
+        ("https://www.pexels.com/video/123/", "https://www.pexels.com:bad/license/"),
+        ("https://www.pexels.com/video/123/", "https://www.pexels.com:/license/"),
+        ("http://www.pexels.com/video/123/", "https://www.pexels.com/license/"),
+        ("https://www.pexels.com.evil.example/video/123/", "https://www.pexels.com/license/"),
+        ("https://www.pexels.com/video/", "https://www.pexels.com/license/"),
+        ("https://www.pexels.com.evil.example/video/123/", "https://www.pexels.com/license/"),
+    ],
+)
+def test_pexels_rights_gate_rejects_malformed_or_untrusted_url_authority(media_url, license_url):
+    source = Source(
+        title="Forged provenance",
+        platform="pexels",
+        source_url=media_url,
+        rights_verified=True,
+        license_name="Pexels Content License",
+        permission_reference=license_url,
+    )
+
+    assert not source_is_publishable(source)
+
+
+@pytest.mark.parametrize(
+    "media_url,license_url",
+    [
+        ("https://www.pexels.com/video/123/", "https://www.pexels.com/license/"),
+        ("https://pexels.com:443/video/123/", "https://pexels.com:443/license/"),
+    ],
+)
+def test_pexels_rights_gate_accepts_official_https_urls_and_default_port(media_url, license_url):
+    source = Source(
+        title="Official provenance",
+        platform="pexels",
+        source_url=media_url,
+        rights_verified=True,
+        license_name="Pexels Content License",
+        permission_reference=license_url,
+    )
+
+    assert source_is_publishable(source)
+
+
 def test_stock_credits_fail_closed_when_full_urls_do_not_fit():
     source = SimpleNamespace(
         platform="pexels",
@@ -486,4 +538,3 @@ def test_repeat_use_blocker_detects_prior_upload_and_respects_explicit_review():
         db.delete(previously_used)
         db.delete(current)
         db.commit()
-
