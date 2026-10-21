@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,6 +19,23 @@ def _meaningful(value: str) -> bool:
         and normalized not in _PLACEHOLDERS
         and not normalized.startswith(("replace-with", "your license", "your permission", "todo:", "tbd:"))
     )
+
+
+def _safe_decoded_path(path: str) -> str | None:
+    """Decode a URL path conservatively and reject traversal/ambiguous separators."""
+    current = path
+    # Repeated decoding catches double-encoded dot segments without allowing
+    # arbitrarily nested encodings to evade validation.
+    for _ in range(5):
+        if "\\\\" in current or any(ord(char) < 32 or ord(char) == 127 for char in current):
+            return None
+        if any(segment in {".", ".."} for segment in current.split("/")):
+            return None
+        decoded = unquote(current)
+        if decoded == current:
+            return current
+        current = decoded
+    return None
 
 
 def _is_official_pexels_url(
@@ -41,9 +58,12 @@ def _is_official_pexels_url(
         return False
     if parsed.netloc.endswith(":") or not parsed.netloc:
         return False
-    if path_prefix is not None and not parsed.path.startswith(path_prefix):
+    safe_path = _safe_decoded_path(parsed.path)
+    if safe_path is None:
         return False
-    if exact_path is not None and parsed.path.rstrip("/") != exact_path:
+    if path_prefix is not None and not safe_path.startswith(path_prefix):
+        return False
+    if exact_path is not None and safe_path.rstrip("/") != exact_path:
         return False
     return True
 
