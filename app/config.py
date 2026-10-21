@@ -111,6 +111,7 @@ class Settings(BaseSettings):
     bgm_ducking_attenuation_db: float = -16.0
     bgm_default_volume: float = 0.20
     pexels_api_key: str = ""
+    unsplash_access_key: str = ""
     youtube_data_api_key: str = ""
     youtube_client_secrets_file: Path = Path("./secrets/youtube-client-secret.json")
     youtube_token_file: Path = Path("./data/secrets/youtube-token.json")

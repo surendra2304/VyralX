@@ -1391,6 +1391,71 @@ def retry_publish_job(job_id: int, db: Session = Depends(get_db)):
             "message": "Review the job and approve it again before an external upload"}
 
 
+
+@app.post("/api/discover/unsplash", dependencies=[Depends(require_api_key)])
+def discover_unsplash_route(payload: dict):
+    """Search Unsplash for high-resolution photographs matching video topics."""
+    query = str(payload.get("query") or "").strip()
+    if not query:
+        raise HTTPException(422, "query must not be blank")
+    orientation = str(payload.get("orientation") or "portrait").strip()
+    per_page = int(payload.get("per_page", 10))
+    from app.services.unsplash import search_photos
+    try:
+        results = search_photos(query, orientation=orientation, per_page=per_page)
+        return {"query": query, "count": len(results), "items": results}
+    except Exception as exc:
+        raise HTTPException(502, f"Unsplash search failed: {exc}") from exc
+
+
+@app.post("/api/assets/import/unsplash", status_code=201, dependencies=[Depends(require_api_key)])
+def import_unsplash_route(payload: dict, db: Session = Depends(get_db)):
+    """Download an authorized Unsplash photo and register verified source and asset records."""
+    photo_id = str(payload.get("photo_id") or "").strip()
+    download_url = str(payload.get("download_url") or "").strip()
+    if not photo_id or not download_url:
+        raise HTTPException(422, "photo_id and download_url are required")
+    from app.services.unsplash import import_photo
+    try:
+        imported = import_photo(
+            photo_id,
+            download_url,
+            title=str(payload.get("title") or f"Unsplash photo {photo_id}"),
+            creator=str(payload.get("creator") or ""),
+            creator_url=str(payload.get("creator_url") or ""),
+        )
+    except Exception as exc:
+        raise HTTPException(422, f"Unsplash import failed: {exc}") from exc
+
+    source = Source(
+        title=imported["title"],
+        source_url=imported["source_url"],
+        platform="unsplash",
+        creator=imported["creator"],
+        license_name="Unsplash License",
+        permission_reference="https://unsplash.com/license",
+        rights_verified=True,
+        repeat_use_allowed=bool(payload.get("repeat_use_allowed", False)),
+        status="licensed",
+    )
+    db.add(source)
+    db.flush()
+
+    asset = Asset(
+        source_id=source.id,
+        title=imported["title"],
+        file_path=imported["file_path"],
+        duration_seconds=0.0,
+        width=imported["width"],
+        height=imported["height"],
+        rights_verified=True,
+    )
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+    return {"asset_id": asset.id, "source_id": source.id, "status": "imported", "asset": {"title": asset.title, "path": asset.file_path}}
+
+
 @app.post("/api/discover/pexels", dependencies=[Depends(require_api_key)])
 def discover_pexels(payload: PexelsSearchRequest):
     """Search official Pexels stock footage; candidates remain unverified until import confirmation."""
