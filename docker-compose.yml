@@ -13,9 +13,11 @@ x-vyralx-common: &vyralx-common
     MEDIA_DIR: /app/media
     RENDER_DIR: /app/renders
     MAX_CONCURRENT_RENDERS: "1"
+    RENDER_MAX_CPU_THREADS: "1"
+    RENDER_MAX_MEMORY_MB: "384"
     MAX_UPLOAD_MB: "2048"
     MAX_STOCK_CLIP_MB: ${MAX_STOCK_CLIP_MB:-150}
-    TTS_PROVIDER: ${TTS_PROVIDER:-espeak}
+    TTS_PROVIDER: ${TTS_PROVIDER:-elevenlabs}
     ESPEAK_BIN: ${ESPEAK_BIN:-espeak-ng}
     ESPEAK_VOICE: ${ESPEAK_VOICE:-en-us}
     ESPEAK_RATE: ${ESPEAK_RATE:-165}
