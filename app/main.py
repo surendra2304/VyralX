@@ -15,7 +15,28 @@ from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.migrations import run_additive_migrations
 from app.models import AgentTask, Asset, ContentPack, PublishJob, RenderJob, Source, VideoMetric, VideoProject, utcnow
-from app.schemas import AgentTaskCancelRequest, AgentTaskRequest, ContentGenerationRequest, ContentVoiceoverRequest, DiscoveryRequest, PexelsImportRequest, PexelsSearchRequest, PublishApprovalRequest, PublishRequest, PublishResolutionRequest, RenderRequest, RepeatUseReviewRequest, SourceCreate, ThumbnailRequest, UniverseTaskEnvelope, VideoProjectCreateRequest, VideoProjectRetryRequest
+from app.schemas import (
+    AgentTaskCancelRequest,
+    AgentTaskRequest,
+    ContentGenerationRequest,
+    ContentVoiceoverRequest,
+    DiscoveryRequest,
+    DistributionPackageRequest,
+    PexelsImportRequest,
+    PexelsSearchRequest,
+    PublishApprovalRequest,
+    PublishRequest,
+    PublishResolutionRequest,
+    RenderRequest,
+    RepeatUseReviewRequest,
+    SourceCreate,
+    StrategyEvaluationRequest,
+    ThumbnailRequest,
+    UniverseTaskEnvelope,
+    VideoProjectCreateRequest,
+    VideoProjectRetryRequest,
+    ViralHooksRequest,
+)
 from app.security import require_api_key
 from app.services.probe import probe_media
 from app.services.discovery import discover_youtube_videos
@@ -464,6 +485,10 @@ def integration_configuration():
                 "write_enabled": settings.memora_write_enabled,
             },
             "sentinel": {"peer_configured": "sentinel" in peers, "required_for_publish": settings.sentinel_required_for_publish},
+            "stratex": {"peer_configured": "stratex" in peers},
+            "forge": {"peer_configured": "forge" in peers},
+            "cortex": {"peer_configured": "cortex" in peers},
+            "futuris": {"peer_configured": "futuris" in peers},
             "echo": {
                 "peer_configured": "echo" in peers,
                 "notifications_enabled": getattr(settings, "echo_notifications_enabled", False),
@@ -488,13 +513,17 @@ def integration_configuration():
 
 @app.get("/api/peers", dependencies=[Depends(require_api_key)])
 def list_peers():
-    """Report configuration and live health for all 9 FRIDAY Universe peer agents."""
+    """Report configuration and live health across all FRIDAY Universe peer agents."""
     universe_peers = [
         "friday",
         "inference",
-        "intelx",
         "memora",
+        "stratex",
+        "forge",
+        "cortex",
         "sentinel",
+        "intelx",
+        "futuris",
         "echo",
         "mediax",
         "datax",
@@ -508,6 +537,97 @@ def list_peers():
         "configured_count": len(configured),
         "peers": results,
     }
+
+
+@app.post("/api/content/hooks", dependencies=[Depends(require_api_key)])
+def generate_hooks_route(payload: ViralHooksRequest):
+    """Generate 5 psychological hook archetypes scored for retention."""
+    from app.services.hooks import generate_viral_hooks, select_optimal_hook
+
+    hooks = generate_viral_hooks(payload.topic, audience=payload.audience)
+    optimal = select_optimal_hook(hooks)
+    return {"topic": payload.topic, "optimal_hook": optimal, "candidate_hooks": hooks}
+
+
+@app.post("/api/content/strategy", dependencies=[Depends(require_api_key)])
+def evaluate_strategy_route(payload: StrategyEvaluationRequest):
+    """Evaluate topic positioning via Stratex or local heuristic strategy."""
+    from app.services.stratex import evaluate_topic_strategy, score_content_pillars
+
+    res = evaluate_topic_strategy(
+        payload.topic,
+        audience=payload.audience,
+        tone=payload.tone,
+        pillars=payload.pillars,
+    )
+    pillar_scores = score_content_pillars(payload.topic, payload.pillars)
+    return {**res, "pillar_scores": pillar_scores}
+
+
+@app.post("/api/content/coherence", dependencies=[Depends(require_api_key)])
+def check_coherence_route(payload: dict):
+    """Check script narrative structure, hook presence, rhythm and CTA via Cortex."""
+    script = str(payload.get("script") or "").strip()
+    if not script:
+        raise HTTPException(422, "script must not be blank")
+    from app.services.cortex import extract_semantic_entities, verify_script_coherence
+
+    coherence = verify_script_coherence(script)
+    entities = extract_semantic_entities(script)
+    return {**coherence, "semantic_context": entities}
+
+
+@app.post("/api/projects/{project_id}/distribution", dependencies=[Depends(require_api_key)])
+def build_project_distribution(project_id: int, payload: DistributionPackageRequest, db: Session = Depends(get_db)):
+    """Generate multi-platform distribution package (YouTube, Instagram Reels, TikTok)."""
+    project = db.get(VideoProject, project_id)
+    if project is None or project.status != "completed":
+        raise HTTPException(404, "Completed project not found")
+    render = db.get(RenderJob, project.render_job_id) if project.render_job_id else None
+    if render is None or not Path(render.output_path).is_file():
+        raise HTTPException(404, "Completed render output is missing")
+
+    from app.services.distribution import generate_distribution_package
+    from app.services.hooks import generate_viral_hooks, select_optimal_hook
+
+    content = db.get(ContentPack, project.content_pack_id) if project.content_pack_id else None
+    pack = json.loads(content.pack_json) if content and content.pack_json else {}
+    title = str(pack.get("title") or project.topic)
+    description = str(pack.get("description") or pack.get("script") or "")
+
+    hook = payload.hook_text
+    if not hook:
+        hooks = generate_viral_hooks(project.topic, audience=project.audience)
+        hook = select_optimal_hook(hooks)["hook_text"]
+
+    manifest_path = generate_distribution_package(
+        project_key=project.project_key,
+        title=title,
+        description=description,
+        tags=list(pack.get("tags") or []),
+        hook_text=hook,
+        output_dir=settings.render_dir,
+        is_short=(project.video_format == "shorts"),
+        niche=payload.niche,
+    )
+    return {
+        "status": "generated",
+        "project_id": project.id,
+        "manifest_path": str(manifest_path),
+        "manifest": json.loads(manifest_path.read_text(encoding="utf-8")),
+    }
+
+
+@app.get("/api/projects/{project_id}/distribution", dependencies=[Depends(require_api_key)])
+def get_project_distribution(project_id: int, db: Session = Depends(get_db)):
+    """Get the multi-platform social distribution package manifest."""
+    project = db.get(VideoProject, project_id)
+    if project is None or project.status != "completed":
+        raise HTTPException(404, "Completed project not found")
+    manifest_file = settings.render_dir / f"{project.project_key}-distribution-manifest.json"
+    if not manifest_file.is_file():
+        raise HTTPException(404, "Distribution package has not been generated for this project")
+    return json.loads(manifest_file.read_text(encoding="utf-8"))
 
 
 @app.post("/api/projects", status_code=202, dependencies=[Depends(require_api_key)])
@@ -1049,6 +1169,11 @@ def agent_manifest():
             {"id": "video.publish.resolve_uncertain", "method": "POST", "path": "/api/jobs/publish/{job_id}/resolve"},
             {"id": "mesh.peers", "method": "GET", "path": "/api/peers"},
             {"id": "project.captions.ass", "method": "GET", "path": "/api/projects/{project_id}/captions.ass"},
+            {"id": "content.hooks", "method": "POST", "path": "/api/content/hooks"},
+            {"id": "content.strategy", "method": "POST", "path": "/api/content/strategy"},
+            {"id": "content.coherence", "method": "POST", "path": "/api/content/coherence"},
+            {"id": "project.distribution.build", "method": "POST", "path": "/api/projects/{project_id}/distribution"},
+            {"id": "project.distribution.get", "method": "GET", "path": "/api/projects/{project_id}/distribution"},
         ],
         "peer_contract": "HTTP JSON authenticated using X-API-Key; paths must be confirmed for each peer",
         "configured_peers": sorted(peers.keys()),
@@ -1066,9 +1191,13 @@ def agent_health():
         for name in (
             "friday",
             "inference",
-            "intelx",
             "memora",
+            "stratex",
+            "forge",
+            "cortex",
             "sentinel",
+            "intelx",
+            "futuris",
             "echo",
             "mediax",
             "datax",

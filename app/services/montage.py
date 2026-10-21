@@ -30,6 +30,8 @@ def render_montage(
     max_memory_mb: int | None = None,
     normalize_loudness: bool = False,
     loudness_target_lufs: float = -14.0,
+    enable_ken_burns: bool = False,
+    motion_effects: list[str] | None = None,
 ) -> str:
     """Render licensed/owned clips into one silent-or-narrated montage.
 
@@ -122,10 +124,23 @@ def render_montage(
                 f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
                 f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black"
             )
-        filters.append(
-            f"[{index}:v:0]fps=30,trim=duration={segment_seconds:.4f},"
-            f"setpts=PTS-STARTPTS,{framing},setsar=1[{label}]"
-        )
+        if enable_ken_burns:
+            from app.services.visual_motion import assign_scene_motions, build_motion_filter
+
+            motions = motion_effects or assign_scene_motions(len(sources))
+            motion_type = motions[index % len(motions)]
+            motion_filter = build_motion_filter(
+                motion_type, width, height, duration_frames=max(30, int(segment_seconds * 30)), fps=30
+            )
+            filters.append(
+                f"[{index}:v:0]fps=30,trim=duration={segment_seconds:.4f},"
+                f"setpts=PTS-STARTPTS,{framing},{motion_filter},setsar=1[{label}]"
+            )
+        else:
+            filters.append(
+                f"[{index}:v:0]fps=30,trim=duration={segment_seconds:.4f},"
+                f"setpts=PTS-STARTPTS,{framing},setsar=1[{label}]"
+            )
         labels.append(f"[{label}]")
     filters.append(
         "".join(labels) + f"concat=n={len(sources)}:v=1:a=0[joined]"

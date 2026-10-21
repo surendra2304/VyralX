@@ -277,3 +277,36 @@ class VideoProjectCreateRequest(BaseModel):
 
 class VideoProjectRetryRequest(BaseModel):
     reason: str = Field(default="operator_retry", max_length=200)
+
+
+class ViralHooksRequest(BaseModel):
+    topic: str = Field(..., min_length=2, max_length=500)
+    audience: str = Field(default="general", max_length=200)
+
+    @field_validator("topic")
+    @classmethod
+    def validate_topic(cls, v: str) -> str:
+        s = v.strip()
+        if len(s) < 2:
+            raise ValueError("topic must contain at least 2 non-whitespace characters")
+        return s
+
+
+class StrategyEvaluationRequest(BaseModel):
+    topic: str = Field(..., min_length=2, max_length=500)
+    audience: str = Field(default="general audience", max_length=200)
+    tone: str = Field(default="clear, energetic and factual", max_length=200)
+    pillars: list[str] = Field(default_factory=list)
+
+    @field_validator("topic")
+    @classmethod
+    def validate_topic(cls, v: str) -> str:
+        s = v.strip()
+        if len(s) < 2:
+            raise ValueError("topic must contain at least 2 non-whitespace characters")
+        return s
+
+
+class DistributionPackageRequest(BaseModel):
+    hook_text: str | None = Field(default=None, max_length=300)
+    niche: str = Field(default="technology", max_length=100)

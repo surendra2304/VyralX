@@ -185,10 +185,14 @@ def test_api_peers_endpoint():
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
-        assert data["total_peers"] == 9
+        assert data["total_peers"] == 13
         assert "peers" in data
         peers = data["peers"]
-        for expected in ("friday", "inference", "intelx", "memora", "sentinel", "echo", "mediax", "datax", "gatekeeper"):
+        for expected in (
+            "friday", "inference", "intelx", "memora", "sentinel",
+            "stratex", "forge", "cortex", "futuris",
+            "echo", "mediax", "datax", "gatekeeper",
+        ):
             assert expected in peers
             assert peers[expected]["status"] == "ok"
 
@@ -205,7 +209,11 @@ def test_api_agents_health_endpoint():
         resp = client.get("/api/agents/health", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
-        for expected in ("friday", "inference", "intelx", "memora", "sentinel", "echo", "mediax", "datax", "gatekeeper"):
+        for expected in (
+            "friday", "inference", "intelx", "memora", "sentinel",
+            "stratex", "forge", "cortex", "futuris",
+            "echo", "mediax", "datax", "gatekeeper",
+        ):
             assert expected in data
             assert data[expected]["status"] == "ok"
 

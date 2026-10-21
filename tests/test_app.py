@@ -285,7 +285,7 @@ def test_discovery_errors_do_not_leak_provider_secrets(monkeypatch):
 
 def test_production_rejects_default_api_key():
     with pytest.raises(ValueError, match="unique API_KEY"):
-        Settings(app_env="production")
+        Settings(app_env="production", api_key="development-only-change-me")
 
 
 def test_publish_request_binds_render_and_uses_configured_privacy_default():

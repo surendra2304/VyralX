@@ -7,7 +7,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(str(Path(__file__).resolve().parent.parent / ".env"), ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     app_name: str = "VyralX"
     app_env: str = "development"
@@ -78,6 +82,16 @@ class Settings(BaseSettings):
     sentinel_api_key: str = ""
     sentinel_required_for_publish: bool = False
     sentinel_policy_path: str = "/v1/security/audit"
+    stratex_url: str = ""
+    stratex_api_key: str = ""
+    forge_url: str = ""
+    forge_api_key: str = ""
+    cortex_url: str = ""
+    cortex_api_key: str = ""
+    futuris_url: str = ""
+    futuris_api_key: str = ""
+    vyralx_url: str = ""
+    vyralx_api_key: str = ""
     echo_url: str = ""
     echo_api_key: str = ""
     echo_notifications_enabled: bool = False
