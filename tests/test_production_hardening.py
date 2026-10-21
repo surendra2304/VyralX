@@ -540,6 +540,27 @@ def test_repeat_use_blocker_detects_prior_upload_and_respects_explicit_review():
         db.commit()
 
 @pytest.mark.parametrize(
+    "source_url",
+    [
+        "https://[malformed-host/media",
+        "https://media.example:not-a-port/clip?q=1#preview",
+    ],
+)
+def test_source_reuse_identity_handles_malformed_url_authorities(source_url: str):
+    source = Source(
+        title="Malformed but stable source identity",
+        source_url=source_url,
+        platform="manual",
+    )
+
+    identity = source_reuse_identity(source)
+
+    assert identity is not None
+    assert identity[0] == "url"
+    assert identity[1] == source_url.split("#", 1)[0].rstrip("/")
+
+
+@pytest.mark.parametrize(
     "media_url",
     [
         "https://www.pexels.com/video/../license/",
@@ -563,6 +584,4 @@ def test_rights_gate_rejects_pexels_video_path_traversal_and_ambiguous_paths(
         license_name="Pexels Content License",
         permission_reference="https://www.pexels.com/license/",
     )
-
     assert not source_is_publishable(source)
-
