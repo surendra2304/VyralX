@@ -462,7 +462,7 @@ def process_publish_job(job_id: int) -> None:
                     str(item["source_id"]) for item in repeat_use_blockers
                 )
                 raise ValueError(
-                    "Repeat-use permission has not been reviewed for previously published "
+                    "Repeat-use permission is not currently approved for previously published "
                     f"source ID(s): {blocked_ids}. Review the source evidence before publishing."
                 )
             refreshed_description = append_stock_attribution(job.description, render_sources)
