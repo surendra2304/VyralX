@@ -540,8 +540,8 @@ def process_publish_job(job_id: int) -> None:
                 render_file = Path(render.output_path)
                 file_hash = ""
                 try:
-                    import hashlib
-                    file_hash = hashlib.sha256(render_file.read_bytes()).hexdigest()
+                    from app.services.sentinel import compute_provenance_hash
+                    file_hash = compute_provenance_hash(render_file)
                 except Exception:
                     pass
 

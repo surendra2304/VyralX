@@ -225,4 +225,42 @@ def dispatch_agent_task(task_type: str, raw_input: dict[str, Any], db: Session) 
             "message": "Explicit publish approval is still required",
         }
 
+    if task_type == "project.audit":
+        project_id = int(raw_input.get("project_id", 0))
+        project = db.get(VideoProject, project_id)
+        if project is None or project.status != "completed":
+            raise ValueError("Completed project not found")
+        render = db.get(RenderJob, project.render_job_id) if project.render_job_id else None
+        if render is None or not Path(render.output_path).is_file():
+            raise ValueError("Completed render output is missing")
+        from app.services.sentinel import compute_provenance_hash, verify_render_publish_policy
+        provenance_hash = compute_provenance_hash(render.output_path)
+        content = db.get(ContentPack, project.content_pack_id) if project.content_pack_id else None
+        pack = json.loads(content.pack_json) if content and content.pack_json else {}
+        title = str(pack.get("title") or project.topic)
+        description = str(pack.get("description") or pack.get("script") or "")
+        try:
+            render_sources = verified_render_sources(render, db)
+        except Exception:
+            render_sources = []
+        audit_result = verify_render_publish_policy(
+            job_id=project.id,
+            asset_id=project.primary_asset_id or render.asset_id,
+            render_job_id=render.id,
+            title=title,
+            description=description,
+            privacy_status="private",
+            scheduled_at="",
+            operator_review_acknowledged=True,
+            rights_verified=bool(project.confirm_pexels_license),
+            render_path=render.output_path,
+            render_sources=render_sources,
+        )
+        return {
+            "project_id": project.id,
+            "provenance_sha256": provenance_hash,
+            "status": "audited",
+            "sentinel_audit": audit_result,
+        }
+
     raise ValueError(f"Unsupported task type: {task_type}")

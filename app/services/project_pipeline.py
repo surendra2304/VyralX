@@ -17,6 +17,7 @@ from app.services.content import generate_content_pack
 from app.services.discovery import discover_youtube_videos
 from app.services.trends import rank_candidates
 from app.services.montage import render_montage
+from app.services.sentinel import compute_provenance_hash
 from app.services.pexels import import_video_file, search_videos
 from app.services.probe import probe_media
 from app.services.peers import configured_peers, get_peer_json, post_peer_json
@@ -685,6 +686,7 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
         db.refresh(project)
 
         output_path = settings.render_dir / f"{project.project_key}-attempt-{project.attempts}.mp4"
+        enable_motion = getattr(settings, "render_enable_ken_burns", True)
         rendered = render_montage(
             [asset.file_path for asset in assets],
             output_path,
@@ -693,9 +695,23 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             fit_mode="pad",
             subtitle_file=subtitle_path,
             voiceover_path=voice_path or None,
+            enable_ken_burns=enable_motion,
         )
         metadata = probe_media(rendered)
         actual_duration = float(metadata.get("duration_seconds") or 0)
+        try:
+            provenance_hash = compute_provenance_hash(rendered)
+        except Exception as prov_exc:
+            log.warning("Could not compute provenance hash for %s: %s", rendered, prov_exc)
+            provenance_hash = ""
+        render_options = {}
+        try:
+            render_options = json.loads(render_job.options_json or "{}")
+        except Exception:
+            render_options = {}
+        render_options["provenance_sha256"] = provenance_hash
+        render_options["file_size_bytes"] = Path(rendered).stat().st_size if Path(rendered).is_file() else 0
+        render_job.options_json = json.dumps(render_options)
         expected_width, expected_height = PRESETS[project.video_format]
         if not math.isfinite(actual_duration) or actual_duration <= 0:
             raise RuntimeError("Rendered project did not have a finite positive duration")
@@ -728,7 +744,7 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             scene_rights_checks.append(
                 bool(Path(asset.file_path).is_file() and is_project_scene_publishable(asset, source))
             )
-        pack["production_qa"] = build_project_quality_report(
+        qa_report = build_project_quality_report(
             target_seconds=project.target_seconds,
             actual_duration=actual_duration,
             expected_width=expected_width,
@@ -747,6 +763,12 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             signal_analysis=signal_analysis,
             caption_alignment_status=caption_alignment_status,
         )
+        qa_report["provenance"] = {
+            "sha256": provenance_hash,
+            "file_size_bytes": Path(rendered).stat().st_size if Path(rendered).is_file() else 0,
+            "algorithm": "sha256",
+        }
+        pack["production_qa"] = qa_report
         content_record.pack_json = json.dumps(pack, ensure_ascii=False)
         render_job.status = "completed"
         render_job.output_path = rendered
@@ -789,6 +811,7 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
                     "project_key": project.project_key,
                     "duration_seconds": actual_duration,
                     "format": project.video_format,
+                    "provenance_sha256": provenance_hash,
                 },
                 media_category="video_render",
                 correlation_id=f"project-{project.id}",

@@ -15,12 +15,20 @@ from app.services.probe import probe_media
 logger = logging.getLogger("vyralx.sentinel")
 
 
-def _file_sha256(path: Path) -> str:
+def compute_provenance_hash(path: str | Path) -> str:
+    """Compute cryptographic SHA-256 provenance hash for an auditable media asset."""
+    target = Path(path).resolve()
+    if not target.is_file() or target.stat().st_size <= 0:
+        raise ValueError(f"Media asset does not exist or is empty: {target}")
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
+    with target.open("rb") as handle:
         while chunk := handle.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    return compute_provenance_hash(path)
 
 
 def verify_render_publish_policy(

@@ -600,6 +600,13 @@ def build_project_distribution(project_id: int, payload: DistributionPackageRequ
         hooks = generate_viral_hooks(project.topic, audience=project.audience)
         hook = select_optimal_hook(hooks)["hook_text"]
 
+    from app.services.sentinel import compute_provenance_hash
+    prov_hash = ""
+    try:
+        prov_hash = compute_provenance_hash(render.output_path)
+    except Exception:
+        pass
+
     manifest_path = generate_distribution_package(
         project_key=project.project_key,
         title=title,
@@ -609,6 +616,8 @@ def build_project_distribution(project_id: int, payload: DistributionPackageRequ
         output_dir=settings.render_dir,
         is_short=(project.video_format == "shorts"),
         niche=payload.niche,
+        video_path=render.output_path,
+        provenance_sha256=prov_hash,
     )
     return {
         "status": "generated",
@@ -628,6 +637,57 @@ def get_project_distribution(project_id: int, db: Session = Depends(get_db)):
     if not manifest_file.is_file():
         raise HTTPException(404, "Distribution package has not been generated for this project")
     return json.loads(manifest_file.read_text(encoding="utf-8"))
+
+
+@app.post("/api/projects/{project_id}/audit", dependencies=[Depends(require_api_key)])
+def audit_project_route(project_id: int, db: Session = Depends(get_db)):
+    """Dispatch project render and quality signals to Sentinel (POST /v1/security/audit) with cryptographic provenance hash."""
+    project = db.get(VideoProject, project_id)
+    if project is None or project.status != "completed":
+        raise HTTPException(404, "Completed project not found")
+    render = db.get(RenderJob, project.render_job_id) if project.render_job_id else None
+    if render is None or not Path(render.output_path).is_file():
+        raise HTTPException(404, "Completed render output is missing")
+
+    from app.services.sentinel import compute_provenance_hash, verify_render_publish_policy
+    from app.services.rights import verified_render_sources
+
+    content = db.get(ContentPack, project.content_pack_id) if project.content_pack_id else None
+    pack = json.loads(content.pack_json) if content and content.pack_json else {}
+    title = str(pack.get("title") or project.topic)
+    description = str(pack.get("description") or pack.get("script") or "")
+
+    try:
+        render_sources = verified_render_sources(render, db)
+    except Exception:
+        render_sources = []
+
+    provenance_hash = compute_provenance_hash(render.output_path)
+
+    try:
+        audit_result = verify_render_publish_policy(
+            job_id=project.id,
+            asset_id=project.primary_asset_id or render.asset_id,
+            render_job_id=render.id,
+            title=title,
+            description=description,
+            privacy_status="private",
+            scheduled_at="",
+            operator_review_acknowledged=True,
+            rights_verified=bool(project.confirm_pexels_license),
+            render_path=render.output_path,
+            render_sources=render_sources,
+        )
+    except Exception as exc:
+        raise HTTPException(422, f"Sentinel security audit failed: {exc}") from exc
+
+    return {
+        "status": "audited",
+        "project_id": project.id,
+        "project_key": project.project_key,
+        "provenance_sha256": provenance_hash,
+        "sentinel_audit": audit_result,
+    }
 
 
 @app.post("/api/analytics/sync", dependencies=[Depends(require_api_key)])
@@ -1259,6 +1319,7 @@ def agent_manifest():
             {"id": "content.coherence", "method": "POST", "path": "/api/content/coherence"},
             {"id": "project.distribution.build", "method": "POST", "path": "/api/projects/{project_id}/distribution"},
             {"id": "project.distribution.get", "method": "GET", "path": "/api/projects/{project_id}/distribution"},
+            {"id": "project.security.audit", "method": "POST", "path": "/api/projects/{project_id}/audit"},
             {"id": "analytics.sync", "method": "POST", "path": "/api/analytics/sync"},
             {"id": "analytics.summary", "method": "GET", "path": "/api/analytics/summary"},
             {"id": "audio.ambient.synthesize", "method": "POST", "path": "/api/audio/synthesize-ambient"},
@@ -1742,6 +1803,9 @@ _TASK_ACTION_ALIASES = {
     "vyralx.render.create": "render.create",
     "video.render": "render.create",
     "publish.request": "publish.request",
+    "project.audit": "project.audit",
+    "vyralx.project.audit": "project.audit",
+    "security.audit": "project.audit",
     "vyralx.publish.request": "publish.request",
     "youtube.publish.request": "publish.request",
 }
