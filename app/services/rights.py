@@ -76,14 +76,17 @@ def source_reuse_identity(source: Source | None) -> tuple[str, str] | None:
         return None
     raw_url = str(getattr(source, "source_url", "") or "").strip()
     if raw_url:
-        parsed = urlsplit(raw_url)
-        if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
+        try:
+            parsed = urlsplit(raw_url)
+            hostname = parsed.hostname
+            port = parsed.port
+        except ValueError:
+            # Keep malformed URLs stable as raw identities instead of crashing the API
+            # while it checks repeat-use history. Never normalize invalid authority data.
+            return ("url", raw_url.split("#", 1)[0].rstrip("/"))
+        if parsed.scheme.lower() in {"http", "https"} and hostname:
             scheme = parsed.scheme.lower()
-            hostname = parsed.hostname.casefold()
-            try:
-                port = parsed.port
-            except ValueError:
-                port = None
+            hostname = hostname.casefold()
             if port and not (scheme == "https" and port == 443) and not (
                 scheme == "http" and port == 80
             ):
