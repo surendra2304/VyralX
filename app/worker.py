@@ -598,6 +598,24 @@ def process_publish_job(job_id: int) -> None:
             job.status = "uploaded"
             job.error = ""
             log.info("YouTube upload completed job_id=%s video_id=%s", job.id, video_id)
+            try:
+                from app.services.echo import dispatch_echo_notification
+                from app.services.datax import stream_datax_telemetry
+
+                dispatch_echo_notification(
+                    "video.published",
+                    f"YouTube Video Uploaded: {job.title}",
+                    {"job_id": job.id, "video_id": video_id, "privacy": job.privacy_status},
+                    severity="info",
+                    correlation_id=f"publish-{job.id}",
+                )
+                stream_datax_telemetry(
+                    "publish_success",
+                    {"job_id": job.id, "video_id": video_id, "privacy": job.privacy_status},
+                    correlation_id=f"publish-{job.id}",
+                )
+            except Exception as mesh_err:
+                log.debug("Mesh peer dispatch skipped on upload success: %s", mesh_err)
         except UploadOutcomeUnknown as exc:
             session_state = load_upload_session_checkpoint(job.id, job.attempts)
             render_path = Path(render.output_path).resolve()
@@ -631,6 +649,24 @@ def process_publish_job(job_id: int) -> None:
             job.status = "failed"
             job.error = f"{type(exc).__name__}: {exc}"[:3000]
             log.exception("YouTube upload failed job_id=%s", job.id)
+            try:
+                from app.services.echo import dispatch_echo_notification
+                from app.services.datax import stream_datax_telemetry
+
+                dispatch_echo_notification(
+                    "video.publish_failed",
+                    f"YouTube Publish Failed: {job.id}",
+                    {"job_id": job.id, "error": job.error[:500]},
+                    severity="error",
+                    correlation_id=f"publish-{job.id}",
+                )
+                stream_datax_telemetry(
+                    "publish_failure",
+                    {"job_id": job.id, "error": job.error[:500]},
+                    correlation_id=f"publish-{job.id}",
+                )
+            except Exception:
+                pass
         finally:
             job.completed_at = utcnow()
             job.updated_at = utcnow()

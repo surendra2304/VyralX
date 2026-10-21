@@ -28,6 +28,10 @@ def configured_peers() -> dict[str, Peer]:
         "intelx": (settings.intelx_url, settings.intelx_api_key),
         "memora": (settings.memora_url, settings.memora_api_key),
         "sentinel": (settings.sentinel_url, settings.sentinel_api_key),
+        "echo": (getattr(settings, "echo_url", ""), getattr(settings, "echo_api_key", "")),
+        "mediax": (getattr(settings, "mediax_url", ""), getattr(settings, "mediax_api_key", "")),
+        "datax": (getattr(settings, "datax_url", ""), getattr(settings, "datax_api_key", "")),
+        "gatekeeper": (getattr(settings, "gatekeeper_url", ""), getattr(settings, "gatekeeper_api_key", "")),
     }
     return {
         name: Peer(name=name, base_url=url.rstrip("/"), api_key=key)

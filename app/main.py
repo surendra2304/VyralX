@@ -379,6 +379,12 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
         if project.status == "completed" and captions_file.is_file()
         else None
     )
+    ass_captions_file = settings.data_dir / "subtitles" / f"project-{project.id}-attempt-{project.attempts}.ass"
+    ass_captions_download_path = (
+        f"/api/projects/{project.id}/captions.ass"
+        if project.status == "completed" and ass_captions_file.is_file()
+        else None
+    )
     scene_sources = []
     if db is not None:
         for raw_asset_id in asset_ids[:4]:
@@ -419,6 +425,7 @@ def _project_summary(project: VideoProject, db: Session | None = None) -> dict:
         "memora_read_enabled": settings.memora_read_enabled,
         "thumbnail_path": f"/api/projects/{project.id}/thumbnail" if project.thumbnail_path and Path(project.thumbnail_path).is_file() else None,
         "captions_download_path": captions_download_path,
+        "ass_captions_download_path": ass_captions_download_path,
         "render_download_path": f"/api/render/{project.render_job_id}/download" if project.render_job_id else None,
         "error": project.error or None, "attempts": project.attempts,
         "created_at": project.created_at.isoformat() if project.created_at else None,
@@ -457,10 +464,49 @@ def integration_configuration():
                 "write_enabled": settings.memora_write_enabled,
             },
             "sentinel": {"peer_configured": "sentinel" in peers, "required_for_publish": settings.sentinel_required_for_publish},
+            "echo": {
+                "peer_configured": "echo" in peers,
+                "notifications_enabled": getattr(settings, "echo_notifications_enabled", False),
+            },
+            "mediax": {
+                "peer_configured": "mediax" in peers,
+                "registry_enabled": getattr(settings, "mediax_registry_enabled", False),
+            },
+            "datax": {
+                "peer_configured": "datax" in peers,
+                "telemetry_enabled": getattr(settings, "datax_telemetry_enabled", False),
+            },
+            "gatekeeper": {
+                "peer_configured": "gatekeeper" in peers,
+            },
             "worker": {"required": settings.worker_required, "live_status_endpoint": "/ready"},
             "media_tools": {"ffmpeg": bool(shutil.which(settings.ffmpeg_bin)), "ffprobe": bool(shutil.which(settings.ffprobe_bin))},
         },
         "note": "Presence checks do not prove provider connectivity, credentials validity, quota, or live upload permissions.",
+    }
+
+
+@app.get("/api/peers", dependencies=[Depends(require_api_key)])
+def list_peers():
+    """Report configuration and live health for all 9 FRIDAY Universe peer agents."""
+    universe_peers = [
+        "friday",
+        "inference",
+        "intelx",
+        "memora",
+        "sentinel",
+        "echo",
+        "mediax",
+        "datax",
+        "gatekeeper",
+    ]
+    configured = configured_peers()
+    results = {peer_name: peer_health(peer_name) for peer_name in universe_peers}
+    return {
+        "status": "ok",
+        "total_peers": len(universe_peers),
+        "configured_count": len(configured),
+        "peers": results,
     }
 
 
@@ -558,6 +604,25 @@ def download_project_captions(project_id: int, db: Session = Depends(get_db)):
         path,
         media_type="application/x-subrip",
         filename=f"{project.project_key}-captions.srt",
+    )
+
+
+@app.get("/api/projects/{project_id}/captions.ass", dependencies=[Depends(require_api_key)])
+def download_project_ass_captions(project_id: int, db: Session = Depends(get_db)):
+    project = db.get(VideoProject, project_id)
+    if project is None or project.status != "completed":
+        raise HTTPException(404, "Project captions not found")
+    path = (
+        settings.data_dir / "subtitles"
+        / f"project-{project.id}-attempt-{project.attempts}.ass"
+    ).resolve()
+    captions_root = (settings.data_dir / "subtitles").resolve()
+    if captions_root not in path.parents or not path.is_file():
+        raise HTTPException(404, "Project ASS captions are unavailable")
+    return FileResponse(
+        path,
+        media_type="text/x-ssa; charset=utf-8",
+        filename=f"{project.project_key}-captions.ass",
     )
 
 
@@ -982,6 +1047,8 @@ def agent_manifest():
             {"id": "video.publish.approve", "method": "POST", "path": "/api/publish/{job_id}/execute"},
             {"id": "video.job.retry", "method": "POST", "path": "/api/jobs/{kind}/{job_id}/retry"},
             {"id": "video.publish.resolve_uncertain", "method": "POST", "path": "/api/jobs/publish/{job_id}/resolve"},
+            {"id": "mesh.peers", "method": "GET", "path": "/api/peers"},
+            {"id": "project.captions.ass", "method": "GET", "path": "/api/projects/{project_id}/captions.ass"},
         ],
         "peer_contract": "HTTP JSON authenticated using X-API-Key; paths must be confirmed for each peer",
         "configured_peers": sorted(peers.keys()),
@@ -996,7 +1063,17 @@ def agent_manifest():
 def agent_health():
     return {
         name: peer_health(name)
-        for name in ("friday", "inference", "intelx", "memora", "sentinel")
+        for name in (
+            "friday",
+            "inference",
+            "intelx",
+            "memora",
+            "sentinel",
+            "echo",
+            "mediax",
+            "datax",
+            "gatekeeper",
+        )
     }
 
 

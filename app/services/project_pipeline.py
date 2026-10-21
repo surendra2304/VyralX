@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import Asset, ContentPack, RenderJob, Source, VideoProject, utcnow
-from app.services.captions import segment_script, write_srt
+from app.services.captions import segment_script, write_ass, write_srt
 from app.services.content import generate_content_pack
 from app.services.discovery import discover_youtube_videos
 from app.services.trends import rank_candidates
@@ -652,6 +652,11 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
         subtitle_dir.mkdir(parents=True, exist_ok=True)
         subtitle_path = subtitle_dir / f"project-{project.id}-attempt-{project.attempts}.srt"
         write_srt(segments, subtitle_path)
+        ass_path = subtitle_dir / f"project-{project.id}-attempt-{project.attempts}.ass"
+        try:
+            write_ass(segments, ass_path, style="ViralYellow")
+        except Exception as ass_exc:
+            log.debug("ASS styled captions generation skipped: %s", ass_exc)
         render_job = RenderJob(
             asset_id=assets[0].id,
             preset=project.video_format,
@@ -759,6 +764,48 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             project.project_key, project.id, render_job.id, len(assets),
         )
         sync_project_memory(project.id, db)
+        try:
+            from app.services.echo import dispatch_echo_notification
+            from app.services.mediax import register_mediax_asset
+            from app.services.datax import stream_datax_telemetry
+
+            dispatch_echo_notification(
+                "video.rendered",
+                f"Project {project.project_key} Rendered",
+                {
+                    "project_id": project.id,
+                    "project_key": project.project_key,
+                    "duration_seconds": actual_duration,
+                    "scenes_count": len(assets),
+                    "render_job_id": render_job.id,
+                },
+                correlation_id=f"project-{project.id}",
+            )
+            register_mediax_asset(
+                assets[0].id,
+                rendered,
+                {
+                    "project_id": project.id,
+                    "project_key": project.project_key,
+                    "duration_seconds": actual_duration,
+                    "format": project.video_format,
+                },
+                media_category="video_render",
+                correlation_id=f"project-{project.id}",
+            )
+            stream_datax_telemetry(
+                "render_benchmark",
+                {
+                    "project_id": project.id,
+                    "duration_seconds": actual_duration,
+                    "scenes_count": len(assets),
+                    "quality_passed": True,
+                },
+                project_id=project.id,
+                correlation_id=f"project-{project.id}",
+            )
+        except Exception as mesh_exc:
+            log.debug("Mesh peer dispatch bypassed or failed: %s", mesh_exc)
     except Exception as exc:
         db.rollback()
         project = db.get(VideoProject, project_id)
@@ -775,6 +822,25 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
                     render_row.completed_at = utcnow()
                     render_row.updated_at = utcnow()
             db.commit()
+            try:
+                from app.services.echo import dispatch_echo_notification
+                from app.services.datax import stream_datax_telemetry
+
+                dispatch_echo_notification(
+                    "video.failed",
+                    f"Project {project_id} Render Failed",
+                    {"project_id": project_id, "error": project.error[:500]},
+                    severity="error",
+                    correlation_id=f"project-{project_id}",
+                )
+                stream_datax_telemetry(
+                    "render_failure",
+                    {"project_id": project_id, "error": project.error[:500]},
+                    project_id=project_id,
+                    correlation_id=f"project-{project_id}",
+                )
+            except Exception:
+                pass
         if output_path is not None:
             output_path.unlink(missing_ok=True)
         log.exception("Video project failed project_id=%s", project_id)
@@ -783,3 +849,4 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
         # Failed attempts are cleaned up; the next attempt gets its own filename.
         if subtitle_path is not None and (project is None or project.status != "completed"):
             subtitle_path.unlink(missing_ok=True)
+            subtitle_path.with_suffix(".ass").unlink(missing_ok=True)

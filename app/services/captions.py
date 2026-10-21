@@ -6,12 +6,80 @@ import re
 from pathlib import Path
 
 
+ASS_STYLES: dict[str, dict] = {
+    "ViralYellow": {
+        "font": "Impact",
+        "size": 78,
+        "primary": "&H0000FFFF",  # Yellow in BGR (&H00BBGGRR)
+        "secondary": "&H000000FF",
+        "outline": "&H00000000",   # Black outline
+        "back": "&H90000000",      # Semi-transparent shadow
+        "bold": -1,
+        "outline_width": 6,
+        "shadow_depth": 4,
+        "alignment": 2,            # Bottom-Center
+        "margin_v": 280,
+        "highlight_color": "&H0000FFFF",
+    },
+    "CyberNeon": {
+        "font": "Montserrat",
+        "size": 74,
+        "primary": "&H00FFFF00",  # Cyan in BGR
+        "secondary": "&H000000FF",
+        "outline": "&H00FF00FF",  # Magenta outline
+        "back": "&H90000000",
+        "bold": -1,
+        "outline_width": 6,
+        "shadow_depth": 3,
+        "alignment": 2,
+        "margin_v": 280,
+        "highlight_color": "&H0000FFFF",
+    },
+    "CleanWhite": {
+        "font": "Arial",
+        "size": 68,
+        "primary": "&H00FFFFFF",  # White
+        "secondary": "&H000000FF",
+        "outline": "&H00202020",  # Dark grey outline
+        "back": "&H80000000",
+        "bold": -1,
+        "outline_width": 4,
+        "shadow_depth": 2,
+        "alignment": 2,
+        "margin_v": 280,
+        "highlight_color": "&H0000FFFF",
+    },
+    "BoldRed": {
+        "font": "Impact",
+        "size": 78,
+        "primary": "&H000000FF",  # Red (&H000000FF)
+        "secondary": "&H0000FFFF",
+        "outline": "&H00000000",
+        "back": "&H90000000",
+        "bold": -1,
+        "outline_width": 6,
+        "shadow_depth": 4,
+        "alignment": 2,
+        "margin_v": 280,
+        "highlight_color": "&H0000FFFF",
+    },
+}
+
+
 def _timestamp(seconds: float) -> str:
     total_ms = max(0, round(float(seconds) * 1000))
     hours, remainder = divmod(total_ms, 3_600_000)
     minutes, remainder = divmod(remainder, 60_000)
     secs, millis = divmod(remainder, 1000)
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def _ass_timestamp(seconds: float) -> str:
+    total_cs = max(0, round(float(seconds) * 100))
+    hours, remainder = divmod(total_cs, 360000)
+    minutes, remainder = divmod(remainder, 6000)
+    secs, centis = divmod(remainder, 100)
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
 
 
 def write_srt(segments: list[dict], destination: str | Path) -> Path:
@@ -55,6 +123,100 @@ def write_srt(segments: list[dict], destination: str | Path) -> Path:
             "",
         ])
     target.write_text("\n".join(lines), encoding="utf-8")
+    return target
+
+
+def write_ass(
+    segments: list[dict],
+    destination: str | Path,
+    *,
+    style: str = "ViralYellow",
+    play_res_x: int = 1080,
+    play_res_y: int = 1920,
+    highlight_keywords: list[str] | None = None,
+) -> Path:
+    """Write styled Advanced SubStation Alpha (.ass) subtitles with keyword emphasis."""
+    target = Path(destination).resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    style_name = style if style in ASS_STYLES else "ViralYellow"
+    active_style = ASS_STYLES[style_name]
+    keywords_set = {k.strip().lower() for k in (highlight_keywords or []) if k.strip()}
+
+    events: list[str] = []
+    previous_start_cs = -1
+    previous_end_cs = -1
+
+    for cue in segments:
+        try:
+            start = float(cue["start_seconds"])
+            end = float(cue["end_seconds"])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("Each caption requires numeric start and end times") from None
+
+        raw_text = str(cue.get("text", "")).replace("\x00", "").replace("{", "").replace("}", "")
+        text = " ".join(re.sub(r"<[^>]*>", "", raw_text).split())
+        if not math.isfinite(start) or not math.isfinite(end) or not text or start < 0 or end <= start:
+            raise ValueError("Each caption requires text and a finite positive time range")
+
+        start_cs = round(start * 100)
+        end_cs = round(end * 100)
+
+        if end_cs <= start_cs:
+            raise ValueError("Caption cue must span at least 1 centisecond after ASS timestamp rounding")
+        if start_cs < previous_start_cs:
+            raise ValueError("Caption segments must be ordered by start time after ASS timestamp rounding")
+        if start_cs < previous_end_cs:
+            raise ValueError("Caption segments must not overlap after ASS timestamp rounding")
+
+        previous_start_cs = start_cs
+        previous_end_cs = end_cs
+
+        if keywords_set:
+            words = text.split()
+            formatted_words = []
+            for w in words:
+                clean_w = re.sub(r"[^\w]", "", w).lower()
+                if clean_w in keywords_set:
+                    formatted_words.append(f"{{\\c{active_style['highlight_color']}&}}{w}{{\\r}}")
+                else:
+                    formatted_words.append(w)
+            dialogue_text = " ".join(formatted_words)
+        else:
+            dialogue_text = text
+
+        start_str = _ass_timestamp(start_cs / 100)
+        end_str = _ass_timestamp(end_cs / 100)
+        events.append(f"Dialogue: 0,{start_str},{end_str},{style_name},,0,0,0,,{dialogue_text}")
+
+    style_lines = [
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
+        "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
+    ]
+    for name, cfg in ASS_STYLES.items():
+        style_lines.append(
+            f"Style: {name},{cfg['font']},{cfg['size']},{cfg['primary']},{cfg['secondary']},"
+            f"{cfg['outline']},{cfg['back']},{cfg['bold']},0,0,0,100,100,0,0,1,"
+            f"{cfg['outline_width']},{cfg['shadow_depth']},{cfg['alignment']},40,40,{cfg['margin_v']},1"
+        )
+
+    doc = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        f"PlayResX: {int(play_res_x)}",
+        f"PlayResY: {int(play_res_y)}",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        *style_lines,
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+        *events,
+        "",
+    ]
+    target.write_text("\n".join(doc), encoding="utf-8")
     return target
 
 

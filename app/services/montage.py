@@ -23,6 +23,9 @@ def render_montage(
     fit_mode: str = "pad",
     subtitle_file: str | Path | None = None,
     voiceover_path: str | Path | None = None,
+    bgm_path: str | Path | None = None,
+    bgm_volume: float | None = None,
+    ducking_attenuation_db: float | None = None,
     cpu_threads: int | None = None,
     max_memory_mb: int | None = None,
     normalize_loudness: bool = False,
@@ -69,6 +72,31 @@ def render_montage(
         voice = Path(voiceover_path).resolve()
         if media_root not in voice.parents or not voice.is_file():
             raise ValueError("Voiceover must exist inside VyralX media storage")
+
+    if bgm_path is not None:
+        bgm = Path(bgm_path).resolve()
+        if media_root not in bgm.parents or not bgm.is_file():
+            raise ValueError("Background music must exist inside VyralX media storage")
+        if voice is not None:
+            from app.services.audio_mixer import mix_voiceover_and_bgm
+
+            mix_dir = settings.data_dir / "audio_mix"
+            mix_dir.mkdir(parents=True, exist_ok=True)
+            mixed_audio = mix_dir / f"montage-mix-{output.stem}.m4a"
+            mix_voiceover_and_bgm(
+                voice,
+                bgm,
+                mixed_audio,
+                target_duration=float(target_seconds),
+                bgm_volume=bgm_volume,
+                ducking_attenuation_db=ducking_attenuation_db,
+                normalize_loudness=normalize_loudness,
+                loudness_target_lufs=loudness_target_lufs,
+                cpu_threads=threads,
+            )
+            voice = mixed_audio
+        else:
+            voice = bgm
 
     width, height = PRESETS[preset]
     segment_seconds = float(target_seconds) / len(sources)

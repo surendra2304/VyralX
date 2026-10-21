@@ -55,6 +55,34 @@ Sentinel's `rights_verified` field is an assertion from VyralX after its local c
 
 References: [VyralX publish worker](https://github.com/surendra2304/VyralX/blob/feat/mesh-preflight/app/worker.py), [Sentinel publish policy contract](https://github.com/surendra2304/Sentinel/blob/feat/vyralx-publish-policy-endpoint/docs/VYRALX_PUBLISH_POLICY.md).
 
+### Echo — Notification and Event Dispatch
+- **Route:** `POST /v1/notifications`
+- **Authentication:** `Authorization: Bearer <ECHO_API_KEY>`, `X-API-Key: <ECHO_API_KEY>`, `X-Agent-Name: vyralx`.
+- **Events:** `video.rendered`, `video.published`, `video.publish_pending`, `video.failed`.
+- **Payload:** `source_agent`, `event_type`, `title`, `severity`, `timestamp`, `correlation_id`, `details`.
+- **Graceful Degradation:** When Echo is unconfigured or unreachable, notifications are safely logged without interrupting render or publish pipelines.
+
+### MediaX — Central Asset Catalog & Registration
+- **Route:** `POST /v1/assets/register`
+- **Authentication:** `Authorization: Bearer <MEDIAX_API_KEY>`, `X-API-Key: <MEDIAX_API_KEY>`, `X-Agent-Name: vyralx`.
+- **Payload:** `source_agent`, `internal_asset_id`, `file_path`, `file_size_bytes`, `media_category` (e.g. `video_render`), `metadata` (duration, format, sha256).
+- **Graceful Degradation:** When unconfigured, local asset storage functions independently.
+
+### DataX — Operational Telemetry & Analytics Hub
+- **Route:** `POST /v1/telemetry/ingest`
+- **Authentication:** `Authorization: Bearer <DATAX_API_KEY>`, `X-API-Key: <DATAX_API_KEY>`, `X-Agent-Name: vyralx`.
+- **Payload:** `source_agent`, `metric_type` (e.g. `render_benchmark`, `publish_success`, `audio_loudness`), `measurements`, `project_id`, `correlation_id`.
+- **Graceful Degradation:** Bypassed safely if DataX telemetry is disabled.
+
+### Gatekeeper — Perimeter Authorization & Gateway
+- **Route:** `POST /v1/auth/verify`
+- **Authentication:** Cross-agent mutual authentication and capability verification.
+- **Graceful Degradation:** If Gatekeeper is unconfigured, permits local operation with internal token verification fallback.
+
+### Peer Health Discovery (`GET /api/peers`)
+- Reports live configuration and connectivity status across all 9 FRIDAY Universe agents:
+  `friday`, `inference`, `intelx`, `memora`, `sentinel`, `echo`, `mediax`, `datax`, `gatekeeper`.
+
 ## Deployment acceptance checklist
 
 - [ ] Verify private-network DNS/port connectivity for the actual Compose/Dokploy services.
