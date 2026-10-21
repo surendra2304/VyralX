@@ -1,7 +1,7 @@
 """Tests for ElevenLabs voiceover provider integration."""
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import pytest

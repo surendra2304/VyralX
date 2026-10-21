@@ -1,14 +1,13 @@
 """Tests for Unsplash photo discovery, authorized import, and Ken Burns montage integration."""
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
-from app.database import get_db
 from app.main import app
 from app.services.unsplash import _safe_image_url, import_photo, search_photos
 
