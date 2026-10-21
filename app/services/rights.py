@@ -12,6 +12,9 @@ from app.models import Asset, PublishJob, RenderJob, Source
 
 _PLACEHOLDERS = {"-", "n/a", "na", "none", "unknown", "tbd", "todo", "pending", "not provided"}
 
+# Keep IN-lists below SQLite and common driver bind-parameter limits.
+REPEAT_USE_HISTORY_BATCH_SIZE = 500
+
 
 def _meaningful(value: str) -> bool:
     normalized = " ".join(value.split()).strip().casefold()
