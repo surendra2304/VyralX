@@ -190,6 +190,7 @@ def find_repeat_use_blockers(
     for row in history_rows:
         history_asset_ids.update(_render_asset_ids(row.asset_id, row.options_json))
 
+    previously_published: set[tuple[str, str]] = set()
     history_source_ids: set[int] = set()
     history_asset_id_list = sorted(history_asset_ids)
     batch_size = max(1, int(REPEAT_USE_HISTORY_BATCH_SIZE))
