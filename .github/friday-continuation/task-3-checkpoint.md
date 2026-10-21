@@ -1,13 +1,11 @@
 # Task 3 checkpoint — VyralX
 
 - Date: 2026-10-21 (Asia/Kolkata)
-- Repository: `surendra2304/VyralX`
 - Branch: `fix/task-3-pexels-path-traversal`
 - Code commit: `bd5015f3c28f23e1c418e8b7e68d9d93b3484690`
-- Base main commit: `be9bad218519a89d975033f463e064d0ff74c913`
+- Checkpoint commit before this update: `bd6d18d44b4cbf3c6681f035143a74fb274f5fe4`
 - Changed: `app/services/rights.py`, `tests/test_pexels_path_validation.py`
-- Tests: not run; laptop runner returned HTTP 404 and cloud command execution was blocked.
+- Tests: not run. Laptop runner returned HTTP 404; no CI result is available.
 - PR: not created; create-pull-request tool was blocked by OpenAI safety checks.
-- CI: unknown. Active duration not measured reliably.
 
-The rights validator rejects ambiguous/dot-segment paths after bounded URL decoding, including encoded separators and backslashes. Regression tests cover normal and traversal-shaped media paths. This validates metadata only; it does not itself grant reuse permission.
+Review finding: the helper's backslash condition checks two consecutive backslashes, not a single backslash. The encoded-backslash regression case may fail. An attempted correction was blocked by the tool safety layer. Do not open a PR until this is fixed and tested. Main has advanced by one commit since this branch's base; reconcile without force-pushing.
