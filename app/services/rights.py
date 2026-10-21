@@ -136,14 +136,13 @@ def source_reuse_identity(source: Source | None) -> tuple[str, str] | None:
     return ("source_id", f"{platform}:{source_id}")
 
 
-def _render_asset_ids(render: RenderJob) -> list[int]:
-    """Extract source assets from old renders without letting corrupt metadata break history checks."""
+def _render_asset_ids(primary_asset_id: object, options_json: object = "{}") -> list[int]:
+    """Extract source assets from render metadata without letting corrupt data break history checks."""
     ids: list[int] = []
-    primary = getattr(render, "asset_id", None)
-    if isinstance(primary, int) and not isinstance(primary, bool) and primary > 0:
-        ids.append(primary)
+    if isinstance(primary_asset_id, int) and not isinstance(primary_asset_id, bool) and primary_asset_id > 0:
+        ids.append(primary_asset_id)
     try:
-        options = json.loads(getattr(render, "options_json", "{}") or "{}")
+        options = json.loads(options_json or "{}")
     except (TypeError, ValueError):
         options = {}
     raw_ids = options.get("montage_asset_ids", []) if isinstance(options, dict) else []
@@ -173,20 +172,45 @@ def find_repeat_use_blockers(
     The current source's repeat-use decision is an operator attestation backed by its
     recorded license/permission evidence; this helper does not interpret legal terms.
     """
-    previously_published: set[tuple[str, str]] = set()
-    history = db.scalars(select(PublishJob).where(PublishJob.status == "uploaded")).all()
-    for previous in history:
-        if exclude_publish_job_id is not None and previous.id == exclude_publish_job_id:
-            continue
-        render = db.get(RenderJob, previous.render_job_id)
-        if render is None:
-            continue
-        for asset_id in _render_asset_ids(render):
-            asset = db.get(Asset, asset_id)
-            if asset is None or not asset.source_id:
-                continue
-            source = db.get(Source, asset.source_id)
-            identity = source_reuse_identity(source)
+    # Read publish/render history in one join, then resolve asset/source IDs in
+    # bounded batches. This avoids N+1 queries and stays below common DB bind limits.
+    history_query = (
+        select(PublishJob.id, RenderJob.asset_id, RenderJob.options_json)
+        .join(RenderJob, RenderJob.id == PublishJob.render_job_id)
+        .where(PublishJob.status == "uploaded")
+    )
+    if exclude_publish_job_id is not None:
+        history_query = history_query.where(PublishJob.id != exclude_publish_job_id)
+    history_rows = db.execute(history_query).all()
+
+    history_asset_ids: set[int] = set()
+    for row in history_rows:
+        history_asset_ids.update(_render_asset_ids(row.asset_id, row.options_json))
+
+    history_source_ids: set[int] = set()
+    history_asset_id_list = sorted(history_asset_ids)
+    batch_size = max(1, int(REPEAT_USE_HISTORY_BATCH_SIZE))
+    for start in range(0, len(history_asset_id_list), batch_size):
+        asset_batch = history_asset_id_list[start : start + batch_size]
+        history_source_ids.update(
+            source_id
+            for source_id in db.scalars(
+                select(Asset.source_id).where(
+                    Asset.id.in_(asset_batch),
+                    Asset.source_id.is_not(None),
+                )
+            ).all()
+            if source_id is not None
+        )
+
+    history_source_id_list = sorted(history_source_ids)
+    for start in range(0, len(history_source_id_list), batch_size):
+        source_batch = history_source_id_list[start : start + batch_size]
+        historical_sources = db.scalars(
+            select(Source).where(Source.id.in_(source_batch))
+        ).all()
+        for historical_source in historical_sources:
+            identity = source_reuse_identity(historical_source)
             if identity is not None:
                 previously_published.add(identity)
 
