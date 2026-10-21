@@ -11,6 +11,7 @@ from app.models import Asset, PublishJob, RenderJob, Source
 from app.services.captions import segment_script, write_srt
 from app.services.content import _extract_json, generate_content_pack
 from app.services.intelx import normalize_intelx_reports
+from app.services import rights as rights_module
 from app.services.rights import (
     append_stock_attribution,
     find_repeat_use_blockers,
@@ -560,7 +561,7 @@ def test_source_reuse_identity_handles_malformed_url_authorities(source_url: str
     assert identity[0] == "url"
     assert identity[1] == source_url.split("#", 1)[0].rstrip("/")
 
-def test_repeat_use_history_is_resolved_in_bounded_queries_with_montage_sources():
+def test_repeat_use_history_is_resolved_in_bounded_queries_with_montage_sources(monkeypatch: pytest.MonkeyPatch):
     from uuid import uuid4
 
     suffix = uuid4().hex[:10]
@@ -667,6 +668,9 @@ def test_repeat_use_history_is_resolved_in_bounded_queries_with_montage_sources(
             current_asset = db.get(Asset, current_asset_id)
             assert current_source is not None and current_asset is not None
 
+            # Force several chunks with this small fixture so chunk boundaries, not
+            # just the one-chunk happy path, are exercised in CI.
+            monkeypatch.setattr(rights_module, "REPEAT_USE_HISTORY_BATCH_SIZE", 5)
             select_statements: list[str] = []
 
             def record_select(connection, cursor, statement, parameters, context, executemany):
@@ -682,9 +686,10 @@ def test_repeat_use_history_is_resolved_in_bounded_queries_with_montage_sources(
 
             assert len(blockers) == 1
             assert blockers[0]["source_id"] == current_source_id
-            # Three batched SELECTs: publish/render join, historical asset source IDs,
-            # and historical Source records, independent of how many old uploads exist.
-            assert len(select_statements) <= 3
+            # One publish/render join plus three bounded asset batches and three bounded
+            # source batches for this fixture (13 IDs per layer, batch size five).
+            # Production keeps each IN-list at <=500 to avoid driver parameter limits.
+            assert len(select_statements) <= 7
     finally:
         with SessionLocal() as db:
             db.query(PublishJob).filter(PublishJob.id.in_(publish_ids)).delete(synchronize_session=False)

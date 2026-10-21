@@ -11,6 +11,9 @@ from app.models import Asset, PublishJob, RenderJob, Source
 
 _PLACEHOLDERS = {"-", "n/a", "na", "none", "unknown", "tbd", "todo", "pending", "not provided"}
 
+# Stay below SQLite and common driver bind-parameter limits for large histories.
+REPEAT_USE_HISTORY_BATCH_SIZE = 500
+
 
 def _meaningful(value: str) -> bool:
     normalized = " ".join(value.split()).strip().casefold()
@@ -160,25 +163,32 @@ def find_repeat_use_blockers(
         history_asset_ids.update(_render_asset_ids(row.asset_id, row.options_json))
 
     previously_published: set[tuple[str, str]] = set()
-    if history_asset_ids:
-        history_source_ids = {
+    history_asset_id_list = sorted(history_asset_ids)
+    history_source_ids: set[int] = set()
+    batch_size = max(1, int(REPEAT_USE_HISTORY_BATCH_SIZE))
+    for start in range(0, len(history_asset_id_list), batch_size):
+        asset_batch = history_asset_id_list[start : start + batch_size]
+        history_source_ids.update(
             source_id
             for source_id in db.scalars(
                 select(Asset.source_id).where(
-                    Asset.id.in_(history_asset_ids),
+                    Asset.id.in_(asset_batch),
                     Asset.source_id.is_not(None),
                 )
             ).all()
             if source_id is not None
-        }
-        if history_source_ids:
-            historical_sources = db.scalars(
-                select(Source).where(Source.id.in_(history_source_ids))
-            ).all()
-            for historical_source in historical_sources:
-                identity = source_reuse_identity(historical_source)
-                if identity is not None:
-                    previously_published.add(identity)
+        )
+
+    history_source_id_list = sorted(history_source_ids)
+    for start in range(0, len(history_source_id_list), batch_size):
+        source_batch = history_source_id_list[start : start + batch_size]
+        historical_sources = db.scalars(
+            select(Source).where(Source.id.in_(source_batch))
+        ).all()
+        for historical_source in historical_sources:
+            identity = source_reuse_identity(historical_source)
+            if identity is not None:
+                previously_published.add(identity)
 
     blockers: list[dict[str, int | str]] = []
     seen: set[tuple[str, str]] = set()
