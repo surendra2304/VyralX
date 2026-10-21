@@ -116,12 +116,23 @@ def source_reuse_identity(source: Source | None) -> tuple[str, str] | None:
             # Keep malformed URLs stable as raw identities instead of crashing the API
             # while it checks repeat-use history. Never normalize invalid authority data.
             return ("url", raw_url.split("#", 1)[0].rstrip("/"))
+        # Do not canonicalize ambiguous authorities. In particular, stripping user-info
+        # or an invalid/empty port could make two different source strings collide.
+        if (
+            parsed.username is not None
+            or parsed.password is not None
+            or not parsed.netloc
+            or parsed.netloc.endswith(":")
+        ):
+            return ("url", raw_url.split("#", 1)[0].rstrip("/"))
         if parsed.scheme.lower() in {"http", "https"} and hostname:
             scheme = parsed.scheme.lower()
             hostname = hostname.casefold()
-            if port and not (scheme == "https" and port == 443) and not (
-                scheme == "http" and port == 80
-            ):
+            # urlsplit().hostname omits IPv6 brackets; restore them before adding a port.
+            if ":" in hostname and not hostname.startswith("["):
+                hostname = f"[{hostname}]"
+            default_port = 443 if scheme == "https" else 80
+            if port is not None and port != default_port:
                 hostname = f"{hostname}:{port}"
             path = parsed.path.rstrip("/") or "/"
             tracking = {"fbclid", "gclid", "dclid", "mc_cid", "mc_eid", "ref"}
