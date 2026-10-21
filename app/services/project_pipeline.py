@@ -343,28 +343,41 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
     project.asset_ids_json = json.dumps(asset_ids)
     project.primary_asset_id = assets[0].id if assets else None
     orientation = "portrait" if project.video_format == "shorts" else "landscape"
+    used_photo_ids: set[str] = set()
     for index in range(len(assets), needed):
         scene = scene_plan[index] if index < len(scene_plan) and isinstance(scene_plan[index], dict) else {}
         query = _scene_query(project.topic, scene, index)
-        results = search_videos(query, max_results=10, orientation=orientation)
-        chosen = _choose_candidate(results, used_video_ids)
-        if chosen is None:
-            # Broaden from a scene-specific phrase to the overall topic before failing.
-            results = search_videos(project.topic, max_results=15, orientation=orientation)
-            chosen = _choose_candidate(results, used_video_ids)
+        chosen = None
+        if getattr(settings, "pexels_api_key", None):
+            try:
+                results = search_videos(query, max_results=10, orientation=orientation)
+                chosen = _choose_candidate(results, used_video_ids)
+                if chosen is None:
+                    results = search_videos(project.topic, max_results=15, orientation=orientation)
+                    chosen = _choose_candidate(results, used_video_ids)
+            except Exception as pex_err:
+                log.warning("Pexels video search unavailable: %s", pex_err)
+                chosen = None
         if chosen is None and settings.unsplash_access_key:
             from app.services.unsplash import search_photos, import_photo
             u_results = search_photos(query, orientation=orientation, per_page=10)
             if not u_results:
                 u_results = search_photos(project.topic, orientation=orientation, per_page=15)
-            if u_results:
-                u_photo = u_results[0]
+            candidate_photo = None
+            for p in u_results:
+                if p["id"] not in used_photo_ids:
+                    candidate_photo = p
+                    break
+            if candidate_photo is None and u_results:
+                candidate_photo = u_results[0]
+            if candidate_photo:
+                used_photo_ids.add(candidate_photo["id"])
                 u_imported = import_photo(
-                    u_photo["id"],
-                    u_photo["download_url"],
-                    title=u_photo["title"] + " — " + query[:180],
-                    creator=u_photo["creator"],
-                    creator_url=u_photo["creator_url"],
+                    candidate_photo["id"],
+                    candidate_photo["download_url"],
+                    title=candidate_photo["title"] + " - " + query[:180],
+                    creator=candidate_photo["creator"],
+                    creator_url=candidate_photo["creator_url"],
                 )
                 u_source = Source(
                     title=u_imported["title"],
@@ -393,10 +406,17 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
                 db.add(u_asset)
                 db.flush()
                 assets.append(u_asset)
+                asset_ids.append(u_asset.id)
+                project.asset_ids_json = json.dumps(asset_ids)
+                project.primary_asset_id = assets[0].id
+                project.updated_at = utcnow()
+                db.commit()
+                db.refresh(u_asset)
+                db.refresh(project)
                 continue
 
         if chosen is None:
-            raise RuntimeError(f"No downloadable Pexels MP4 candidate found for scene {index + 1}")
+            raise RuntimeError(f"No downloadable stock candidate found for scene {index + 1}")
         video, media_file = chosen
         video_id = int(video["video_id"])
         imported = import_video_file(
@@ -452,7 +472,7 @@ def _ensure_scene_assets(project: VideoProject, pack: dict, db: Session) -> list
         source = db.get(Source, asset.source_id) if asset.source_id else None
         if not is_project_scene_publishable(asset, source):
             raise ValueError(
-                "Every project scene must retain a verified Pexels source record with valid official source and license evidence"
+                "Every project scene must retain a verified Pexels/Unsplash source record with valid official source and license evidence"
             )
         if not Path(asset.file_path).is_file():
             raise FileNotFoundError("A project scene file disappeared from media storage")
