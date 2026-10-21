@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
 

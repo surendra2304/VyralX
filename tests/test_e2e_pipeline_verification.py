@@ -9,7 +9,6 @@ import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -18,14 +17,11 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 from app.database import get_db
 from app.main import app
-from app.models import Asset, ContentPack, RenderJob, Source, VideoProject
+from app.models import RenderJob, VideoProject
 from app.services.distribution import (
-    format_instagram_reels_metadata,
-    format_tiktok_metadata,
-    format_youtube_metadata,
     generate_distribution_package,
 )
-from app.services.hooks import generate_viral_hooks, score_hook_virality, select_optimal_hook
+from app.services.hooks import generate_viral_hooks, select_optimal_hook
 from app.services.montage import render_montage
 from app.services.sentinel import compute_provenance_hash, verify_render_publish_policy
 from app.services.task_dispatch import dispatch_agent_task
