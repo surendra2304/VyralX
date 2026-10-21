@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.futuris import predict_publish_window
+from app.services.sentinel import compute_provenance_hash
 
 log = logging.getLogger("vyralx.distribution")
 
@@ -102,6 +103,8 @@ def generate_distribution_package(
     is_short: bool = True,
     attributions: str = "",
     niche: str = "technology",
+    video_path: str | Path | None = None,
+    provenance_sha256: str = "",
 ) -> Path:
     """Generate a distribution manifest JSON bundling all cross-platform metadata and timing."""
     out = Path(output_dir).resolve()
@@ -110,10 +113,27 @@ def generate_distribution_package(
 
     timing = predict_publish_window(niche=niche)
 
+    media_asset_meta = None
+    if video_path is not None:
+        vp = Path(video_path).resolve()
+        hash_val = provenance_sha256
+        if not hash_val and vp.is_file():
+            try:
+                hash_val = compute_provenance_hash(vp)
+            except Exception:
+                hash_val = ""
+        media_asset_meta = {
+            "file_path": str(vp),
+            "file_size_bytes": vp.stat().st_size if vp.is_file() else 0,
+            "sha256": hash_val,
+            "provenance_verified": bool(hash_val),
+        }
+
     manifest = {
         "project_key": project_key,
         "generated_for": "VyralX Cross-Platform Studio",
         "optimal_publish_window": timing,
+        "media_asset": media_asset_meta,
         "youtube": format_youtube_metadata(title, description, tags, is_short=is_short, attributions=attributions),
         "instagram_reels": format_instagram_reels_metadata(title, hook_text),
         "tiktok": format_tiktok_metadata(hook_text),

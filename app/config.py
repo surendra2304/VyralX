@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     max_concurrent_renders: int = 1
     render_max_cpu_threads: int = 1
     render_max_memory_mb: int = 512
+    render_enable_ken_burns: bool = True
     render_audio_loudness_target_lufs: float = -14.0
     render_audio_loudness_min_lufs: float = -24.0
     render_audio_loudness_max_lufs: float = -10.0
