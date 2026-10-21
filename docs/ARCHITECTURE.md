@@ -28,19 +28,30 @@ The worker is single-process by design. This serializes CPU-heavy FFmpeg renders
 - \`app/services/content.py\`: Original script and scene-plan generation via the FRIDAY Inference `/v1/task/execute` envelope. Generated factual claims require review.
 - Channel editorial settings are bounded and normalized before being passed to Inference; the resulting strategy is retained with each generated content pack for auditability.
 - \`app/services/voiceover.py\`: optional Inference-compatible narration synthesis.
-- \`app/services/captions.py\`: SRT subtitle-file construction.
+- \`app/services/captions.py\`: SRT and styled Advanced SubStation Alpha (.ass) subtitle construction with keyword emphasis.
+- \`app/services/audio_mixer.py\`: Studio-grade FFmpeg filtergraph audio mixing with dynamic speech sidechain compression (`sidechaincompress`) and LUFS loudness normalization.
 - \`app/services/thumbnail.py\`: deterministic FFmpeg thumbnail extraction.
 
 ### Media production and delivery
 - \`app/services/probe.py\`: FFprobe technical inspection.
-- \`app/services/renderer.py\`: FFmpeg rendering, trim, crop/pad, captions, voiceover and output validation.
+- \`app/services/renderer.py\`: FFmpeg rendering, trim, crop/pad, captions, voiceover, background music mixing, and output validation.
+- \`app/services/montage.py\`: Multi-scene montage assembly with dynamic ducking of background music under speech.
 - \`app/services/youtube.py\`: official OAuth token loading and resumable uploads. Credentials are stored only in a private mounted file.
 - \`app/services/youtube_analytics.py\`: public video counter snapshots using YouTube Data API.
-- \`app/worker.py\`: atomic queue claiming, job processing, restart recovery, status reporting and optional pre-publish Sentinel policy call.
+- \`app/worker.py\`: atomic queue claiming, job processing, restart recovery, status reporting, optional pre-publish Sentinel policy audit, Echo event dispatch, and DataX operational telemetry.
 
 ### Task contract and ecosystem boundaries
 - \`POST /api/v1/tasks\` is the machine-to-machine task envelope. Caller IDs support idempotent replay; correlation IDs let FRIDAY join logs/steps.
-- \`GET /api/agent/manifest\` declares capabilities; \`GET /api/agents/health\` checks configured peers.
+- \`GET /api/agent/manifest\` declares capabilities; \`GET /api/peers\` reports live health across all 9 FRIDAY Universe agents:
+  1. \`friday\`: Central orchestrator
+  2. \`inference\`: LLM scriptwriting, scene planning, and voice synthesis
+  3. \`intelx\`: Topic research and factual intelligence
+  4. \`memora\`: Episodic memory and narrative continuity
+  5. \`sentinel\`: Security, compliance, and pre-publish policy audits
+  6. \`echo\`: Event dispatch and operator notifications
+  7. \`mediax\`: Central asset catalog and media registry
+  8. \`datax\`: Operational metrics, render benchmarks, and analytics
+  9. \`gatekeeper\`: Mutual mesh perimeter authentication and token verification
 - \`app/services/peers.py\` provides timeout-bounded authenticated clients. Actual URLs, routes, request/response models and keys must match the current deployed peer implementation before calling an integration "connected."
 - Memora remains the only long-term memory authority. VyralX does not create universal/shared memory copies. An explicit Memora API contract must be used for any future memory exchange.
 - Sentinel policy enforcement is disabled by default. When enabled, VyralX fails closed if the configured policy endpoint does not explicitly allow publication.

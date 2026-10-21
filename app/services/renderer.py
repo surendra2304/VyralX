@@ -57,6 +57,8 @@ def _subtitle_filter(path: str | Path, data_root: Path) -> str:
     if data_root.resolve() not in subtitle.parents or not subtitle.is_file():
         raise ValueError("Subtitle file must be generated inside the VyralX data directory")
     escaped = subtitle.as_posix().replace(":", r"\:").replace("'", r"\'")
+    if subtitle.suffix.lower() == ".ass":
+        return f"ass='{escaped}'"
     return (
         f"subtitles='{escaped}':force_style="
         "'FontName=Arial,FontSize=24,Outline=2,Shadow=1,MarginV=80'"
@@ -73,6 +75,9 @@ def render_video(
     fit_mode: str = "pad",
     subtitle_file: str | Path | None = None,
     voiceover_path: str | Path | None = None,
+    bgm_path: str | Path | None = None,
+    bgm_volume: float | None = None,
+    ducking_attenuation_db: float | None = None,
     cpu_threads: int | None = None,
     max_memory_mb: int | None = None,
     normalize_loudness: bool = False,
@@ -120,6 +125,32 @@ def render_video(
         voice_path = Path(voiceover_path).resolve()
         if settings.media_dir.resolve() not in voice_path.parents or not voice_path.is_file():
             raise ValueError("Voiceover file must be stored in the VyralX media directory")
+
+    if bgm_path is not None:
+        bgm_file = Path(bgm_path).resolve()
+        if settings.media_dir.resolve() not in bgm_file.parents or not bgm_file.is_file():
+            raise ValueError("Background music file must be stored in the VyralX media directory")
+        if voice_path is not None:
+            from app.services.audio_mixer import mix_voiceover_and_bgm
+
+            mix_dir = settings.data_dir / "audio_mix"
+            mix_dir.mkdir(parents=True, exist_ok=True)
+            mixed_audio = mix_dir / f"mix-{out.stem}.m4a"
+            duration_hint = (trim_end_seconds - trim_start_seconds) if trim_end_seconds is not None else None
+            mix_voiceover_and_bgm(
+                voice_path,
+                bgm_file,
+                mixed_audio,
+                target_duration=duration_hint,
+                bgm_volume=bgm_volume,
+                ducking_attenuation_db=ducking_attenuation_db,
+                normalize_loudness=normalize_loudness,
+                loudness_target_lufs=loudness_target_lufs,
+                cpu_threads=threads,
+            )
+            voice_path = mixed_audio
+        else:
+            voice_path = bgm_file
 
     settings.render_dir.mkdir(parents=True, exist_ok=True)
     out.parent.mkdir(parents=True, exist_ok=True)
