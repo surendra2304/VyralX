@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     max_stock_clip_mb: int = 150
     max_render_seconds: int = 14400
     max_concurrent_renders: int = 1
+    render_max_cpu_threads: int = 1
+    render_max_memory_mb: int = 512
+    render_audio_loudness_target_lufs: float = -14.0
+    render_audio_loudness_min_lufs: float = -24.0
+    render_audio_loudness_max_lufs: float = -10.0
     default_shorts_width: int = 1080
     default_shorts_height: int = 1920
     default_long_width: int = 1920
@@ -72,7 +77,7 @@ class Settings(BaseSettings):
     sentinel_url: str = ""
     sentinel_api_key: str = ""
     sentinel_required_for_publish: bool = False
-    sentinel_policy_path: str = "/api/v1/vyralx/publish-policy"
+    sentinel_policy_path: str = "/v1/security/audit"
     pexels_api_key: str = ""
     youtube_data_api_key: str = ""
     youtube_client_secrets_file: Path = Path("./secrets/youtube-client-secret.json")
@@ -92,6 +97,14 @@ class Settings(BaseSettings):
             raise ValueError("WORKER_POLL_SECONDS must be at least 0.5")
         if self.worker_max_attempts < 1:
             raise ValueError("WORKER_MAX_ATTEMPTS must be at least 1")
+        if self.render_max_cpu_threads < 1:
+            raise ValueError("RENDER_MAX_CPU_THREADS must be at least 1")
+        if self.render_max_memory_mb < 64:
+            raise ValueError("RENDER_MAX_MEMORY_MB must be at least 64")
+        if not (-40.0 <= self.render_audio_loudness_target_lufs <= -5.0):
+            raise ValueError("RENDER_AUDIO_LOUDNESS_TARGET_LUFS must be between -40 and -5 LUFS")
+        if not (-50.0 <= self.render_audio_loudness_min_lufs <= self.render_audio_loudness_max_lufs <= 0.0):
+            raise ValueError("Invalid audio loudness min/max bounds")
         if self.max_stock_clip_mb < 1 or self.max_stock_clip_mb > self.max_upload_mb:
             raise ValueError("MAX_STOCK_CLIP_MB must be between 1 and MAX_UPLOAD_MB")
         if self.tts_provider.lower() not in {"espeak", "external"}:

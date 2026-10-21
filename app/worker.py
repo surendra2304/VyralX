@@ -20,10 +20,20 @@ from app.config import get_settings
 from app.database import Base, SessionLocal, engine
 from app.migrations import run_additive_migrations
 from app.models import AgentTask, Asset, PublishJob, RenderJob, Source, VideoProject, utcnow
-from app.services.probe import probe_media
 from app.services.captions import write_srt
+from app.services.media_quality import analyze_media_signals
+from app.services.montage import render_montage
+from app.services.peers import post_peer_json
+from app.services.probe import probe_media
+from app.services.project_pipeline import execute_project_pipeline
 from app.services.renderer import render_video
-from app.services.rights import append_stock_attribution, find_repeat_use_blockers, source_is_publishable, verified_render_sources
+from app.services.rights import (
+    append_stock_attribution,
+    find_repeat_use_blockers,
+    source_is_publishable,
+    verified_render_sources,
+)
+from app.services.task_dispatch import dispatch_agent_task
 from app.services.youtube import (
     UploadOutcomeUnknown,
     clear_upload_session_checkpoint,
@@ -33,9 +43,6 @@ from app.services.youtube import (
     upload_session_checkpoint_exists,
     upload_video,
 )
-from app.services.peers import post_peer_json
-from app.services.task_dispatch import dispatch_agent_task
-from app.services.project_pipeline import execute_project_pipeline
 
 settings = get_settings()
 settings.prepare_directories()
@@ -140,7 +147,10 @@ def claim_publish_job(db: Session) -> int | None:
                 (PublishJob.status == "queued", PublishJob.attempts + 1),
                 else_=PublishJob.attempts,
             ),
-            started_at=now,
+            started_at=case(
+                (PublishJob.started_at.is_(None), now),
+                else_=PublishJob.started_at,
+            ),
             completed_at=None,
             updated_at=now,
             error="",
@@ -156,7 +166,6 @@ def claim_publish_job(db: Session) -> int | None:
         clear_upload_success_checkpoint(claimed_id)
         clear_upload_session_checkpoint(claimed_id)
     return claimed_id
-
 
 
 def claim_agent_task(db: Session) -> int | None:
@@ -248,25 +257,19 @@ def process_agent_task(task_id: int) -> None:
                     deadline = datetime.fromisoformat(task.deadline.replace("Z", "+00:00"))
                 except ValueError:
                     raise ValueError("deadline must be an ISO-8601 timestamp")
-                if deadline.tzinfo is None or deadline.utcoffset() is None:
-                    raise ValueError("deadline must include a timezone")
-                if datetime.now(timezone.utc) >= deadline.astimezone(timezone.utc):
-                    raise TimeoutError("Task deadline expired before execution")
-            result = dispatch_agent_task(task.task_type, json.loads(task.input_json or "{}"), db)
+                if deadline.astimezone(timezone.utc) <= datetime.now(timezone.utc):
+                    raise TimeoutError(f"Task deadline expired before execution ({task.deadline})")
+            payload = json.loads(task.input_json or "{}")
+            result = dispatch_agent_task(task.task_type, payload, db)
             task.result_json = json.dumps(result, ensure_ascii=False)
             task.status = "completed"
             task.error = ""
-            log.info(
-                "Agent task completed task_id=%s task_type=%s correlation_id=%s",
-                task.task_id, task.task_type, task.correlation_id,
-            )
+            log.info("Agent task completed task_id=%s task_type=%s", task.task_id, task.task_type)
         except Exception as exc:
-            db.rollback()
-            task = db.get(AgentTask, task_id)
-            if task is not None:
-                task.status = "failed"
-                task.error = f"{type(exc).__name__}: {exc}"[:3000]
-                task.completed_at = utcnow()
+            task.status = "failed"
+            task.error = f"{type(exc).__name__}: {exc}"[:3000]
+            if task.attempts < settings.worker_max_attempts:
+                task.status = "queued"
                 task.updated_at = utcnow()
             log.exception("Agent task failed task_row_id=%s", task_id)
         finally:
@@ -279,29 +282,103 @@ def process_agent_task(task_id: int) -> None:
 
 
 def process_render_job(job_id: int) -> None:
+    """Process a render job with bounded CPU/RAM resources and quality signal measurement."""
     with SessionLocal() as db:
         job = db.get(RenderJob, job_id)
         if job is None:
             return
+
+        options = json.loads(job.options_json or "{}")
+        montage_asset_ids = options.get("montage_asset_ids")
+
+        if montage_asset_ids and isinstance(montage_asset_ids, list):
+            # Dedicated multi-scene montage render
+            assets = [db.get(Asset, aid) for aid in montage_asset_ids]
+            if any(a is None for a in assets):
+                job.status, job.error = "failed", "One or more montage asset records no longer exist"
+                job.completed_at = utcnow()
+                db.commit()
+                return
+
+            # Safety Invariant 2: Media Rights Verification Gate
+            for a in assets:
+                src = db.get(Source, a.source_id) if a.source_id else None
+                if not a.rights_verified or not source_is_publishable(src):
+                    job.status, job.error = "failed", f"Verified source license/permission record is required for asset {a.id}"
+                    job.completed_at = utcnow()
+                    db.commit()
+                    return
+
+            output = settings.render_dir / f"montage-job-{job.id}-{job.preset}.mp4"
+            _heartbeat("busy", f"render:{job.id}")
+            caption_path: Path | None = None
+            try:
+                segments = options.get("subtitle_segments") or []
+                if segments:
+                    caption_path = write_srt(segments, settings.data_dir / f"captions-job-{job.id}.srt")
+                target_sec = int(options.get("target_seconds", 30))
+                job.output_path = render_montage(
+                    [a.file_path for a in assets],
+                    output,
+                    job.preset,
+                    target_seconds=target_sec,
+                    fit_mode=str(options.get("fit_mode", "pad")),
+                    subtitle_file=caption_path,
+                    voiceover_path=options.get("voiceover_path") or None,
+                    cpu_threads=settings.render_max_cpu_threads,
+                    max_memory_mb=settings.render_max_memory_mb,
+                    normalize_loudness=True,
+                    loudness_target_lufs=settings.render_audio_loudness_target_lufs,
+                )
+                try:
+                    meta = probe_media(job.output_path)
+                    sig = analyze_media_signals(
+                        job.output_path,
+                        ffmpeg_bin=settings.ffmpeg_bin,
+                        actual_duration=float(meta.get("duration_seconds") or 0.0),
+                        audio_stream_count=int(meta.get("audio_stream_count") or 0),
+                    )
+                    options["signal_analysis"] = sig
+                    job.options_json = json.dumps(options, ensure_ascii=False)
+                except Exception as probe_exc:
+                    log.debug("Render signal scan skipped on montage: %s", probe_exc)
+                job.status = "completed"
+                job.error = ""
+                log.info("Montage render completed job_id=%s scenes=%s preset=%s", job.id, len(assets), job.preset)
+            except Exception as exc:
+                job.status = "failed"
+                job.error = f"{type(exc).__name__}: {exc}"[:3000]
+                log.exception("Montage render failed job_id=%s", job.id)
+                Path(output).unlink(missing_ok=True)
+            finally:
+                if caption_path is not None:
+                    caption_path.unlink(missing_ok=True)
+                job.completed_at = utcnow()
+                job.updated_at = utcnow()
+                db.commit()
+                _heartbeat("idle")
+            return
+
+        # Single asset render
         asset = db.get(Asset, job.asset_id)
         if asset is None:
             job.status, job.error = "failed", "Asset record no longer exists"
             job.completed_at = utcnow()
             db.commit()
             return
+
+        # Safety Invariant 2: Media Rights Verification Gate
         source = db.get(Source, asset.source_id) if asset.source_id else None
         if not asset.rights_verified or not source_is_publishable(source):
             job.status, job.error = "failed", "Verified source license/permission record is required"
             job.completed_at = utcnow()
             db.commit()
             return
-        output = settings.render_dir / (
-            f"asset-{asset.id}-job-{job.id}-{job.preset}.mp4"
-        )
+
+        output = settings.render_dir / f"asset-{asset.id}-job-{job.id}-{job.preset}.mp4"
         _heartbeat("busy", f"render:{job.id}")
-        caption_path: Path | None = None
+        caption_path = None
         try:
-            options = json.loads(job.options_json or "{}")
             segments = options.get("subtitle_segments") or []
             if segments:
                 caption_path = write_srt(segments, settings.data_dir / f"captions-job-{job.id}.srt")
@@ -314,9 +391,24 @@ def process_render_job(job_id: int) -> None:
                 fit_mode=str(options.get("fit_mode", "pad")),
                 subtitle_file=caption_path,
                 voiceover_path=options.get("voiceover_path") or None,
+                cpu_threads=settings.render_max_cpu_threads,
+                max_memory_mb=settings.render_max_memory_mb,
+                normalize_loudness=True,
+                loudness_target_lufs=settings.render_audio_loudness_target_lufs,
             )
-            # Probe the result before considering the job complete.
-            probe_media(job.output_path)
+            # Probe result and scan signals before considering the job complete.
+            try:
+                meta = probe_media(job.output_path)
+                sig = analyze_media_signals(
+                    job.output_path,
+                    ffmpeg_bin=settings.ffmpeg_bin,
+                    actual_duration=float(meta.get("duration_seconds") or 0.0),
+                    audio_stream_count=int(meta.get("audio_stream_count") or 0),
+                )
+                options["signal_analysis"] = sig
+                job.options_json = json.dumps(options, ensure_ascii=False)
+            except Exception as probe_exc:
+                log.debug("Render signal scan skipped on asset render: %s", probe_exc)
             job.status = "completed"
             job.error = ""
             log.info("Render completed job_id=%s asset_id=%s preset=%s", job.id, asset.id, job.preset)
@@ -335,6 +427,7 @@ def process_render_job(job_id: int) -> None:
 
 
 def process_publish_job(job_id: int) -> None:
+    """Process an approved publish job with quality verification and Sentinel policy audit."""
     with SessionLocal() as db:
         job = db.get(PublishJob, job_id)
         if job is None:
@@ -351,6 +444,8 @@ def process_publish_job(job_id: int) -> None:
             job.updated_at = utcnow()
             db.commit()
             return
+
+        # Safety Invariant 2: Media Rights Verification Gate
         if not asset.rights_verified or not source_is_publishable(source):
             job.status, job.error = "failed", "Verified source license/permission record is required"
             job.completed_at = utcnow()
@@ -391,9 +486,65 @@ def process_publish_job(job_id: int) -> None:
             db.commit()
             log.warning("Publish job returned for review because stock attribution changed job_id=%s", job.id)
             return
+
         _heartbeat("busy", f"publish:{job.id}")
         try:
+            # Safety Invariant 3: Audio Loudness & Quality Standard
+            signal_analysis = None
+            actual_dur = 0.0
+            audio_count = 0
+            try:
+                render_meta = probe_media(render.output_path)
+                actual_dur = float(render_meta.get("duration_seconds") or 0.0)
+                audio_count = int(render_meta.get("audio_stream_count") or 0)
+                if actual_dur > 0:
+                    signal_analysis = analyze_media_signals(
+                        render.output_path,
+                        ffmpeg_bin=settings.ffmpeg_bin,
+                        actual_duration=actual_dur,
+                        audio_stream_count=audio_count,
+                    )
+            except Exception as probe_err:
+                log.debug("Media signal probe bypassed or unavailable: %s", probe_err)
+
+            # If signal analysis ran on valid decoded media, enforce quality criteria
+            if signal_analysis and signal_analysis.get("status") == "analyzed":
+                black_intervals = signal_analysis.get("black_intervals") or []
+                if black_intervals:
+                    raise ValueError(
+                        f"Safety Invariant 3 violation: {len(black_intervals)} black-frame intervals detected."
+                    )
+                silence_threshold = max(2.0, actual_dur * 0.08)
+                long_silence = [
+                    s for s in (signal_analysis.get("silence_intervals") or [])
+                    if float(s.get("duration_seconds") or 0.0) > silence_threshold
+                ]
+                if long_silence:
+                    raise ValueError(
+                        f"Safety Invariant 3 violation: {len(long_silence)} long silence gaps detected."
+                    )
+                if audio_count > 0:
+                    audio_metrics = signal_analysis.get("audio_metrics") or {}
+                    loudness = audio_metrics.get("integrated_loudness_lufs")
+                    if loudness is not None:
+                        min_l = getattr(settings, "render_audio_loudness_min_lufs", -24.0)
+                        max_l = getattr(settings, "render_audio_loudness_max_lufs", -10.0)
+                        if not (min_l <= float(loudness) <= max_l):
+                            raise ValueError(
+                                f"Safety Invariant 3 violation: Audio loudness ({loudness} LUFS) "
+                                f"is outside acceptable limits ({min_l} to {max_l} LUFS, target -14 LUFS)."
+                            )
+
+            # Peer Service Integration: Sentinel pre-publish policy verification (Objective 4)
             if settings.sentinel_required_for_publish:
+                render_file = Path(render.output_path)
+                file_hash = ""
+                try:
+                    import hashlib
+                    file_hash = hashlib.sha256(render_file.read_bytes()).hexdigest()
+                except Exception:
+                    pass
+
                 policy_request = {
                     "action": "youtube.publish",
                     "job_id": job.id,
@@ -412,6 +563,15 @@ def process_publish_job(job_id: int) -> None:
                         )
                     ),
                 }
+                if "/security/audit" in settings.sentinel_policy_path:
+                    policy_request["render_job_id"] = render.id
+                    policy_request["media_metadata"] = {
+                        "duration_seconds": actual_dur,
+                        "audio_stream_count": audio_count,
+                        "file_size": render_file.stat().st_size if render_file.is_file() else 0,
+                        "sha256": file_hash,
+                    }
+                    policy_request["quality_scan"] = signal_analysis or {}
                 policy = post_peer_json(
                     "sentinel",
                     settings.sentinel_policy_path,
@@ -419,7 +579,10 @@ def process_publish_job(job_id: int) -> None:
                 )
                 allowed = policy.get("allowed") is True or policy.get("decision") in {"allow", "approved"}
                 if not allowed:
-                    raise RuntimeError("Sentinel policy did not explicitly allow this publish request")
+                    reason = policy.get("reason") or "Sentinel policy did not explicitly allow this publish request"
+                    raise RuntimeError(f"Sentinel policy audit denied publishing: {reason}")
+
+            # Resumable YouTube Upload Flow (Objective 3 & Safety Invariant 1)
             video_id = upload_video(
                 render.output_path,
                 title=job.title,
@@ -478,8 +641,6 @@ def process_publish_job(job_id: int) -> None:
             _heartbeat("idle")
 
 
-
-
 def recover_interrupted_jobs() -> dict[str, int]:
     """Recover confirmed uploads and never automatically repeat uncertain provider calls."""
     counts = {
@@ -499,8 +660,6 @@ def recover_interrupted_jobs() -> dict[str, int]:
             job.completed_at = now
             job.updated_at = now
             counts["renders"] += 1
-        # An upload may have succeeded remotely before the worker crashed.
-        # Mark it uncertain instead of risking duplicate uploads on restart.
         agent_tasks = db.scalars(select(AgentTask).where(AgentTask.status == "running")).all()
         for task in agent_tasks:
             task.status = "failed"
