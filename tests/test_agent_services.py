@@ -288,10 +288,21 @@ def test_pexels_media_url_allowlist_rejects_arbitrary_hosts():
     from app.services.pexels import _safe_file_url
 
     assert _safe_file_url("https://videos.pexels.com/video-files/123/clip.mp4")
+    assert _safe_file_url("https://videos.pexels.com:443/video-files/123/clip.mp4")
     assert _safe_file_url("https://player.vimeo.com/external/123.hd.mp4")
     assert not _safe_file_url("http://videos.pexels.com/clip.mp4")
     assert not _safe_file_url("https://example.invalid/clip.mp4")
     assert not _safe_file_url("https://player.vimeo.com/evil/clip.mp4")
+    for invalid_url in (
+        "https://operator:secret@videos.pexels.com/video-files/123/clip.mp4",
+        "https://videos.pexels.com:444/video-files/123/clip.mp4",
+        "https://operator:secret@player.vimeo.com/external/123.hd.mp4",
+        "https://player.vimeo.com:8443/external/123.hd.mp4",
+        "https://videos.pexels.com:/video-files/123/clip.mp4",
+        "https://[malformed-host/video-files/123/clip.mp4",
+        "https://videos.pexels.com/video-files/123/clip.mp4#fragment",
+    ):
+        assert not _safe_file_url(invalid_url)
 
 
 def test_content_generation_uses_actual_inference_task_contract(monkeypatch):

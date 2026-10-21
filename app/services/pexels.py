@@ -21,9 +21,23 @@ def _api_key() -> str:
 
 
 def _safe_file_url(url: str) -> bool:
-    parsed = urlparse(url)
-    host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or not parsed.hostname:
+    """Accept only credential-free HTTPS URLs on known media hosts and default ports."""
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").casefold()
+        port = parsed.port
+    except (TypeError, ValueError):
+        # Malformed IPv6 authorities and non-numeric ports must fail closed.
+        return False
+    if (
+        parsed.scheme.casefold() != "https"
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+        or parsed.netloc.endswith(":")
+        or parsed.fragment
+    ):
         return False
     if host == "pexels.com" or host.endswith(".pexels.com"):
         return True
