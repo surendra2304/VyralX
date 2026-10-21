@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import event
 
 from app.database import SessionLocal
 from app.models import Asset, PublishJob, RenderJob, Source
@@ -558,4 +559,137 @@ def test_source_reuse_identity_handles_malformed_url_authorities(source_url: str
     assert identity is not None
     assert identity[0] == "url"
     assert identity[1] == source_url.split("#", 1)[0].rstrip("/")
+
+def test_repeat_use_history_is_resolved_in_bounded_queries_with_montage_sources():
+    from uuid import uuid4
+
+    suffix = uuid4().hex[:10]
+    shared_url_old = f"https://media.example/montage/{suffix}.mp4?utm_source=old"
+    shared_url_current = f"https://media.example/montage/{suffix}.mp4?utm_source=current"
+    source_ids: list[int] = []
+    asset_ids: list[int] = []
+    render_ids: list[int] = []
+    publish_ids: list[int] = []
+    current_source_id = None
+    current_asset_id = None
+
+    with SessionLocal() as db:
+        montage_source = Source(
+            title="Historical montage source " + suffix,
+            source_url=shared_url_old,
+            platform="manual",
+            license_name="Written permission",
+            permission_reference="permission-record-" + suffix,
+            rights_verified=True,
+        )
+        current_source = Source(
+            title="Current montage reuse " + suffix,
+            source_url=shared_url_current,
+            platform="manual",
+            license_name="Written permission",
+            permission_reference="permission-record-current-" + suffix,
+            rights_verified=True,
+        )
+        noise_sources = [
+            Source(
+                title=f"History source {index} {suffix}",
+                source_url=f"https://media.example/history/{suffix}/{index}.mp4",
+                platform="manual",
+                license_name="Written permission",
+                permission_reference=f"history-permission-{suffix}-{index}",
+                rights_verified=True,
+            )
+            for index in range(12)
+        ]
+        db.add_all([montage_source, current_source, *noise_sources])
+        db.flush()
+
+        montage_asset = Asset(
+            source_id=montage_source.id,
+            title="Montage clip " + suffix,
+            file_path=f"/tmp/montage-{suffix}.mp4",
+            rights_verified=True,
+        )
+        noise_assets = [
+            Asset(
+                source_id=source.id,
+                title=f"History asset {index} {suffix}",
+                file_path=f"/tmp/history-{suffix}-{index}.mp4",
+                rights_verified=True,
+            )
+            for index, source in enumerate(noise_sources)
+        ]
+        current_asset = Asset(
+            source_id=current_source.id,
+            title="Current asset " + suffix,
+            file_path=f"/tmp/current-{suffix}.mp4",
+            rights_verified=True,
+        )
+        db.add_all([montage_asset, *noise_assets, current_asset])
+        db.flush()
+
+        history_renders = [
+            RenderJob(
+                asset_id=asset.id,
+                preset="shorts",
+                status="completed",
+                output_path=f"/tmp/history-render-{suffix}-{index}.mp4",
+                options_json=json.dumps(
+                    {"montage_asset_ids": [montage_asset.id] if index == 0 else []}
+                ),
+            )
+            for index, asset in enumerate(noise_assets)
+        ]
+        db.add_all(history_renders)
+        db.flush()
+        history_jobs = [
+            PublishJob(
+                asset_id=asset.id,
+                render_job_id=render.id,
+                title=f"Historical upload {index} {suffix}",
+                status="uploaded",
+                youtube_video_id=f"history-{suffix}-{index}",
+            )
+            for index, (asset, render) in enumerate(zip(noise_assets, history_renders))
+        ]
+        db.add_all(history_jobs)
+        db.commit()
+
+        source_ids = [montage_source.id, current_source.id, *(source.id for source in noise_sources)]
+        asset_ids = [montage_asset.id, current_asset.id, *(asset.id for asset in noise_assets)]
+        render_ids = [render.id for render in history_renders]
+        publish_ids = [job.id for job in history_jobs]
+        current_source_id, current_asset_id = current_source.id, current_asset.id
+
+    try:
+        with SessionLocal() as db:
+            current_source = db.get(Source, current_source_id)
+            current_asset = db.get(Asset, current_asset_id)
+            assert current_source is not None and current_asset is not None
+
+            select_statements: list[str] = []
+
+            def record_select(connection, cursor, statement, parameters, context, executemany):
+                if statement.lstrip().upper().startswith("SELECT"):
+                    select_statements.append(statement)
+
+            bind = db.get_bind()
+            event.listen(bind, "before_cursor_execute", record_select)
+            try:
+                blockers = find_repeat_use_blockers([(current_asset, current_source)], db)
+            finally:
+                event.remove(bind, "before_cursor_execute", record_select)
+
+            assert len(blockers) == 1
+            assert blockers[0]["source_id"] == current_source_id
+            # Three batched SELECTs: publish/render join, historical asset source IDs,
+            # and historical Source records, independent of how many old uploads exist.
+            assert len(select_statements) <= 3
+    finally:
+        with SessionLocal() as db:
+            db.query(PublishJob).filter(PublishJob.id.in_(publish_ids)).delete(synchronize_session=False)
+            db.query(RenderJob).filter(RenderJob.id.in_(render_ids)).delete(synchronize_session=False)
+            db.query(Asset).filter(Asset.id.in_(asset_ids)).delete(synchronize_session=False)
+            db.query(Source).filter(Source.id.in_(source_ids)).delete(synchronize_session=False)
+            db.commit()
 
