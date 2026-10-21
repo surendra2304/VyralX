@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     inference_tts_model: str = ""
     inference_tts_voice: str = "alloy"
     inference_tts_timeout_seconds: int = 180
+    elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+    elevenlabs_model_id: str = "eleven_multilingual_v2"
+    elevenlabs_timeout_seconds: int = 120
     caption_alignment_url: str = ""
     caption_alignment_api_key: str = ""
     caption_alignment_path: str = "/v1/align"
@@ -135,8 +139,8 @@ class Settings(BaseSettings):
             raise ValueError("Invalid audio loudness min/max bounds")
         if self.max_stock_clip_mb < 1 or self.max_stock_clip_mb > self.max_upload_mb:
             raise ValueError("MAX_STOCK_CLIP_MB must be between 1 and MAX_UPLOAD_MB")
-        if self.tts_provider.lower() not in {"espeak", "external"}:
-            raise ValueError("TTS_PROVIDER must be espeak or external")
+        if self.tts_provider.lower() not in {"espeak", "external", "elevenlabs"}:
+            raise ValueError("TTS_PROVIDER must be espeak, external, or elevenlabs")
         if not 80 <= self.espeak_rate <= 300:
             raise ValueError("ESPEAK_RATE must be between 80 and 300")
         if not 1 <= self.caption_alignment_timeout_seconds <= 300:

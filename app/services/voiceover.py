@@ -79,8 +79,44 @@ def synthesize_voiceover(text: str, *, target_seconds: int | None = None) -> dic
             pass
         return {"file_path": str(path), "bytes": path.stat().st_size, "content_type": "audio/wav"}
 
+    if provider == "elevenlabs":
+        api_key = settings.elevenlabs_api_key.strip()
+        if not api_key:
+            raise RuntimeError("TTS_PROVIDER=elevenlabs requires ELEVENLABS_API_KEY")
+        voice_id = settings.elevenlabs_voice_id.strip() or "21m00Tcm4TlvDq8ikWAM"
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+        payload = {
+            "text": normalized,
+            "model_id": settings.elevenlabs_model_id or "eleven_multilingual_v2",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+            },
+        }
+        try:
+            response = httpx.post(
+                url,
+                headers={
+                    "xi-api-key": api_key,
+                    "Content-Type": "application/json",
+                    "Accept": "audio/mpeg",
+                },
+                json=payload,
+                timeout=settings.elevenlabs_timeout_seconds,
+                follow_redirects=False,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"ElevenLabs TTS returned HTTP {exc.response.status_code}") from None
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"ElevenLabs TTS request failed ({type(exc).__name__})") from None
+
+        if not response.content or len(response.content) > 50 * 1024 * 1024:
+            raise RuntimeError("ElevenLabs TTS returned empty or oversized audio")
+        return _store_audio(response.content, ".mp3")
+
     if provider != "external":
-        raise ValueError("TTS_PROVIDER must be 'espeak' or 'external'")
+        raise ValueError("TTS_PROVIDER must be 'espeak', 'external', or 'elevenlabs'")
     tts_base_url = settings.inference_tts_url.strip()
     if not tts_base_url:
         raise RuntimeError("TTS_PROVIDER=external requires INFERENCE_TTS_URL")
