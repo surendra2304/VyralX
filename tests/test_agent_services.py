@@ -1338,3 +1338,112 @@ def test_worker_checks_sentinel_policy_and_keeps_upload_resumable_after_transpor
                 if source_id is not None:
                     db.query(Source).filter(Source.id == source_id).delete()
                 db.commit()
+
+
+def test_worker_blocks_queued_publish_if_source_was_used_before_upload(tmp_path, monkeypatch):
+    from uuid import uuid4
+
+    import pytest
+    from app import worker
+    from app.database import SessionLocal
+    from app.models import Asset, PublishJob, RenderJob, Source
+    from app.worker import process_publish_job
+
+    suffix = uuid4().hex[:10]
+    source_url = f"https://licensed.example/video/{suffix}"
+    render_path = tmp_path / "repeat-use-render.mp4"
+    render_path.write_bytes(b"test render placeholder")
+
+    with SessionLocal() as db:
+        prior_source = Source(
+            title="Previously published source",
+            source_url=source_url,
+            platform="manual",
+            license_name="Written reuse permission",
+            permission_reference="https://licensed.example/permission",
+            rights_verified=True,
+            status="licensed",
+        )
+        current_source = Source(
+            title="Current source",
+            source_url=source_url,
+            platform="manual",
+            license_name="Written reuse permission",
+            permission_reference="https://licensed.example/permission",
+            rights_verified=True,
+            status="licensed",
+        )
+        db.add_all([prior_source, current_source])
+        db.flush()
+        prior_asset = Asset(
+            source_id=prior_source.id,
+            title="Prior asset",
+            file_path=str(tmp_path / "prior-source.mp4"),
+            rights_verified=True,
+        )
+        current_asset = Asset(
+            source_id=current_source.id,
+            title="Current asset",
+            file_path=str(tmp_path / "current-source.mp4"),
+            rights_verified=True,
+        )
+        db.add_all([prior_asset, current_asset])
+        db.flush()
+        prior_render = RenderJob(
+            asset_id=prior_asset.id,
+            preset="shorts",
+            status="completed",
+            output_path=str(render_path),
+        )
+        current_render = RenderJob(
+            asset_id=current_asset.id,
+            preset="shorts",
+            status="completed",
+            output_path=str(render_path),
+        )
+        db.add_all([prior_render, current_render])
+        db.flush()
+        prior_job = PublishJob(
+            asset_id=prior_asset.id,
+            render_job_id=prior_render.id,
+            title="Prior upload",
+            status="uploaded",
+            youtube_video_id=f"prior-{suffix}",
+        )
+        current_job = PublishJob(
+            asset_id=current_asset.id,
+            render_job_id=current_render.id,
+            title="Current upload",
+            description="Reviewed description",
+            status="uploading",
+            approved_at=datetime.now(timezone.utc),
+            attempts=1,
+        )
+        db.add_all([prior_job, current_job])
+        db.commit()
+        source_ids = [prior_source.id, current_source.id]
+        asset_ids = [prior_asset.id, current_asset.id]
+        render_ids = [prior_render.id, current_render.id]
+        job_ids = [prior_job.id, current_job.id]
+
+    monkeypatch.setattr(
+        worker,
+        "upload_video",
+        lambda *args, **kwargs: pytest.fail("Repeat-use blocker must prevent upload"),
+    )
+    try:
+        process_publish_job(job_ids[1])
+        with SessionLocal() as db:
+            saved = db.get(PublishJob, job_ids[1])
+            assert saved is not None and saved.status == "failed"
+            assert saved.youtube_video_id == ""
+            assert "repeat-use permission" in saved.error.lower()
+            assert "source id" in saved.error.lower()
+    finally:
+        with SessionLocal() as db:
+            db.query(PublishJob).filter(PublishJob.id.in_(job_ids)).delete(synchronize_session=False)
+            db.query(RenderJob).filter(RenderJob.id.in_(render_ids)).delete(synchronize_session=False)
+            db.query(Asset).filter(Asset.id.in_(asset_ids)).delete(synchronize_session=False)
+            db.query(Source).filter(Source.id.in_(source_ids)).delete(synchronize_session=False)
+            db.commit()
+
