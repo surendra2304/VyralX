@@ -785,7 +785,7 @@ def queue_publish(payload: PublishRequest, db: Session = Depends(get_db)):
         blocked_ids = ", ".join(str(item["source_id"]) for item in blockers)
         raise HTTPException(
             409,
-            "Repeat-use permission has not been reviewed for previously published source ID(s): "
+            "Repeat-use permission is not currently approved for previously published source ID(s): "
             + blocked_ids + ". Review the source evidence and explicitly record the repeat-use decision first.",
         )
     publish_description = append_stock_attribution(payload.description, render_sources)
