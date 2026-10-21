@@ -1,3 +1,4 @@
+import shutil
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -69,7 +70,7 @@ class Settings(BaseSettings):
     inference_tts_voice: str = "alloy"
     inference_tts_timeout_seconds: int = 180
     elevenlabs_api_key: str = ""
-    elevenlabs_voice_id: str = "IKne3meq5aSn9XLyUdCD"
+    elevenlabs_voice_id: str = "pNInz6obpgDQGcFmaJgB"
     elevenlabs_model_id: str = "eleven_multilingual_v2"
     elevenlabs_timeout_seconds: int = 120
     caption_alignment_url: str = ""
@@ -122,6 +123,16 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_settings(self) -> "Settings":
+        if not shutil.which(self.ffmpeg_bin):
+            try:
+                import static_ffmpeg
+                ff, fp = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
+                if ff and Path(ff).is_file():
+                    self.ffmpeg_bin = ff
+                if fp and Path(fp).is_file():
+                    self.ffprobe_bin = fp
+            except Exception:
+                pass
         if self.app_env.lower() != "development" and (
             not self.api_key or self.api_key == "development-only-change-me"
         ):
