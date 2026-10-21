@@ -49,6 +49,12 @@ def make_engine(url: str | None = None) -> Engine:
         kwargs = {"check_same_thread": False}
         return create_engine(database_url, connect_args=kwargs, pool_pre_ping=True)
 
+    # Normalize postgresql:// and postgres:// to postgresql+psycopg2:// for psycopg2-binary compatibility
+    if database_url.startswith("postgresql://"):
+        database_url = "postgresql+psycopg2://" + database_url[13:]
+    elif database_url.startswith("postgres://"):
+        database_url = "postgresql+psycopg2://" + database_url[11:]
+
     # Production PostgreSQL pool configuration
     engine_kwargs: dict[str, Any] = {
         "pool_size": 5,

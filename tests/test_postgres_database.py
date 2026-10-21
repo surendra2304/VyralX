@@ -1,7 +1,7 @@
 """Tests for PostgreSQL production database configuration, connection pooling, and persistence."""
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -30,15 +30,22 @@ def test_mask_url_password():
 
 def test_make_engine_postgresql_configuration():
     pg_url = "postgresql://vyralx_user:secret@dokploy-postgres:5432/vyralx_db"
-    engine = make_engine(pg_url)
-    assert isinstance(engine, Engine)
-    assert engine.dialect.name == "postgresql"
-    assert isinstance(engine.pool, QueuePool)
-    # Check pool size and overflow bounds
-    assert engine.pool.size() == 5
-    assert engine.pool._max_overflow == 10
-    assert engine.pool._recycle == 1800
-    assert engine.pool._timeout == 30
+    mock_dbapi_module = MagicMock(paramstyle="pyformat", __version__="2.9.10")
+
+    def mock_dbapi():
+        return mock_dbapi_module
+
+    with patch("sqlalchemy.dialects.postgresql.psycopg2.PGDialect_psycopg2.import_dbapi", mock_dbapi):
+        engine = make_engine(pg_url)
+        assert isinstance(engine, Engine)
+        assert engine.dialect.name == "postgresql"
+        assert engine.dialect.driver == "psycopg2"
+        assert isinstance(engine.pool, QueuePool)
+        # Check pool size and overflow bounds
+        assert engine.pool.size() == 5
+        assert engine.pool._max_overflow == 10
+        assert engine.pool._recycle == 1800
+        assert engine.pool._timeout == 30
 
 
 def test_make_engine_sqlite_configuration():
@@ -49,6 +56,7 @@ def test_make_engine_sqlite_configuration():
 
 
 def test_verify_database_connection_with_sqlite_test_engine(tmp_path):
+    import app.models  # noqa: F401
     from app.database import Base
     db_file = tmp_path / "test_conn.db"
     test_engine = create_engine(f"sqlite:///{db_file}")
