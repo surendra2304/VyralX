@@ -544,7 +544,10 @@ def test_repeat_use_blocker_detects_prior_upload_and_respects_explicit_review():
     [
         "https://www.pexels.com/video/../license/",
         "https://www.pexels.com/video/%2e%2e/license/",
+        "https://www.pexels.com/video/%252e%252e/license/",
+        "https://www.pexels.com/video/%25252e%25252e/license/",
         "https://www.pexels.com/video/%2E%2E%2fvideo/123/",
+        "https://www.pexels.com/video/%5c..%5clicense/",
         "https://www.pexels.com/video//123/",
         "https://www.pexels.com/video/slug/nested/",
     ],

@@ -22,6 +22,25 @@ def _meaningful(value: str) -> bool:
     )
 
 
+def _safe_normalized_url_path(path: str) -> str | None:
+    """Reject traversal and ambiguous paths even when separators are repeatedly encoded."""
+    current = path
+    for _ in range(5):
+        if not current.startswith("/") or any(
+            ord(char) == 92 or ord(char) < 32 or ord(char) == 127 for char in current
+        ):
+            return None
+        if any(segment in {".", ".."} for segment in current.split("/")):
+            return None
+        decoded = unquote(current)
+        if decoded == current:
+            normalized = posixpath.normpath(current)
+            expected = current.rstrip("/") or "/"
+            return normalized if normalized == expected else None
+        current = decoded
+    return None
+
+
 def _is_official_pexels_url(
     value: str, *, path_prefix: str | None = None, exact_path: str | None = None
 ) -> bool:
@@ -43,17 +62,10 @@ def _is_official_pexels_url(
     if parsed.netloc.endswith(":") or not parsed.netloc:
         return False
 
-    # Pexels URLs are rights evidence. Do not accept dot segments, encoded traversal,
-    # backslashes, or ambiguous repeated slashes that a browser/proxy may normalize to
-    # a different resource path.
-    decoded_path = unquote(parsed.path)
-    if not decoded_path.startswith("/") or "\\" in decoded_path:
-        return False
-    if any(segment in {".", ".."} for segment in decoded_path.split("/")):
-        return False
-    normalized_path = posixpath.normpath(decoded_path)
-    expected_normalized_path = decoded_path.rstrip("/") or "/"
-    if normalized_path != expected_normalized_path:
+    # Pexels URLs are rights evidence. Reject paths that a browser/proxy may
+    # normalize to a different resource, including multiply encoded traversal.
+    normalized_path = _safe_normalized_url_path(parsed.path)
+    if normalized_path is None:
         return False
 
     if path_prefix is not None:
