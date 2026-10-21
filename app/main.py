@@ -630,6 +630,91 @@ def get_project_distribution(project_id: int, db: Session = Depends(get_db)):
     return json.loads(manifest_file.read_text(encoding="utf-8"))
 
 
+@app.post("/api/analytics/sync", dependencies=[Depends(require_api_key)])
+def sync_analytics_route(payload: dict | None = None, db: Session = Depends(get_db)):
+    """Sync performance metrics from YouTube Data API and dispatch feedback to Memora."""
+    from app.services.youtube_analytics import record_feedback_to_memora, sync_video_metrics_batch
+
+    vids = (payload or {}).get("video_ids")
+    if not vids:
+        # Default to all published jobs with youtube video id
+        published = db.scalars(
+            select(PublishJob.youtube_video_id)
+            .where(PublishJob.youtube_video_id != "")
+            .order_by(PublishJob.id.desc())
+            .limit(50)
+        ).all()
+        vids = list(dict.fromkeys(published))
+
+    if not vids:
+        return {"status": "skipped", "reason": "no_published_videos"}
+
+    sync_result = sync_video_metrics_batch(db, vids)
+    feedback_results = []
+    for item in sync_result.get("metrics", []):
+        res = record_feedback_to_memora(
+            project_id=0,
+            youtube_video_id=item["youtube_video_id"],
+            title=item.get("title", ""),
+            stats=item,
+        )
+        feedback_results.append(res)
+
+    return {
+        "status": "synced",
+        "synced_count": sync_result.get("synced_count", 0),
+        "feedback_dispatched": len(feedback_results),
+        "metrics": sync_result.get("metrics", []),
+    }
+
+
+@app.get("/api/analytics/summary", dependencies=[Depends(require_api_key)])
+def analytics_summary_route(db: Session = Depends(get_db)):
+    """Aggregate channel performance, engagement cohorts, and top video metrics."""
+    from app.services.youtube_analytics import calculate_engagement_rate, classify_performance_tier
+
+    metrics = db.scalars(select(VideoMetric).order_by(VideoMetric.view_count.desc()).limit(100)).all()
+    total_views = sum(m.view_count for m in metrics)
+    total_likes = sum(m.like_count for m in metrics)
+    total_comments = sum(m.comment_count for m in metrics)
+
+    cohorts = {"breakout": 0, "strong": 0, "healthy": 0, "underperforming": 0}
+    for m in metrics:
+        tier = classify_performance_tier(m.view_count, m.like_count, m.comment_count)
+        cohorts[tier] = cohorts.get(tier, 0) + 1
+
+    avg_engagement = calculate_engagement_rate(total_views, total_likes, total_comments)
+    return {
+        "total_videos_tracked": len(metrics),
+        "total_views": total_views,
+        "total_likes": total_likes,
+        "total_comments": total_comments,
+        "aggregate_engagement_rate": avg_engagement,
+        "cohorts": cohorts,
+    }
+
+
+@app.post("/api/audio/synthesize-ambient", dependencies=[Depends(require_api_key)])
+def synthesize_ambient_route(payload: dict):
+    """Synthesize a harmonic ambient BGM audio stem on-demand."""
+    from app.services.audio_mixer import synthesize_ambient_pad_bgm
+    from uuid import uuid4
+
+    dur = float(payload.get("duration_seconds") or 15.0)
+    mood = str(payload.get("mood") or "ambient_explainer")
+    stem_name = f"ambient_{mood}_{uuid4().hex[:8]}.aac"
+    out_path = settings.data_dir / "music" / stem_name
+
+    synthesize_ambient_pad_bgm(out_path, duration_seconds=dur, mood=mood)
+    return {
+        "status": "synthesized",
+        "mood": mood,
+        "duration_seconds": dur,
+        "file_path": str(out_path),
+        "file_name": stem_name,
+    }
+
+
 @app.post("/api/projects", status_code=202, dependencies=[Depends(require_api_key)])
 def create_video_project(payload: VideoProjectCreateRequest, db: Session = Depends(get_db)):
     if not payload.confirm_pexels_license:
@@ -1174,6 +1259,9 @@ def agent_manifest():
             {"id": "content.coherence", "method": "POST", "path": "/api/content/coherence"},
             {"id": "project.distribution.build", "method": "POST", "path": "/api/projects/{project_id}/distribution"},
             {"id": "project.distribution.get", "method": "GET", "path": "/api/projects/{project_id}/distribution"},
+            {"id": "analytics.sync", "method": "POST", "path": "/api/analytics/sync"},
+            {"id": "analytics.summary", "method": "GET", "path": "/api/analytics/summary"},
+            {"id": "audio.ambient.synthesize", "method": "POST", "path": "/api/audio/synthesize-ambient"},
         ],
         "peer_contract": "HTTP JSON authenticated using X-API-Key; paths must be confirmed for each peer",
         "configured_peers": sorted(peers.keys()),
