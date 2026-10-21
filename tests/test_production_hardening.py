@@ -559,3 +559,40 @@ def test_source_reuse_identity_handles_malformed_url_authorities(source_url: str
     assert identity[0] == "url"
     assert identity[1] == source_url.split("#", 1)[0].rstrip("/")
 
+
+@pytest.mark.parametrize(
+    "media_url",
+    [
+        "https://www.pexels.com/video/../license/",
+        "https://www.pexels.com/video/%2e%2e/license/",
+        "https://www.pexels.com/video/%252e%252e/license/",
+        "https://www.pexels.com/video/%25252e%25252e/license/",
+        "https://www.pexels.com/video/%2E%2E%2fvideo/123/",
+        "https://www.pexels.com/video/%5c..%5clicense/",
+        "https://www.pexels.com/video//123/",
+        "https://www.pexels.com/video/slug/nested/",
+    ],
+)
+def test_rights_gate_rejects_pexels_video_path_traversal_and_ambiguous_paths(
+    media_url: str,
+):
+    source = Source(
+        title="Ambiguous Pexels path",
+        platform="pexels",
+        source_url=media_url,
+        rights_verified=True,
+        license_name="Pexels Content License",
+        permission_reference="https://www.pexels.com/license/",
+    )
+    assert not source_is_publishable(source)
+
+def test_rights_gate_accepts_normal_pexels_video_path():
+    source = Source(
+        title="Valid Pexels video page",
+        platform="pexels",
+        source_url="https://www.pexels.com/video/123456-example-clip/",
+        rights_verified=True,
+        license_name="Pexels Content License",
+        permission_reference="https://www.pexels.com/license/",
+    )
+    assert source_is_publishable(source)

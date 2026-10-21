@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+import posixpath
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,6 +20,25 @@ def _meaningful(value: str) -> bool:
         and normalized not in _PLACEHOLDERS
         and not normalized.startswith(("replace-with", "your license", "your permission", "todo:", "tbd:"))
     )
+
+
+def _safe_normalized_url_path(path: str) -> str | None:
+    """Reject traversal and ambiguous paths even when separators are repeatedly encoded."""
+    current = path
+    for _ in range(5):
+        if not current.startswith("/") or any(
+            ord(char) == 92 or ord(char) < 32 or ord(char) == 127 for char in current
+        ):
+            return None
+        if any(segment in {".", ".."} for segment in current.split("/")):
+            return None
+        decoded = unquote(current)
+        if decoded == current:
+            normalized = posixpath.normpath(current)
+            expected = current.rstrip("/") or "/"
+            return normalized if normalized == expected else None
+        current = decoded
+    return None
 
 
 def _is_official_pexels_url(
@@ -41,9 +61,18 @@ def _is_official_pexels_url(
         return False
     if parsed.netloc.endswith(":") or not parsed.netloc:
         return False
-    if path_prefix is not None and not parsed.path.startswith(path_prefix):
+    normalized_path = _safe_normalized_url_path(parsed.path)
+    if normalized_path is None:
         return False
-    if exact_path is not None and parsed.path.rstrip("/") != exact_path:
+    if path_prefix is not None:
+        if not normalized_path.startswith(path_prefix):
+            return False
+        remainder = normalized_path[len(path_prefix):]
+        if not remainder:
+            return False
+        if path_prefix == "/video/" and "/" in remainder:
+            return False
+    if exact_path is not None and normalized_path != exact_path:
         return False
     return True
 
