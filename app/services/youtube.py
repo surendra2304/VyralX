@@ -307,6 +307,12 @@ def clear_upload_session_checkpoint(publish_job_id: int) -> None:
 
 def youtube_credentials() -> Credentials:
     """Load and refresh the private OAuth token for both API and resumable HTTP requests."""
+    try:
+        from app.services.quota_rotator import get_next_available_credentials
+        creds, _ = get_next_available_credentials()
+        return creds
+    except Exception as rot_err:
+        log.warning("Quota rotator fallback: %s", rot_err)
     settings = get_settings()
     token_path = settings.youtube_token_file
     if not token_path.is_file():
@@ -460,7 +466,15 @@ def _start_upload_session(
         ) from None
     status = int(getattr(response, "status_code", 0) or 0)
     if status != 200:
-        raise RuntimeError(f"YouTube rejected resumable session initialization (HTTP {status})")
+        err_detail = getattr(response, "text", "")[:250]
+        if status == 429:
+            try:
+                from app.services.quota_rotator import get_next_available_credentials, mark_project_exhausted
+                _, current_tok = get_next_available_credentials()
+                mark_project_exhausted(current_tok, err_detail)
+            except Exception:
+                pass
+        raise RuntimeError(f"YouTube rejected resumable session initialization (HTTP {status}): {err_detail}")
     session_uri = response.headers.get("Location") or response.headers.get("location")
     if not _valid_upload_session_uri(session_uri):
         raise RuntimeError("YouTube did not return a trusted resumable session URI")
