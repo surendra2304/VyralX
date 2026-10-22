@@ -1,0 +1,119 @@
+x-vyralx-common: &vyralx-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  init: true
+  environment:
+    APP_ENV: production
+    PORT: "8000"
+    API_KEY: ${API_KEY:?Set API_KEY in Dokploy environment}
+    DATABASE_URL: ${DATABASE_URL:-postgresql://vyralx_user:lFvCakEtqlmoegjyEQUOlfAS@dokploy-postgres:5432/vyralx_db}
+    DATA_DIR: /app/data
+    MEDIA_DIR: /app/media
+    RENDER_DIR: /app/renders
+    MAX_CONCURRENT_RENDERS: "1"
+    RENDER_MAX_CPU_THREADS: "1"
+    RENDER_MAX_MEMORY_MB: "384"
+    MAX_UPLOAD_MB: "2048"
+    MAX_STOCK_CLIP_MB: ${MAX_STOCK_CLIP_MB:-150}
+    TTS_PROVIDER: ${TTS_PROVIDER:-elevenlabs}
+    ESPEAK_BIN: ${ESPEAK_BIN:-espeak-ng}
+    ESPEAK_VOICE: ${ESPEAK_VOICE:-en-us}
+    ESPEAK_RATE: ${ESPEAK_RATE:-165}
+    WORKER_REQUIRED: "true"
+    WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-2}
+    WORKER_HEARTBEAT_TIMEOUT_SECONDS: ${WORKER_HEARTBEAT_TIMEOUT_SECONDS:-90}
+    WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-3}
+    YOUTUBE_DATA_API_KEY: ${YOUTUBE_DATA_API_KEY:-}
+    PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+    UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
+    ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+    ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+    ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-eleven_multilingual_v2}
+    YOUTUBE_UPLOAD_ENABLED: ${YOUTUBE_UPLOAD_ENABLED:-false}
+    YOUTUBE_DEFAULT_PRIVACY: ${YOUTUBE_DEFAULT_PRIVACY:-private}
+    YOUTUBE_CLIENT_SECRETS_FILE: /app/secrets/youtube-client-secret.json
+    YOUTUBE_TOKEN_FILE: /app/data/secrets/youtube-token.json
+    INFERENCE_URL: ${INFERENCE_URL:-}
+    INFERENCE_API_KEY: ${INFERENCE_API_KEY:-}
+    INFERENCE_GENERATION_PATH: ${INFERENCE_GENERATION_PATH:-/v1/task/execute}
+    INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-60}
+    INFERENCE_TTS_URL: ${INFERENCE_TTS_URL:-}
+    INFERENCE_TTS_API_KEY: ${INFERENCE_TTS_API_KEY:-}
+    INFERENCE_TTS_PATH: ${INFERENCE_TTS_PATH:-/v1/audio/speech}
+    INFERENCE_TTS_MODEL: ${INFERENCE_TTS_MODEL:-}
+    INFERENCE_TTS_VOICE: ${INFERENCE_TTS_VOICE:-alloy}
+    INFERENCE_TTS_TIMEOUT_SECONDS: ${INFERENCE_TTS_TIMEOUT_SECONDS:-180}
+    FRIDAY_URL: ${FRIDAY_URL:-}
+    FRIDAY_API_KEY: ${FRIDAY_API_KEY:-}
+    INTELX_URL: ${INTELX_URL:-}
+    INTELX_API_KEY: ${INTELX_API_KEY:-}
+    MEMORA_URL: ${MEMORA_URL:-}
+    MEMORA_API_KEY: ${MEMORA_API_KEY:-}
+    MEMORA_WRITE_ENABLED: ${MEMORA_WRITE_ENABLED:-false}
+    MEMORA_READ_ENABLED: ${MEMORA_READ_ENABLED:-false}
+    SENTINEL_URL: ${SENTINEL_URL:-}
+    SENTINEL_API_KEY: ${SENTINEL_API_KEY:-}
+    SENTINEL_REQUIRED_FOR_PUBLISH: ${SENTINEL_REQUIRED_FOR_PUBLISH:-false}
+    SENTINEL_POLICY_PATH: ${SENTINEL_POLICY_PATH:-/v1/security/audit}
+  volumes:
+    - vyralx-data:/app/data
+    - vyralx-media:/app/media
+    - vyralx-renders:/app/renders
+    - vyralx-secrets:/app/secrets:ro
+  networks:
+    - friday_mesh
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  vyralx-init:
+    <<: *vyralx-common
+    restart: "no"
+    command: ["python", "-m", "app.init_db"]
+    mem_limit: 96m
+    cpus: 0.1
+    healthcheck:
+      disable: true
+
+  vyralx:
+    <<: *vyralx-common
+    mem_limit: 192m
+    cpus: 0.25
+    depends_on:
+      vyralx-init:
+        condition: service_completed_successfully
+      vyralx-worker:
+        condition: service_started
+
+  vyralx-worker:
+    <<: *vyralx-common
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      vyralx-init:
+        condition: service_completed_successfully
+    mem_limit: 384m
+    cpus: 0.55
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import datetime,json,pathlib,sys; p=pathlib.Path('/app/data/worker-heartbeat.json'); d=json.loads(p.read_text()); t=datetime.datetime.fromisoformat(d['updated_at']); sys.exit(0 if (datetime.datetime.now(datetime.timezone.utc)-t.astimezone(datetime.timezone.utc)).total_seconds()<90 and d['state']!='stopped' else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+networks:
+  friday_mesh:
+    external: true
+
+volumes:
+  vyralx-data:
+  vyralx-media:
+  vyralx-renders:
+  vyralx-secrets:

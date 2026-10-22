@@ -1,0 +1,52 @@
+[build-system]
+requires = [
+  "setuptools==84.0.0",
+  "wheel==0.48.0",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vyralx"
+version = "0.2.0"
+description = "FRIDAY Universe video discovery, editing, and YouTube publishing agent"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "pydantic-settings>=2.4,<3.0",
+  "sqlalchemy>=2.0,<3.0",
+  "psycopg2-binary>=2.9.9",
+  "httpx>=0.27,<1.0",
+  "python-multipart>=0.0.9",
+  "google-api-python-client>=2.140,<3.0",
+  "google-auth>=2.34,<3.0",
+  "google-auth-oauthlib>=1.2,<2.0",
+  "google-auth-httplib2>=0.2,<1.0"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.6", "httpx>=0.27"]
+
+[tool.uv]
+# Hash-check the project's isolated PEP 517 build tools; they are not runtime dependencies.
+build-constraint-dependencies = [
+  { requirement = "setuptools==84.0.0", hashes = ["sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670"] },
+  { requirement = "wheel==0.48.0", hashes = ["sha256:3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab"] },
+]
+require-build-hashes = true
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

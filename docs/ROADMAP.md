@@ -1,0 +1,83 @@
+# VyralX Roadmap and Acceptance Gates
+
+This file distinguishes implemented repository capability from external production evidence. Do not mark a milestone complete based solely on code existence.
+
+## Track A — Core service and controls
+
+- [x] FastAPI API, dashboard, health and readiness.
+- [x] Source, rights evidence, asset, render, publish and content-pack persistence.
+- [x] Additive migrations for new fields on existing volumes.
+- [x] API key/Bearer authentication with development-only placeholder bypass.
+- [x] Media upload cap, UUID filenames, FFprobe inspection and provenance validation.
+- [x] Pydantic request validation for schedule timezone, trim duration and subtitle ranges.
+
+## Track B — Discovery and content
+
+- [x] YouTube Data API search and engagement metadata.
+- [x] Deterministic trend heuristic that never turns candidates into authorized assets.
+- [x] Official Pexels API search, file metadata, rights confirmation gate, size-limited import and creator provenance.
+- [x] Original script, hook, scene plan, title, description, tags and thumbnail brief via configured Inference.
+- [x] Optional topic-matched IntelX research query with bounded evidence context passed to Inference; graceful degradation when IntelX is not configured/reachable.
+- [x] Opt-in private Memora context retrieval for continuity plus compact completion summaries with idempotency key, receipt/status, and manual retry endpoint; both are disabled by default pending live credential/namespace validation.
+- [x] Optional voiceover synthesis through a compatible configured TTS endpoint.
+- [x] Verify the source-level Inference task route, Universal Task Envelope, successful result fields, IntelX query route, and Memora search/write/auth contracts against the current peer repositories (see `docs/INTEGRATIONS.md`).
+- [ ] Validate live Inference runtime credentials/model/provider output and the configured TTS model on the deployed FRIDAY mesh.
+- [x] Add source-specific repeat-use safeguards: separate evidence-backed decision, timestamp/notes, tracking-parameter-normalized source identity, and publish-request plus pre-upload enforcement. This is a repeat-use review control, not an automated legal opinion.
+- [x] Add operator-configurable channel strategy with bounded editorial settings, generation-context integration, persisted strategy metadata, tests and operations documentation.
+
+## Track C — Editing and publish pipeline
+
+- [x] Durable render queue and separate single-worker process.
+- [x] Durable topic-to-video projects: optional YouTube trend seed, Inference script, Pexels scene search/import, local narration, timed captions, montage, thumbnail and project polling/retry.
+- [x] Shorts, long-form and square presets, pad/crop, trim, SRT captions and optional voiceover.
+- [x] Thumbnail extraction and persisted paths.
+- [x] Explicit publish request and separate approval before upload.
+- [x] Revalidate every montage asset's license evidence at request creation and immediately before upload; append Pexels creator/source credits.
+- [x] Official YouTube OAuth token loading and resumable upload path.
+- [x] Restart recovery finalizes provider-confirmed successes, resumes valid YouTube sessions without incrementing the attempt, and leaves missing/mismatched sessions `uncertain` rather than blindly retrying.
+- [x] Public views/likes/comments snapshot history.
+- [ ] Verify OAuth scope/client, channel permission, quota, private test upload and scheduled publish in the real account.
+- [x] Add deterministic project QA for output duration/dimensions, requested audio, narration file/duration, caption file/word coverage/cue timing, thumbnail presence and scene provenance; QA warnings require operator review and never auto-approve.
+- [x] Add FFmpeg signal-level scans for sustained black frames and long silence gaps; analysis failures become operator-QA warnings and never auto-approve.
+- [x] Add FFmpeg integrated loudness, true-peak, and clipping-sample metrics to production QA; incomplete measurements remain review warnings.
+- [x] Add measured phrase/chunk-level caption-to-speech timing for local eSpeak narration; estimated external/cached timings trigger a QA warning.
+- [x] Add an optional authenticated word-level forced-alignment adapter with transcript/timing validation and a QA-visible safe fallback; live aligner remains unverified.
+- [ ] Add phoneme-level alignment and confirm a channel-specific loudness standard against real rendered samples.
+- [x] Persist an atomic private upload-success receipt scoped to publish-job ID and attempt so restart recovery can commit a provider-confirmed video ID from the post-response/pre-database window.
+- [x] Persist private, attempt-scoped YouTube session receipts with source-file and metadata fingerprints plus server-confirmed byte offsets; startup recovery probes YouTube and resumes the same attempt only when the saved session still matches the rendered file. Incomplete/mismatched outcomes remain fail-closed.
+
+## Track D — FRIDAY Universe mesh
+
+- [x] Standard specialist port 8000 and private \`friday_mesh\` Compose topology.
+- [x] Durable, idempotent task envelope; polling, cancellation, correlation IDs and machine-readable capability manifest.
+- [x] Timeout-bounded generic peer client and peer health probes.
+- [x] Optional fail-closed Sentinel policy hook before YouTube upload (disabled by default; the existing Sentinel software-review route is not compatible with the `youtube.publish` request/response contract yet; see `docs/INTEGRATIONS.md`).
+- [x] Verify source-level Inference, IntelX, and Memora endpoints and request/response shapes against their current repository revisions (see `docs/INTEGRATIONS.md`).
+- [ ] Verify deployed service revisions, private-network reachability, and production credentials for all peers.
+- [x] Implement the Memora private search/write client, `vyralx` authentication identity, idempotent completion summaries, nested provenance metadata, and request-shape regression tests.
+- [ ] Run the live authenticated Memora search/write/readback test after provisioning the production key and private namespace/ACL.
+- [ ] Register VyralX in FRIDAY's live agent manifest only after authenticated contract tests pass.
+
+## Track E — CI, deployment and operations
+
+- [x] Containerized API and worker with non-root user, dropped capabilities, resource caps and heartbeat health.
+- [x] CI workflow for Ruff, pytest and Docker build.
+- [x] Example environment file and API/architecture/operations documentation.
+- [x] Add read-only mesh preflight CLI with optional authenticated IntelX/Memora contract reads, explicit opt-in Inference generation probe, secret-free reports, and regression tests.
+- [x] Run and fix all CI checks on the latest branch head (Ruff, pytest, Docker image build, and Compose validation passed for the verified head; rerun after subsequent changes).
+- [x] Add a strict resolved-Python dependency vulnerability audit to CI; the first green run is required before merge.
+- [x] Add full-history Gitleaks secret scanning and Trivy HIGH/CRITICAL fixed-vulnerability scanning for the built image's OS and Python libraries; release candidates still require a green scan on the exact final commit.
+- [x] Pin the Python base image to its immutable multi-platform index digest; refresh only through a reviewed update and a green container scan.
+- [x] Lock resolved application and development dependencies in `uv.lock`; use frozen sync for CI and production container installs.
+- [x] Pin Debian package indexes to an immutable dated Snapshot archive and run the container vulnerability scan before updating its timestamp.
+- [x] Pin and hash-check PEP 517 build-isolation dependencies (`setuptools==84.0.0`, `wheel==0.48.0`) separately from runtime `uv.lock`.
+- [x] Add a SHA-256-verifying OCI archive comparator with recursive manifest/index validation, explicit OCI/Docker config/layer media-type checks, and regression tests for outer-tar timestamp differences, nested indexes, changed layers, corrupted blobs, unsafe paths, and descriptor-size mismatches.
+- [x] Compare two clean image builds and inspect generated artifacts before claiming bit-for-bit image reproducibility. GitHub Actions run [#339, attempt 2](https://github.com/surendra2304/VyralX/actions/runs/39158945611) passed on commit `d2689f3` for Linux/amd64; repeat this gate on the exact final release commit.
+- [ ] Investigate and rotate any historical credentials if secret-scanning evidence indicates confirmed exposure.
+- [ ] Validate the actual external Docker network and Dokploy stack before deploy.
+- [ ] Test persistence across recreation, encrypted backup and a successful restore.
+- [ ] Profile memory/CPU on the current AMD interim VM and separately on the target ARM VM.
+
+## Production completion definition
+
+Production is verified only when all of the following are evidenced: green CI on the final commit, a successful Docker build, configured secret mounts, readiness healthy with the worker present, provider credentials validated, successful private YouTube test upload, live mesh integration tests, and backup/restore proof. Those environment-dependent gates remain unverified from repository source alone.
