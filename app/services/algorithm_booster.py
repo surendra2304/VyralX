@@ -84,22 +84,36 @@ def render_dual_screen_retention_short(
     output_path: Path,
     hook_banner: str,
     bgm_path: Path | None = None,
-    bgm_volume: float = 0.15,
+    bgm_volume: float = 0.12,
     target_duration: float | None = None,
+    category: str = "VIRAL",
 ) -> Path:
-    """Render a high-retention split-screen Short (Top: Main Video, Bottom: Satisfying B-Roll)."""
+    """Render a high-retention split-screen Short with modern sleek divider and dynamic lower-third subtitle."""
     settings = get_settings()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    clean_hook = hook_banner.replace("'", "").replace(":", r"\:")
+    from app.services.video_styler import clean_for_drawtext, get_genre_profile
+    profile = get_genre_profile(category)
+    clean_hook = clean_for_drawtext(hook_banner)
+
+    # Clean sleek divider (cyan/neon glow) and frosted pill subtitle
+    font_file = f"C\\:/Windows/Fonts/{profile.font_name}"
+    subtitle_filter = (
+        f"drawtext=fontfile='{font_file}':"
+        f"text='{clean_hook}':"
+        f"fontsize={profile.font_size}:"
+        f"fontcolor={profile.primary_color}:"
+        f"borderw=3:bordercolor={profile.outline_color}:"
+        f"box=1:boxcolor={profile.box_color}:boxborderw=10:"
+        f"x=(w-text_w)/2:y=910"  # Placed right above the sleek center divider
+    )
 
     filter_complex = (
         "[0:v]scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960,eq=contrast=1.06:saturation=1.12[top_v];"
         "[1:v]scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960,eq=contrast=1.05:saturation=1.10[bot_v];"
         "[top_v][bot_v]vstack=inputs=2,"
-        "drawbox=x=0:y=958:w=1080:h=4:color=yellow:t=fill,"
-        "drawbox=x=60:y=80:w=960:h=110:color=black@0.80:t=fill,"
-        f"drawtext=text='{clean_hook}':fontcolor=yellow:fontsize=56:x=(w-text_w)/2:y=108:font='Arial Black'[outv]"
+        "drawbox=x=0:y=958:w=1080:h=4:color=0x00E5FF@0.9:t=fill,"  # Sleek Cyber Cyan divider
+        f"{subtitle_filter}[outv]"
     )
 
     inputs = [
@@ -118,6 +132,20 @@ def render_dual_screen_retention_short(
     else:
         map_args = ["-map", "[outv]", "-map", "0:a?"]
 
+    dur = target_duration
+    if not dur:
+        try:
+            probe_cmd = [
+                settings.ffprobe_bin, "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(main_video_path),
+            ]
+            res = subprocess.run(probe_cmd, capture_output=True, text=True, check=True)
+            dur = float(res.stdout.strip())
+        except Exception:
+            dur = 35.0
+
     cmd = [
         settings.ffmpeg_bin, "-hide_banner", "-nostdin", "-y",
         *inputs,
@@ -125,11 +153,11 @@ def render_dual_screen_retention_short(
         *map_args,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
         "-c:a", "aac", "-b:a", "192k",
+        "-shortest",
+        "-t", str(float(dur)),
         "-movflags", "+faststart",
+        str(output_path),
     ]
-    if target_duration:
-        cmd.extend(["-t", str(float(target_duration))])
-    cmd.append(str(output_path))
 
     log.info("Rendering dual-screen retention Short to %s...", output_path)
     subprocess.run(cmd, check=True, capture_output=True)

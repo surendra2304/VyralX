@@ -188,27 +188,27 @@ def process_and_repurpose_video(candidate: dict[str, Any], db: SessionLocal, *, 
     bgm_choice = random.choice(VIRAL_BGM_TRACKS)
     bgm_path = (settings.media_dir / "music" / bgm_choice["file"]).resolve()
 
-    # 3. Remix video with viral edits
+    # 3. Remix video with adaptive genre-specific styling and dynamic lower-third subtitles
     remix_dest = settings.render_dir / f"{project_key}.mp4"
-    rendered = remix_viral_short(
-        source_path=source_file,
-        destination_path=remix_dest,
-        hook_banner=hook_banner,
+    from app.services.video_styler import render_adaptive_short
+    rendered = render_adaptive_short(
+        source_video_path=source_file,
+        output_path=remix_dest,
+        category=category,
+        custom_hook=hook_banner,
         bgm_path=bgm_path,
-        bgm_volume=bgm_choice["vol"],
+        bgm_volume=0.12,
     )
-    log.info("Remix complete: %s (%.2f MB)", rendered, rendered.stat().st_size / 1024 / 1024)
+    log.info("Adaptive remix complete: %s (%.2f MB)", rendered, rendered.stat().st_size / 1024 / 1024)
 
-    # 4. Generate high-CTR thumbnail
+    # 4. Generate high-CTR custom genre thumbnail
     thumb_file = settings.render_dir / f"{project_key}-thumb.jpg"
-    headline = [hook_banner, category]
-    create_viral_thumbnail(
-        rendered,
-        thumb_file,
-        headline,
-        badge_text=category,
-        badge_color=(255, 215, 0),
-        timestamp_seconds=2.0,
+    from app.services.thumbnail_designer import generate_genre_thumbnail
+    generate_genre_thumbnail(
+        video_path=source_file,
+        output_path=thumb_file,
+        headline=hook_banner,
+        category=category,
     )
 
     # 5. Copy to showcase artifacts directory
