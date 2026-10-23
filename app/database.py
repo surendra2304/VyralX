@@ -6,7 +6,9 @@ from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 from sqlalchemy import Engine, create_engine, inspect, select, text
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.types import JSON
 
 from app.config import get_settings
 
@@ -24,9 +26,6 @@ PROVISIONED_TABLES: tuple[str, ...] = (
     "video_projects",
 )
 
-
-from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.types import JSON
 
 @compiles(JSON, "oracle")
 def _compile_json_oracle(type_, compiler, **kw):
