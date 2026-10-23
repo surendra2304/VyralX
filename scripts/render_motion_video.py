@@ -9,15 +9,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("vyralx.motion_video")
 
-from app.config import get_settings
-from app.database import SessionLocal
-from app.models import Asset, Source, utcnow
-from app.services.captions import segment_script, write_ass, write_srt
-from app.services.mixkit import import_video_file, search_videos
-from app.services.montage import render_montage
-from app.services.probe import probe_media
-from app.services.thumbnail import extract_thumbnail
-from app.services.voiceover import synthesize_voiceover
+from app.config import get_settings  # noqa: E402
+from app.database import SessionLocal  # noqa: E402
+from app.models import Asset, Source, utcnow  # noqa: E402
+from app.services.captions import segment_script, write_ass, write_srt  # noqa: E402
+from app.services.mixkit import import_video_file, search_videos  # noqa: E402
+from app.services.montage import render_montage  # noqa: E402
+from app.services.probe import probe_media  # noqa: E402
+from app.services.thumbnail import extract_thumbnail  # noqa: E402
+from app.services.voiceover import synthesize_voiceover  # noqa: E402
 
 
 def main():
