@@ -27,8 +27,7 @@ import edge_tts
 
 from app.config import get_settings
 from app.database import SessionLocal
-import app.models as models
-from app.models import Asset, ContentPack, RenderJob, Source, VideoProject, utcnow
+from app.models import Asset, ContentPack, RenderJob, VideoProject
 from app.services.captions import segment_script, write_ass, write_srt
 from app.services.montage import render_montage
 

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.database import SessionLocal
-from app.models import PublishJob, RenderJob, VideoProject, utcnow
+from app.models import PublishJob, RenderJob
 
 log = logging.getLogger("vyralx.drip_scheduler")
 

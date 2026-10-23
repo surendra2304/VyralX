@@ -1,8 +1,6 @@
 """Produce an authentic viral video with REAL high-definition video clips and Adam's cinematic voice."""
-import json
 import logging
 import math
-import os
 import sys
 from pathlib import Path
 
@@ -13,12 +11,11 @@ log = logging.getLogger("vyralx.motion_video")
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import Asset, PublishJob, RenderJob, Source, utcnow
+from app.models import Asset, Source, utcnow
 from app.services.captions import segment_script, write_ass, write_srt
 from app.services.mixkit import import_video_file, search_videos
 from app.services.montage import render_montage
 from app.services.probe import probe_media
-from app.services.sentinel import compute_provenance_hash
 from app.services.thumbnail import extract_thumbnail
 from app.services.voiceover import synthesize_voiceover
 
