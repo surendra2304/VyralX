@@ -29,8 +29,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.services.visual_script_generator import analyze_video_frames
-from app.services.youtube import upload_video
+from app.services.visual_script_generator import analyze_video_frames  # noqa: E402
+from app.services.youtube import upload_video  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [VyralX-Pipeline] %(message)s")
@@ -254,7 +254,7 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
 
     # 4. Generate pristine viral thumbnail from the raw clean source clip (ZERO burnt subtitles)
     try:
-        from app.services.thumbnail_designer import generate_genre_thumbnail
+        from app.services.thumbnail_designer import generate_genre_thumbnail  # noqa: E402
         thumb_dest = output_dir / f"vyralx-commentary-{job.video_id}-thumbnail.jpg"
         clean_headline = re.sub(r"[#@][\w]+", "", job.title_concept).strip()
         generate_genre_thumbnail(
