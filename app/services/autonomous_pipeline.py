@@ -79,7 +79,15 @@ def sec_to_ass(s: float) -> str:
 
 async def generate_speech_with_word_sync(script: str, voice: str, audio_file: Path) -> list[dict[str, Any]]:
     """Synthesizes speech and extracts exact millisecond word timestamps."""
-    comm = edge_tts.Communicate(script, voice, boundary="WordBoundary")
+    clean_script = (
+        script.replace("\u2011", "-")
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+        .replace("’", "'")
+        .replace("“", '"')
+        .replace("”", '"')
+    )
+    comm = edge_tts.Communicate(clean_script, voice, boundary="WordBoundary")
     audio_bytes = b""
     words = []
 
@@ -89,7 +97,14 @@ async def generate_speech_with_word_sync(script: str, voice: str, audio_file: Pa
         elif chunk["type"] == "WordBoundary":
             st = chunk["offset"] / 1e7
             dur = chunk["duration"] / 1e7
-            words.append({"text": chunk["text"], "start": st, "end": st + dur})
+            word_clean = (
+                chunk["text"]
+                .replace("\u2011", "-")
+                .replace("\u2013", "-")
+                .replace("\u2014", "-")
+                .replace("’", "'")
+            )
+            words.append({"text": word_clean, "start": st, "end": st + dur})
 
     audio_file.parent.mkdir(parents=True, exist_ok=True)
     audio_file.write_bytes(audio_bytes)
@@ -148,7 +163,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for c in cues:
         st = sec_to_ass(c["start"])
         et = sec_to_ass(c["end"])
-        raw_words = c["text"].upper().split()
+        clean_cue = c["text"].replace("\u2011", "-").replace("\u2013", "-").replace("\u2014", "-")
+        raw_words = clean_cue.upper().split()
         styled = []
         for w in raw_words:
             clean = re.sub(r"[^A-Z0-9$]", "", w)
