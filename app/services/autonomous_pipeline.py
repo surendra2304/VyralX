@@ -204,11 +204,8 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
         f"subtitles='{ass_filter_path}':fontsdir='{fonts_dir_escaped}'[v]"
     )
 
-    audio_filter = (
-        "[0:a]volume=0.20[orig_a];"
-        "[1:a]volume=1.0[voice_a];"
-        "[orig_a][voice_a]amix=inputs=2:duration=first:dropout_transition=2,loudnorm=I=-14:LRA=9:TP=-1.5[a]"
-    )
+    # Single clean voice track: Completely mute/exclude original speech to eliminate all voice overlap
+    audio_filter = "[1:a]volume=1.0,loudnorm=I=-14:LRA=9:TP=-1.5[a]"
 
     cmd = [
         "ffmpeg",
