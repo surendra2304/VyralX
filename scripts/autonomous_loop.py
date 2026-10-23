@@ -28,7 +28,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.services.autonomous_pipeline import VideoJob, run_pipeline
+from app.services.autonomous_pipeline import (
+    VideoJob,
+    create_visual_job_from_source,
+    run_pipeline,
+)
 
 sys.stdout.reconfigure(encoding="utf-8")
 logging.basicConfig(
@@ -98,16 +102,76 @@ def search_and_download_viral_clip(query: str, download_dir: Path) -> Path | Non
     return None
 
 
+def get_processed_video_ids() -> set[str]:
+    manifest_path = Path("data/published_shorts_manifest.json")
+    if not manifest_path.exists():
+        return set()
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        return {item["video_id"] for item in data if "video_id" in item}
+    except Exception:
+        return set()
+
+
 def run_autonomous_cycle(batch_size: int = 1):
     """Executes a single end-to-end autonomous discovery, production, and publication cycle."""
     log.info("==================================================================")
     log.info("STARTING VYRALX 24/7 AUTONOMOUS CYCLE (BATCH SIZE: %d)", batch_size)
     log.info("==================================================================")
 
+    processed_ids = get_processed_video_ids()
     source_dir = Path("media/viral_sources").resolve()
-    # Execute batch production
-    from scripts.run_autonomous_production import PRODUCTION_JOBS
-    results = run_pipeline(PRODUCTION_JOBS[:batch_size])
+    source_dir.mkdir(parents=True, exist_ok=True)
+
+    candidates: list[Path] = []
+
+    # 1. First check existing downloaded clips that haven't been produced
+    for f in sorted(source_dir.glob("*.mp4")):
+        if f.stem not in processed_ids and f.stat().st_size > 100_000:
+            candidates.append(f)
+            if len(candidates) >= batch_size:
+                break
+
+    # 2. If more candidates needed, search YouTube topics
+    if len(candidates) < batch_size:
+        for topic in SEARCH_TOPICS:
+            clip = search_and_download_viral_clip(topic, source_dir)
+            if clip and clip.stem not in processed_ids:
+                candidates.append(clip)
+                if len(candidates) >= batch_size:
+                    break
+
+    if not candidates:
+        log.warning("No eligible viral candidates found in this cycle.")
+        return []
+
+    # 3. Perform frame-grounded Multimodal Vision Analysis for each candidate
+    jobs: list[VideoJob] = []
+    for c in candidates:
+        try:
+            job = create_visual_job_from_source(c)
+            jobs.append(job)
+        except Exception as e:
+            log.exception("Vision analysis failed for %s: %s", c.name, e)
+
+    if not jobs:
+        log.error("Failed to generate visual jobs for any candidate.")
+        return []
+
+    # 4. Render and publish
+    results = run_pipeline(jobs)
+
+    # 5. Update published manifest
+    manifest_path = Path("data/published_shorts_manifest.json")
+    try:
+        existing = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else []
+    except Exception:
+        existing = []
+
+    for r in results:
+        if r.get("status") in ("published", "staged_quota_limited"):
+            existing.append(r)
+    manifest_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
 
     log.info("==================================================================")
     log.info("CYCLE COMPLETE: %d VIDEOS PROCESSED", len(results))

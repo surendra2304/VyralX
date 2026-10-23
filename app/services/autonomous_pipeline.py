@@ -31,6 +31,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.config import get_settings
+from app.services.visual_script_generator import analyze_video_frames
 from app.services.youtube import upload_video
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -50,6 +51,23 @@ class VideoJob:
     voice: str = "en-US-GuyNeural"
     tags: list[str] = field(default_factory=list)
     debate_question: str = ""
+
+
+def create_visual_job_from_source(source_file: Path, voice: str = "en-US-GuyNeural") -> VideoJob:
+    """Uses multimodal vision AI to inspect video frames and create a grounded VideoJob."""
+    log.info("Analyzing %s with Multimodal Vision AI...", source_file.name)
+    analysis = analyze_video_frames(source_file, num_frames=4)
+    return VideoJob(
+        video_id=source_file.stem,
+        source_file=source_file,
+        title_concept=analysis.title,
+        script=analysis.script,
+        cyan_keywords=analysis.cyan_keywords,
+        debate_question=analysis.debate_question,
+        tags=analysis.tags,
+        voice=voice,
+        category_id="24"
+    )
 
 
 def sec_to_ass(s: float) -> str:

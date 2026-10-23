@@ -10,6 +10,8 @@ __pycache__/
 .coverage
 htmlcov/
 data/
+!data/fonts/
+!data/fonts/**
 media/
 renders/
 tokens.json
