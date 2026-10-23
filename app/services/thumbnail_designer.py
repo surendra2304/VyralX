@@ -38,14 +38,48 @@ def _calculate_frame_sharpness(image_path: Path) -> float:
         return 0.0
 
 
+def _get_thumbnail_font(font_name: str, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Loads heavy viral font with failover to local data/fonts directory."""
+    local_candidates = [
+        Path("data/fonts") / "Montserrat-Black.ttf",
+        Path("data/fonts") / "Anton-Regular.ttf",
+        Path("data/fonts") / font_name,
+        Path("/opt/friday_universe/VyralX/data/fonts") / "Montserrat-Black.ttf",
+        Path("/usr/local/share/fonts") / "Montserrat-Black.ttf",
+    ]
+    for cand in local_candidates:
+        if cand.is_file():
+            try:
+                return ImageFont.truetype(str(cand.resolve()), size)
+            except Exception:
+                pass
+    try:
+        return ImageFont.truetype(font_name, size)
+    except Exception:
+        return ImageFont.load_default()
+
+
 def extract_best_keyframe(
     video_path: Path,
     candidate_timestamps: list[float] | None = None,
     width: int = 1080,
     height: int = 1920,
 ) -> Image.Image:
-    """Extract candidate frames across the video and return the highest-sharpness peak action frame."""
+    """Extract candidate frames across the video and return the highest-sharpness peak action frame.
+
+    Always resolves to raw un-edited footage to guarantee zero burnt-in subtitles in the thumbnail.
+    """
     settings = get_settings()
+
+    # Priority: ALWAYS extract from raw source video to prevent capturing burned subtitles
+    clean_video = video_path
+    stem = video_path.stem.replace("vyralx-commentary-", "").replace("vyralx-v2-", "").replace("vyralx-remix-", "")
+    for candidate_dir in [Path("media/viral_sources"), settings.media_dir / "viral_sources"]:
+        potential = candidate_dir / f"{stem}.mp4"
+        if potential.is_file() and potential.stat().st_size > 0:
+            clean_video = potential
+            break
+
     timestamps = candidate_timestamps or [2.0, 4.0, 6.5, 9.0, 12.0]
 
     best_score = -1.0
@@ -65,7 +99,7 @@ def extract_best_keyframe(
             "-nostdin",
             "-y",
             "-ss", str(ts),
-            "-i", str(video_path),
+            "-i", str(clean_video),
             "-frames:v", "1",
             "-vf", filter_str,
             "-q:v", "2",
@@ -91,7 +125,7 @@ def extract_best_keyframe(
             "-nostdin",
             "-y",
             "-ss", "2.0",
-            "-i", str(video_path),
+            "-i", str(clean_video),
             "-frames:v", "1",
             "-vf", f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}",
             "-q:v", "2",
@@ -149,10 +183,7 @@ def generate_genre_thumbnail(
     draw.rectangle([6, 6, width - 6, height - 6], outline=border_col, width=3)
 
     # 5. Category Badge Pill (Top-Left)
-    try:
-        badge_font = ImageFont.truetype("arialbd.ttf", 36)
-    except Exception:
-        badge_font = ImageFont.load_default()
+    badge_font = _get_thumbnail_font(profile.font_name, 36)
 
     bx, by = 65, 85
     badge_text = profile.badge_label
@@ -174,13 +205,7 @@ def generate_genre_thumbnail(
     fitted_size = 76
 
     for size_cand in range(80, 48, -4):
-        try:
-            cand_font = ImageFont.truetype(profile.font_name, size_cand)
-        except Exception:
-            cand_font = ImageFont.load_default()
-            fitted_font = cand_font
-            break
-
+        cand_font = _get_thumbnail_font(profile.font_name, size_cand)
         cand_draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
         found = False
         for wrap_w in range(12, 26):
@@ -202,10 +227,7 @@ def generate_genre_thumbnail(
             break
 
     if fitted_font is None:
-        try:
-            fitted_font = ImageFont.truetype(profile.font_name, 54)
-        except Exception:
-            fitted_font = ImageFont.load_default()
+        fitted_font = _get_thumbnail_font(profile.font_name, 54)
         fitted_lines = textwrap.wrap(" ".join(words), width=18)[:3]
 
     ty = by + (badge_bbox[3] - badge_bbox[1]) + 45

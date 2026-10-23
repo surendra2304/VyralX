@@ -42,25 +42,43 @@ logging.basicConfig(
 log = logging.getLogger("vyralx.loop")
 
 SEARCH_TOPICS = [
-    "oddly satisfying visual compilation shorts",
-    "unexpected comedy twist silent short",
-    "extreme balance precision stunt short",
-    "genius survival bushcraft life hack short",
-    "hypnotic kinetic sand art short",
-    "mind blowing optical illusion viral short"
+    "oddly satisfying visual compilation no talking no voice",
+    "satisfying industrial machine factory loop silent",
+    "hypnotic kinetic sand slicing asmr no talking",
+    "extreme balance precision visual trickshot silent",
+    "woodturning wood carving process satisfying silent",
+    "satisfying glass cutting demonstration no commentary",
+    "miniature cooking visual food craft no talking",
+    "mesmerizing soap cutting satisfying silent asmr"
 ]
+
+DISQUALIFIED_KEYWORDS = {
+    "podcast", "interview", "talking", "storytime", "mrbeast",
+    "react", "reaction", "commentary", "vlog", "prank", "explained",
+    "dialogue", "conversation", "speaking", "voiceover", "rant", "cheetah"
+}
+
+
+def is_clip_clean_and_silent(title: str, description: str) -> bool:
+    """Rejects clips that already have commentary, spoken dialogue, or interview banter."""
+    text_corpus = f"{title} {description}".lower()
+    for kw in DISQUALIFIED_KEYWORDS:
+        if kw in text_corpus:
+            log.warning("Disqualifying candidate '%s': matched talking keyword '%s'", title[:40], kw)
+            return False
+    return True
 
 
 def search_and_download_viral_clip(query: str, download_dir: Path) -> Path | None:
-    """Uses yt-dlp to find and download a top-velocity vertical viral short."""
+    """Uses yt-dlp to find and download a top-velocity vertical viral short with zero dialogue."""
     download_dir.mkdir(parents=True, exist_ok=True)
-    log.info("Searching YouTube for trending candidate: '%s'...", query)
+    log.info("Searching YouTube for clean visual candidate: '%s'...", query)
 
     search_cmd = [
         "yt-dlp",
         "--skip-download",
         "--dump-json",
-        f"ytsearch5:{query}",
+        f"ytsearch8:{query}",
         "--match-filter", "duration <= 60 & duration >= 12"
     ]
     res = subprocess.run(search_cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
@@ -75,17 +93,22 @@ def search_and_download_viral_clip(query: str, download_dir: Path) -> Path | Non
             d = json.loads(line)
             vid = d.get("id")
             title = d.get("title", "")
+            desc = d.get("description", "")
             views = d.get("view_count", 0)
             dur = d.get("duration", 0)
 
+            # Strict filter: Reject any clip with talking, commentary, or dialogue
+            if not is_clip_clean_and_silent(title, desc):
+                continue
+
             # Look for clips with strong view velocity
-            if views and views > 500_000:
+            if views and views > 200_000:
                 dest_file = download_dir / f"{vid}.mp4"
                 if dest_file.exists():
                     log.info("Clip %s already exists on disk, reusing.", vid)
                     return dest_file
 
-                log.info("Found prime viral candidate: %s ('%s', %d views, %ds)", vid, title[:40], views, dur)
+                log.info("Found clean viral candidate: %s ('%s', %d views, %ds)", vid, title[:40], views, dur)
                 dl_cmd = [
                     "yt-dlp",
                     "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
@@ -102,11 +125,11 @@ def search_and_download_viral_clip(query: str, download_dir: Path) -> Path | Non
                             "title": title,
                             "views": views,
                             "duration": dur,
-                            "description": d.get("description", "")
+                            "description": desc
                         }, indent=2),
                         encoding="utf-8"
                     )
-                    log.info("Successfully ingested source: %s (%.2f MB) with metadata", dest_file.name, dest_file.stat().st_size / (1024 * 1024))
+                    log.info("Successfully ingested clean source: %s (%.2f MB)", dest_file.name, dest_file.stat().st_size / (1024 * 1024))
                     return dest_file
         except Exception as e:
             continue
