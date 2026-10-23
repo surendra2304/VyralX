@@ -50,11 +50,14 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- app tests scripts; then
-            echo "Ruff has no safe automatic fixes to apply."
+          if [[ -z "$(git status --porcelain -- app tests scripts uv.lock)" ]]; then
+            echo "No safe source fixes or generated dependency lock changes to commit."
             exit 0
           fi
           git diff --check
           git add app tests scripts
-          git commit -m "style: apply safe Ruff fixes after fleet sync"
+          if [[ -f uv.lock ]]; then
+            git add uv.lock
+          fi
+          git commit -m "chore: lock validated VyralX dependency resolution"
           git push origin HEAD:fix/restore-uv-lock-ci-20261024
