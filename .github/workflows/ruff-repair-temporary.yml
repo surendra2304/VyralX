@@ -1,0 +1,47 @@
+name: One-time Ruff Repair (Feature Branch Only)
+
+on:
+  push:
+    branches:
+      - fix/ci-resolve-missing-uv-lock-20261023
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vyralx-ruff-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ci-resolve-missing-uv-lock-20261023
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Resolve the branch environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "uv==0.13.1"
+          uv sync --extra dev --no-editable --no-cache
+      - name: Apply Ruff's safe automatic fixes only
+        run: uv run --extra dev ruff check --fix app tests scripts
+      - name: Commit safe import/style fixes on this feature branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- app tests scripts; then
+            echo "Ruff has no safe automatic fixes to apply."
+            exit 0
+          fi
+          git add app tests scripts
+          git commit -m "style: apply safe Ruff automatic fixes"
+          git push origin HEAD:fix/ci-resolve-missing-uv-lock-20261023
