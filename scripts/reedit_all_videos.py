@@ -4,12 +4,10 @@ Strictly local rendering: DOES NOT UPLOAD ANY VIDEO TO YOUTUBE.
 """
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 from pathlib import Path
 
-from app.config import get_settings
 from app.services.algorithm_booster import render_dual_screen_retention_short
 from app.services.multiplatform_publisher import package_multiplatform_release
 from app.services.thumbnail_designer import generate_genre_thumbnail

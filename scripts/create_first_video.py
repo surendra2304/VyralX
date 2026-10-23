@@ -2,7 +2,6 @@
 import json
 import logging
 import math
-import os
 import sys
 from pathlib import Path
 
@@ -14,16 +13,16 @@ log = logging.getLogger("vyralx.first_video")
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoProject, utcnow
+from app.models import Asset, PublishJob, RenderJob, Source, utcnow
 from app.services.captions import segment_script, write_ass, write_srt
 from app.services.montage import render_montage
 from app.services.probe import probe_media
-from app.services.rights import append_stock_attribution, is_project_scene_publishable, verified_render_sources
+from app.services.rights import append_stock_attribution, verified_render_sources
 from app.services.sentinel import compute_provenance_hash
 from app.services.thumbnail import extract_thumbnail
 from app.services.unsplash import import_photo, search_photos
 from app.services.voiceover import synthesize_voiceover
-from app.services.youtube import upload_video, youtube_credentials
+from app.services.youtube import upload_video
 
 
 def main():

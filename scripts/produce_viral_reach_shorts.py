@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 log = logging.getLogger("vyralx.viral_producer")
 
 from app.database import SessionLocal
-from app.models import Asset, ContentPack, RenderJob, Source, VideoProject, utcnow
+from app.models import Asset, ContentPack, Source, VideoProject, utcnow
 from app.services.mixkit import import_video_file
 from app.services.project_pipeline import execute_project_pipeline
 

@@ -1,12 +1,10 @@
 """Unit tests for VyralX Multi-Project Google Cloud Quota Rotator."""
-import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from app.services.quota_rotator import (
-    get_all_project_tokens,
     is_project_exhausted,
     mark_project_exhausted,
 )
