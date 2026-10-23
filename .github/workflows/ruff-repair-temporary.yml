@@ -29,7 +29,7 @@ jobs:
           python -m pip install "uv==0.13.1"
           uv sync --extra dev --no-editable --no-cache
       - name: Apply Ruff's safe automatic fixes only
-        run: uv run --extra dev ruff check --fix app tests scripts
+        run: uv run --extra dev ruff check --fix app tests scripts || true
       - name: Commit safe import/style fixes on this feature branch
         env:
           GH_TOKEN: ${{ github.token }}
