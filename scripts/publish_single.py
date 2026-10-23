@@ -11,7 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
 # Ensure YOUTUBE_UPLOAD_ENABLED is true
 os.environ["YOUTUBE_UPLOAD_ENABLED"] = "true"
 
-from app.services.autonomous_pipeline import VideoJob, publish_or_stage
+from app.services.autonomous_pipeline import VideoJob, publish_or_stage  # noqa: E402
 
 def main():
     job = VideoJob(
