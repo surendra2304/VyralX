@@ -177,6 +177,11 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
     # 1. Synthesize audio
     cues = asyncio.run(generate_speech_with_word_sync(job.script, job.voice, audio_path))
 
+    # Auto-bound duration to speech end + 1.0s buffer to avoid rendering trailing dead air
+    render_duration = job.trim_duration
+    if not render_duration and cues:
+        render_duration = round(cues[-1]["end"] + 1.0, 2)
+
     # 2. Build ASS Subtitles
     build_ass_subtitles(cues, job.cyan_keywords, ass_path)
 
@@ -212,8 +217,8 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
         "-y",
     ]
 
-    if job.trim_duration:
-        cmd.extend(["-t", str(job.trim_duration)])
+    if render_duration:
+        cmd.extend(["-t", str(render_duration)])
 
     cmd.extend([
         "-i", str(job.source_file.resolve()),
@@ -222,8 +227,9 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
         "-map", "[v]",
         "-map", "[a]",
         "-c:v", "libx264",
-        "-preset", "faster",
-        "-crf", "20",
+        "-r", "30",
+        "-preset", "veryfast",
+        "-crf", "22",
         "-c:a", "aac",
         "-b:a", "192k",
         "-movflags", "+faststart",
