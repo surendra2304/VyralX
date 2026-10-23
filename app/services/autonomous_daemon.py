@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import shutil
 import signal
 import subprocess
@@ -33,7 +34,8 @@ import edge_tts
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import Asset, ContentPack, PublishJob, RenderJob, VideoProject, utcnow
+import app.models as models
+from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoProject, utcnow
 from app.services.captions import segment_script, write_ass, write_srt
 from app.services.montage import render_montage
 from app.services.thumbnail import create_viral_thumbnail

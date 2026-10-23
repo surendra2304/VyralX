@@ -4,11 +4,13 @@ Strictly local rendering. Zero automated uploads performed.
 """
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import sys
 from pathlib import Path
 
+from app.config import get_settings
 from app.services.multiplatform_publisher import package_multiplatform_release
 from app.services.thumbnail_designer import generate_genre_thumbnail
 from app.services.transformative_commentator import (
@@ -64,7 +66,7 @@ def run():
             original_title=title,
             category=genre,
             video_id=f"comm_{vid}",
-            credit_source="Original viral footage analyzed and transformed with educational commentary for fair-use reporting.",
+            credit_source=f"Original viral footage analyzed and transformed with educational commentary for fair-use reporting.",
         )
 
     log.info("ALL 10 TRANSFORMATIVE COMMENTARY VIDEOS RENDERED AND PACKAGED SUCCESSFULLY!")

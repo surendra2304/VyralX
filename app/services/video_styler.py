@@ -7,6 +7,7 @@ Eliminates static yellow banners and replaces them with sleek, dynamic, well-pos
 from __future__ import annotations
 
 import logging
+import random
 import re
 import subprocess
 from dataclasses import dataclass

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import os
 import random
 import shutil
 import subprocess
@@ -20,8 +22,9 @@ import yt_dlp
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import Asset, PublishJob, RenderJob, Source, VideoProject, utcnow
+from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoProject, utcnow
 from app.services.discovery import discover_youtube_videos
+from app.services.thumbnail import create_viral_thumbnail
 from app.services.youtube import upload_video
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [VyralX-Repurposer] %(message)s")

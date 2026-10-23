@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import random
+from typing import Any
 
 log = logging.getLogger("vyralx.seo_optimizer")
 

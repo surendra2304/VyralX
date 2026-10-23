@@ -14,12 +14,14 @@ import asyncio
 import logging
 import re
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import edge_tts
 
 from app.config import get_settings
+from app.services.thumbnail_designer import generate_genre_thumbnail
 
 log = logging.getLogger("vyralx.commentator")
 

@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock, patch
+import pytest
 from app.services.ai_visuals import generate_scene_visual
 
 
