@@ -30,7 +30,18 @@ jobs:
           python -m pip install "uv==0.13.1"
           uv sync --extra dev --no-editable --no-cache
       - name: Apply safe Ruff automatic fixes only
-        run: uv run --extra dev ruff check --fix app tests scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run --extra dev ruff check --fix app tests scripts
+          lint_status=$?
+          set -e
+          # Ruff exits 1 when it reports diagnostics, even when it applied safe
+          # fixes. Treat that as a repair result; only tool/config errors block.
+          if [[ "$lint_status" -gt 1 ]]; then
+            exit "$lint_status"
+          fi
       - name: Review and commit safe lint fixes
         env:
           GH_TOKEN: ${{ github.token }}
