@@ -117,7 +117,6 @@ def render_montage(
     labels: list[str] = []
     for index in range(len(sources)):
         label = f"scene{index}"
-        is_still = sources[index].suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
         if fit_mode in ("blur_pad", "smart_vertical"):
             bg_raw = f"bgraw_{index}"
             fg_raw = f"fgraw_{index}"
