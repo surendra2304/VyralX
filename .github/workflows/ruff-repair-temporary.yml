@@ -1,0 +1,49 @@
+name: One-time Ruff Repair (Feature Branch Only)
+
+on:
+  push:
+    branches:
+      - fix/restore-uv-lock-ci-20261024
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vyralx-ruff-repair-20261024
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/restore-uv-lock-ci-20261024
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Resolve branch environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "uv==0.13.1"
+          uv sync --extra dev --no-editable --no-cache
+      - name: Apply safe Ruff automatic fixes only
+        run: uv run --extra dev ruff check --fix app tests scripts
+      - name: Review and commit safe lint fixes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- app tests scripts; then
+            echo "Ruff has no safe automatic fixes to apply."
+            exit 0
+          fi
+          git diff --check
+          git add app tests scripts
+          git commit -m "style: apply safe Ruff fixes after fleet sync"
+          git push origin HEAD:fix/restore-uv-lock-ci-20261024
