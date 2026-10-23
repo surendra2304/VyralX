@@ -237,6 +237,22 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
     subprocess.run(cmd, check=True)
     size_mb = dest_video.stat().st_size / (1024 * 1024)
     log.info("Render complete: %s (%.2f MB)", dest_video.name, size_mb)
+
+    # 4. Generate pristine viral thumbnail from the raw clean source clip (ZERO burnt subtitles)
+    try:
+        from app.services.thumbnail_designer import generate_genre_thumbnail
+        thumb_dest = output_dir / f"vyralx-commentary-{job.video_id}-thumbnail.jpg"
+        clean_headline = re.sub(r"[#@][\w]+", "", job.title_concept).strip()
+        generate_genre_thumbnail(
+            video_path=job.source_file,
+            output_path=thumb_dest,
+            headline=clean_headline,
+            category="SATISFYING",
+        )
+        log.info("Pristine high-CTR thumbnail created: %s", thumb_dest.name)
+    except Exception as thumb_err:
+        log.warning("Thumbnail generation warning: %s", thumb_err)
+
     return dest_video
 
 
