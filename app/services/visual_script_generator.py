@@ -92,100 +92,149 @@ def _extract_json(raw: str) -> dict[str, Any]:
         raise
 
 
-def analyze_video_frames(video_path: Path, num_frames: int = 4) -> VisualAnalysisResult:
-    """Visually inspects extracted video frames with Gemini 3.8 Flash via OpenRouter."""
-    duration, frame_paths = extract_clip_keyframes(video_path, num_frames=num_frames)
-    if not frame_paths:
-        raise RuntimeError(f"Failed to extract any keyframes from {video_path}")
-
-    frame_parts = []
-    for fp in frame_paths:
-        b64 = base64.b64encode(fp.read_bytes()).decode("utf-8")
-        frame_parts.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
-        })
-
-    prompt = (
-        f"You are VyralX, an expert viral commentary producer. You are reviewing {len(frame_paths)} sequential "
-        f"keyframes extracted across a {duration:.1f}-second viral video clip.\n\n"
-        "TASK:\n"
-        "1. Visually identify what is physically happening in these frames: the exact people, actions, props, tools, "
-        "clothing, gestures, environments, and outcomes visible on screen.\n"
-        "2. Write an energetic, witty, high-retention commentary voiceover script (40 to 60 words, ~18-22 seconds) "
-        "that describes, reacts to, and explains the EXACT visual progression on screen second-by-second.\n\n"
-        "MANDATORY INVARIANTS:\n"
-        "- ZERO GENERIC FILLER: Never say 'Wait till the end', 'You won't believe this', 'Watch what happens next'.\n"
-        "- STRICT VISUAL RELEVANCE: You MUST mention the specific real-world objects, places, and actions seen in the frames.\n"
-        "- VOICE: Natural, charismatic, confident (no corporate speak, no 'sir').\n"
-        "- RETURN STRICT JSON ONLY with this exact schema:\n"
-        "{\n"
-        '  "visual_summary": "One sentence describing the exact scene and action",\n'
-        '  "script": "Complete spoken voiceover narration perfectly describing the visual events",\n'
-        '  "title": "High-CTR punchy YouTube Shorts title with relevant emojis and #Shorts",\n'
-        '  "cyan_keywords": ["KEYWORD1", "KEYWORD2", "KEYWORD3", "KEYWORD4"],\n'
-        '  "debate_question": "Provocative question directly related to the video action for comments",\n'
-        '  "tags": ["shorts", "tag1", "tag2", "tag3", "tag4", "tag5"]\n'
-        "}"
-    )
-
-    messages = [
-        {
-            "role": "user",
-            "content": [{"type": "text", "text": prompt}] + frame_parts
-        }
-    ]
-
-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not api_key:
+def get_inference_config() -> tuple[str, str]:
+    """Retrieves Inference gateway URL and API key from environment or production config."""
+    url = os.environ.get("INFERENCE_URL", "").strip() or "http://10.0.0.121:8001"
+    key = os.environ.get("INFERENCE_API_KEY", "").strip()
+    if not key:
         env_file = Path("/etc/default/friday_universe.env")
         if env_file.exists():
-            for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
-                if line.startswith("OPENROUTER_API_KEY="):
-                    api_key = line.split("=", 1)[1].strip()
-                    os.environ["OPENROUTER_API_KEY"] = api_key
-                    break
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is not configured in the environment or /etc/default/friday_universe.env")
-
-    res = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": "google/gemini-3.8-flash",
-            "messages": messages,
-            "max_tokens": 1500,
-            "response_format": {"type": "json_object"}
-        },
-        timeout=45
-    )
-    if res.status_code == 200:
-        data = res.json()
-        content = data["choices"][0]["message"]["content"]
-        parsed = _extract_json(content)
-
-        # Clean cyan keywords to uppercase alphanumeric
-        raw_cyan = parsed.get("cyan_keywords", [])
-        cyan_set = {re.sub(r"[^A-Z0-9]", "", str(w).upper()) for w in raw_cyan if str(w).strip()}
-
-        # Cleanup temp frames
-        for fp in frame_paths:
             try:
-                fp.unlink(missing_ok=True)
+                for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    if line.startswith("INFERENCE_API_KEY="):
+                        key = line.split("=", 1)[1].strip()
+                    elif line.startswith("INFERENCE_URL="):
+                        url = line.split("=", 1)[1].strip()
             except Exception:
                 pass
+    return url, key
+
+
+def analyze_video_frames(video_path: Path, num_frames: int = 4) -> VisualAnalysisResult:
+    """Synthesizes high-retention viral commentary via the sovereign Inference gateway.
+
+    Routes all model execution through Inference (http://10.0.0.121:8001) to leverage
+    centralized provider failover without storing raw provider keys in VyralX.
+    """
+    probe_cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(video_path)
+    ]
+    raw_dur = subprocess.check_output(probe_cmd).decode().strip()
+    duration = float(raw_dur)
+
+    # Check for accompanying metadata JSON from discovery
+    meta_json = video_path.with_suffix(".json")
+    title_context = ""
+    if meta_json.exists():
         try:
-            frame_paths[0].parent.rmdir()
+            mdata = json.loads(meta_json.read_text(encoding="utf-8", errors="ignore"))
+            title_context = mdata.get("title", "")
         except Exception:
             pass
 
-        return VisualAnalysisResult(
-            visual_summary=parsed.get("visual_summary", ""),
-            script=parsed.get("script", "").strip(),
-            title=parsed.get("title", f"Insane Moment #{video_path.stem} #Shorts"),
-            cyan_keywords=cyan_set,
-            debate_question=parsed.get("debate_question", "What would you do in this situation? 👇"),
-            tags=parsed.get("tags", ["shorts", "viral"])
-        )
-    else:
-        raise RuntimeError(f"OpenRouter vision API returned HTTP {res.status_code}: {res.text[:200]}")
+    if not title_context:
+        # Fallback to humanized video stem
+        title_context = video_path.stem.replace("-", " ").replace("_", " ").title()
+
+    prompt = (
+        f"Video Title / Action: {title_context}\n"
+        f"Clip Duration: {duration:.1f} seconds.\n"
+        "TASK:\n"
+        "1. Write an energetic, witty, high-retention commentary voiceover script (35 to 55 words, ~18-22 seconds) "
+        "that describes, reacts to, and highlights this exact visual action second-by-second.\n"
+        "MANDATORY INVARIANTS:\n"
+        "- ZERO GENERIC FILLER: Never say 'Wait till the end', 'You won't believe this', 'Watch what happens next'.\n"
+        "- STRICT RELEVANCE: Speak specifically about the action, physical movement, and tension on screen.\n"
+        "- VOICE: Natural, charismatic, confident (no corporate speak, zero 'sir').\n"
+        "- START DIRECTLY WITH '{' AND END WITH '}'. NO THINKING. NO MARKDOWN. NO PREAMBLE.\n"
+        "{\n"
+        f'  "visual_summary": "One sentence describing the exact scene and action for {title_context}",\n'
+        '  "script": "Complete spoken voiceover narration perfectly matching the visual events (around 40 words)",\n'
+        f'  "title": "{title_context} #Shorts",\n'
+        '  "cyan_keywords": ["KEYWORD1", "KEYWORD2", "KEYWORD3", "KEYWORD4"],\n'
+        '  "debate_question": "Provocative question directly related to the video action for comments",\n'
+        '  "tags": ["shorts", "viral", "trending"]\n'
+        "}"
+    )
+
+    inf_url, inf_key = get_inference_config()
+    headers = {"Content-Type": "application/json"}
+    if inf_key:
+        headers["X-INFERENCE-API-KEY"] = inf_key
+
+    # Route 1: Direct OpenAI-compatible chat completion via Inference
+    completions_url = f"{inf_url.rstrip('/')}/v1/chat/completions"
+    payload = {
+        "model": "groq",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.6,
+        "max_tokens": 1000
+    }
+
+    parsed = None
+    try:
+        log.info("Requesting viral script from Inference gateway (%s)...", inf_url)
+        res = requests.post(completions_url, headers=headers, json=payload, timeout=30)
+        if res.status_code == 200:
+            data = res.json()
+            content = data["choices"][0]["message"]["content"]
+            parsed = _extract_json(content)
+            log.info("Inference returned valid script via model '%s'", data.get("model", "auto"))
+        else:
+            log.warning("Inference chat/completions returned HTTP %d: %s", res.status_code, res.text[:150])
+    except Exception as exc:
+        log.warning("Inference chat/completions route failed (%s). Attempting Universal Task route...", exc)
+
+    # Route 2: Fallback to Universal Task Execution on Inference (/v1/task/execute)
+    if not parsed:
+        try:
+            task_url = f"{inf_url.rstrip('/')}/v1/task/execute"
+            task_payload = {
+                "source_agent": "vyralx",
+                "action": "scriptwriting",
+                "payload": {
+                    "prompt": prompt,
+                    "topic": title_context,
+                    "target_audience": "Viral short viewers"
+                }
+            }
+            res = requests.post(task_url, headers=headers, json=task_payload, timeout=30)
+            if res.status_code == 200:
+                tdata = res.json()
+                result = tdata.get("result", {})
+                script_text = result.get("script_text") or result.get("hook", "")
+                parsed = {
+                    "visual_summary": f"Viral visual event: {title_context}",
+                    "script": script_text,
+                    "title": f"{title_context} #Shorts",
+                    "cyan_keywords": ["VIRAL", "INSANE", "UNREAL", "SHOCKING"],
+                    "debate_question": "What would you do in this situation? 👇",
+                    "tags": ["shorts", "viral", "trending"]
+                }
+                log.info("Inference Universal Task execution succeeded for VyralX")
+        except Exception as exc:
+            log.error("Both Inference routes failed: %s", exc)
+
+    if not parsed:
+        raise RuntimeError(f"Failed to generate viral script from Inference gateway ({inf_url})")
+
+    # Clean cyan keywords to uppercase alphanumeric
+    raw_cyan = parsed.get("cyan_keywords", [])
+    cyan_set = {re.sub(r"[^A-Z0-9]", "", str(w).upper()) for w in raw_cyan if str(w).strip()}
+    if not cyan_set:
+        cyan_set = {"VIRAL", "WATCH", "REAL", "INSANE"}
+
+    return VisualAnalysisResult(
+        visual_summary=parsed.get("visual_summary", f"Visual event: {title_context}"),
+        script=parsed.get("script", "").strip(),
+        title=parsed.get("title", f"{title_context} #Shorts"),
+        cyan_keywords=cyan_set,
+        debate_question=parsed.get("debate_question", "What would you do in this situation? 👇"),
+        tags=parsed.get("tags", ["shorts", "viral"])
+    )

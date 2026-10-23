@@ -95,7 +95,18 @@ def search_and_download_viral_clip(query: str, download_dir: Path) -> Path | Non
                 ]
                 dl_res = subprocess.run(dl_cmd, capture_output=True)
                 if dest_file.exists() and dest_file.stat().st_size > 0:
-                    log.info("Successfully ingested source: %s (%.2f MB)", dest_file.name, dest_file.stat().st_size / (1024 * 1024))
+                    meta_file = download_dir / f"{vid}.json"
+                    meta_file.write_text(
+                        json.dumps({
+                            "id": vid,
+                            "title": title,
+                            "views": views,
+                            "duration": dur,
+                            "description": d.get("description", "")
+                        }, indent=2),
+                        encoding="utf-8"
+                    )
+                    log.info("Successfully ingested source: %s (%.2f MB) with metadata", dest_file.name, dest_file.stat().st_size / (1024 * 1024))
                     return dest_file
         except Exception as e:
             continue
