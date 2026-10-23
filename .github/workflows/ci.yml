@@ -41,9 +41,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install "uv==0.13.1"
-          # This repository has no committed uv.lock yet. Resolve dependencies once;
-          # subsequent frozen checks, tests and Docker builds use that same workspace lock.
-          uv sync --extra dev --no-editable --no-cache
+          uv sync --frozen --extra dev --no-editable --no-cache
       - name: Verify dependency lock matches project metadata
         run: uv lock --check --python 3.11
       - name: Lint
