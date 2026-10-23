@@ -13,11 +13,8 @@ Autonomously runs the entire lifecycle on a scheduled cadence:
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import logging
-import os
-import re
 import subprocess
 import sys
 import time
@@ -131,7 +128,7 @@ def search_and_download_viral_clip(query: str, download_dir: Path) -> Path | Non
                     )
                     log.info("Successfully ingested clean source: %s (%.2f MB)", dest_file.name, dest_file.stat().st_size / (1024 * 1024))
                     return dest_file
-        except Exception as e:
+        except Exception:
             continue
     return None
 

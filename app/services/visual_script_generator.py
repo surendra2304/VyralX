@@ -7,14 +7,13 @@ commentary script.
 """
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import os
 import re
 import subprocess
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 

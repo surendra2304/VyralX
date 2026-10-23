@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -45,7 +44,8 @@ def generate_scene_visual(
         with httpx.Client(timeout=timeout_seconds, follow_redirects=True) as client:
             resp = client.get(url)
             if resp.status_code == 402:
-                import re, time
+                import re
+                import time
                 match = re.search(r"Retry after (\d+)s", resp.text)
                 if match:
                     wait_sec = min(int(match.group(1)) + 1, 15)

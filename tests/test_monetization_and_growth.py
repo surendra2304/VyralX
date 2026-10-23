@@ -14,10 +14,6 @@ from app.services.media_kit import (
     generate_brand_pitch_email,
     generate_sponsorship_rate_card,
 )
-from app.services.monetization import (
-    generate_monetized_description,
-    generate_monetized_pinned_comment,
-)
 from app.services.multiplatform_publisher import package_multiplatform_release
 from app.services.seo_optimizer import (
     build_seo_description,

@@ -18,7 +18,6 @@ import logging
 import re
 import subprocess
 import sys
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -30,7 +29,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.config import get_settings
 from app.services.visual_script_generator import analyze_video_frames
 from app.services.youtube import upload_video
 

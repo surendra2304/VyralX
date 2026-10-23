@@ -1,6 +1,5 @@
 """Regenerates pristine, high-CTR viral thumbnails from clean raw sources (ZERO burnt subtitles)."""
 from pathlib import Path
-import re
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
