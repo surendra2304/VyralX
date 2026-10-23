@@ -74,6 +74,24 @@ def extract_clip_keyframes(video_path: Path, num_frames: int = 4) -> tuple[float
     return duration, extracted
 
 
+def _extract_json(raw: str) -> dict[str, Any]:
+    candidate = raw.strip()
+    if candidate.startswith("```"):
+        lines = candidate.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        candidate = "\n".join(lines).strip()
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        start, end = candidate.find("{"), candidate.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(candidate[start : end + 1])
+        raise
+
+
 def analyze_video_frames(video_path: Path, num_frames: int = 4) -> VisualAnalysisResult:
     """Visually inspects extracted video frames with Gemini 3.8 Flash via OpenRouter."""
     duration, frame_paths = extract_clip_keyframes(video_path, num_frames=num_frames)
@@ -136,7 +154,7 @@ def analyze_video_frames(video_path: Path, num_frames: int = 4) -> VisualAnalysi
         json={
             "model": "google/gemini-3.8-flash",
             "messages": messages,
-            "max_tokens": 800,
+            "max_tokens": 1500,
             "response_format": {"type": "json_object"}
         },
         timeout=45
@@ -144,7 +162,7 @@ def analyze_video_frames(video_path: Path, num_frames: int = 4) -> VisualAnalysi
     if res.status_code == 200:
         data = res.json()
         content = data["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
+        parsed = _extract_json(content)
 
         # Clean cyan keywords to uppercase alphanumeric
         raw_cyan = parsed.get("cyan_keywords", [])
