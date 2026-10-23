@@ -120,7 +120,15 @@ def analyze_video_frames(video_path: Path, num_frames: int = 4) -> VisualAnalysi
 
     api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is not configured in the environment")
+        env_file = Path("/etc/default/friday_universe.env")
+        if env_file.exists():
+            for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith("OPENROUTER_API_KEY="):
+                    api_key = line.split("=", 1)[1].strip()
+                    os.environ["OPENROUTER_API_KEY"] = api_key
+                    break
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not configured in the environment or /etc/default/friday_universe.env")
 
     res = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
