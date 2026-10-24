@@ -82,6 +82,24 @@ def publish_all():
             )
             watch_url = f"https://youtube.com/shorts/{yt_id}"
             log.info("SUCCESS! Published '%s' -> %s", item["title"], watch_url)
+
+            # Attempt custom thumbnail upload if available
+            thumb_path = vpath.parent / f"{vpath.stem}-thumbnail.jpg"
+            if thumb_path.is_file():
+                try:
+                    from googleapiclient.discovery import build
+                    from googleapiclient.http import MediaFileUpload
+                    from app.services.youtube import youtube_credentials
+                    creds = youtube_credentials()
+                    service = build("youtube", "v3", credentials=creds, cache_discovery=False)
+                    service.thumbnails().set(
+                        videoId=yt_id,
+                        media_body=MediaFileUpload(str(thumb_path), mimetype="image/jpeg", resumable=True),
+                    ).execute()
+                    log.info("SUCCESS! Custom thumbnail attached to video: %s", yt_id)
+                except Exception as th_err:
+                    log.warning("Thumbnail upload skipped/fallback: %s", th_err)
+
             results.append({
                 "video_id": item["id"],
                 "yt_id": yt_id,

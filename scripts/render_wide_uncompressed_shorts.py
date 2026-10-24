@@ -51,17 +51,19 @@ VIDEOS_CONFIG = {
     "hx265ujsLVU": {
         "title": "When You Have Maximum Main Character Energy in the Hallway",
         "voice": "en-US-GuyNeural",
-        "trim_duration": 28.5,
+        "trim_duration": None,
         "script": (
-            "When your friends try to roast you in the hallway, but you have maximum main character energy. "
-            "While the rest of the squad is laughing and pointing fingers, she delivers the cleanest, most unimpressed eye-roll on the entire internet. "
-            "And instead of arguing back, she just struts down the hallway like it is her personal fashion week runway. "
-            "Zero hesitation, zero reaction, completely unbothered. That is how you own the entire room without saying a single word."
+            "When your friends try to roast you in the school hallway, but you have maximum main character energy. "
+            "While the entire squad is laughing, pointing fingers, and waiting for her to break, she just hits them with the coldest, most unimpressed eye-roll on the entire internet. "
+            "And instead of wasting a single second arguing back, she turns around and struts down the hallway like it is her personal high fashion runway. "
+            "Look at the squad in the background realizing they just got completely ignored. "
+            "Zero words, zero hesitation, pure unbothered confidence. That is how you own the room."
         ),
         "cyan_keywords": {
             "ROAST", "HALLWAY", "MAXIMUM", "MAIN", "CHARACTER", "ENERGY",
-            "SQUAD", "CLEANEST", "EYE-ROLL", "INTERNET", "STRUTS", "RUNWAY",
-            "HESITATION", "REACTION", "UNBOTHERED", "OWN", "ROOM"
+            "SQUAD", "BREAK", "COLDEST", "EYE-ROLL", "INTERNET",
+            "ARGUING", "STRUTS", "FASHION", "RUNWAY", "IGNORED",
+            "HESITATION", "UNBOTHERED", "CONFIDENCE", "OWN", "ROOM"
         },
     },
 }
