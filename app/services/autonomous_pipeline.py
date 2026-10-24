@@ -274,24 +274,65 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
 
 def publish_or_stage(job: VideoJob, video_path: Path) -> dict[str, Any]:
     """Attempts direct YouTube publication; gracefully stages if daily limit is reached."""
+    clean_title = job.title_concept.strip()
+    if not clean_title.endswith("#shorts") and "#Shorts" not in clean_title and "#shorts" not in clean_title:
+        clean_title = f"{clean_title} #Shorts"
+
     desc = (
         f"{job.script}\n\n"
-        f"💬 {job.debate_question}\n\n"
-        f"#Shorts #Viral #Trending #Entertainment #Comedy #Satisfying #LifeHacks"
+        f"💬 QUESTION OF THE DAY: {job.debate_question}\n"
+        f"Drop your answer below! 👇\n\n"
+        f"🔔 SUBSCRIBE to @VyralXAgent for daily unhinged comedy & viral moments!\n\n"
+        f"💼 Business & Sponsorship Inquiries: vyralx.creator@gmail.com\n\n"
+        f"#Shorts #Viral #Trending #Entertainment #Comedy #Satisfying #Explore #Reels"
     )
 
-    log.info("Initiating upload check for '%s'...", job.title_concept)
+    log.info("Initiating upload check for '%s'...", clean_title)
     try:
         yt_id = upload_video(
             file_path=str(video_path),
-            title=job.title_concept,
+            title=clean_title,
             description=desc,
-            tags=job.tags,
+            tags=job.tags or ["shorts", "viral", "trending", "comedy", "satisfying"],
             privacy_status="public",
             category_id=job.category_id,
         )
         watch_url = f"https://youtube.com/shorts/{yt_id}"
         log.info("PUBLISHED SUCCESSFULLY! Watch URL: %s", watch_url)
+
+        # Attach custom thumbnail if available
+        thumb_dest = video_path.parent / f"vyralx-commentary-{job.video_id}-thumbnail.jpg"
+        if thumb_dest.is_file():
+            try:
+                from googleapiclient.discovery import build
+                from googleapiclient.http import MediaFileUpload
+                from app.services.youtube import youtube_credentials
+                creds = youtube_credentials()
+                service = build("youtube", "v3", credentials=creds, cache_discovery=False)
+                service.thumbnails().set(
+                    videoId=yt_id,
+                    media_body=MediaFileUpload(str(thumb_dest), mimetype="image/jpeg", resumable=True),
+                ).execute()
+                log.info("SUCCESS! Custom thumbnail attached to video: %s", yt_id)
+            except Exception as th_err:
+                log.warning("Thumbnail upload skipped/fallback: %s", th_err)
+
+        # Update published manifest
+        manifest_path = Path("data/published_shorts_manifest.json")
+        try:
+            m_data = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else []
+        except Exception:
+            m_data = []
+        m_data.append({
+            "video_id": job.video_id,
+            "yt_id": yt_id,
+            "title": clean_title,
+            "watch_url": watch_url,
+            "published_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "status": "published"
+        })
+        manifest_path.write_text(json.dumps(m_data, indent=2), encoding="utf-8")
+
         return {
             "video_id": job.video_id,
             "status": "published",
