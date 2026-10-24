@@ -56,6 +56,7 @@ from app.services.full_pipeline_engine import router as full_pipeline_router
 from app.services.visual_content_synthesis import router as synthesis_router
 from app.services.personalized_recommendation import router as recommendation_router
 from app.services.multilingual_content_translator import router as translator_router
+from app.services.video_analytics_dashboard import router as analytics_router
 
 settings = get_settings()
 settings.prepare_directories()
@@ -2213,3 +2214,6 @@ app.include_router(recommendation_router, prefix="/api/v1")
 
 # --- Multilingual Content Translator Integration ---
 app.include_router(translator_router, prefix="/api/v1")
+
+# --- Video Analytics Dashboard Integration ---
+app.include_router(analytics_router, prefix="/api/v1")
