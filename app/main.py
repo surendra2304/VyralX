@@ -2250,6 +2250,10 @@ app.include_router(content_perf_router, prefix="/api/v1/vyralx", tags=["Content 
 from app.services.creator_economy_analyzer import router as creator_economy_router
 app.include_router(creator_economy_router, prefix="/api/v1/vyralx", tags=["Creator Economy"])
 
+# --- Audience Attention Predictor Integration ---
+from app.services.audience_attention_predictor import router as attention_router
+app.include_router(attention_router, prefix="/api/v1/vyralx", tags=["Audience Attention"])
+
 # --- Subscriber Retention Predictor Integration ---
 from app.services.subscriber_retention_predictor import router as retention_router
 app.include_router(retention_router, prefix="/api/v1")
