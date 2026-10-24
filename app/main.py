@@ -60,6 +60,7 @@ from app.services.video_analytics_dashboard import router as analytics_router
 from app.services.content_calendar_manager import router as calendar_router
 from app.services.creator_monetization_engine import router as monetization_router
 from app.services.audience_growth_predictor import router as growth_router
+from app.services.creator_collaboration_manager import router as collab_router
 
 settings = get_settings()
 settings.prepare_directories()
@@ -2229,3 +2230,6 @@ app.include_router(monetization_router, prefix="/api/v1")
 
 # --- Audience Growth Predictor Integration ---
 app.include_router(growth_router, prefix="/api/v1")
+
+# --- Creator Collaboration Manager Integration ---
+app.include_router(collab_router, prefix="/api/v1")
