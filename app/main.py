@@ -2262,6 +2262,10 @@ app.include_router(explainer_router, prefix="/api/v1/vyralx", tags=["Recommendat
 from app.services.content_moderation_engine import router as moderation_router
 app.include_router(moderation_router, prefix="/api/v1/vyralx", tags=["Content Moderation"])
 
+# --- Creator Collaboration Matcher Integration ---
+from app.services.creator_collaboration_matcher import router as collab_matcher_router
+app.include_router(collab_matcher_router, prefix="/api/v1/vyralx", tags=["Creator Collaboration"])
+
 # --- Subscriber Retention Predictor Integration ---
 from app.services.subscriber_retention_predictor import router as retention_router
 app.include_router(retention_router, prefix="/api/v1")
