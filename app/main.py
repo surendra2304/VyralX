@@ -52,6 +52,15 @@ from app.services.pexels import import_video_file, search_videos
 from app.services.rights import append_stock_attribution, find_repeat_use_blockers, is_project_scene_publishable, source_is_publishable, verified_render_sources
 from app.services.viral_predictor import router as viral_predictor_router
 from app.services.channel_growth_strategy import router as channel_growth_strategy_router
+from app.services.full_pipeline_engine import router as full_pipeline_router
+from app.services.visual_content_synthesis import router as synthesis_router
+from app.services.personalized_recommendation import router as recommendation_router
+from app.services.multilingual_content_translator import router as translator_router
+from app.services.video_analytics_dashboard import router as analytics_router
+from app.services.content_calendar_manager import router as calendar_router
+from app.services.creator_monetization_engine import router as monetization_router
+from app.services.audience_growth_predictor import router as growth_router
+from app.services.creator_collaboration_manager import router as collab_router
 
 settings = get_settings()
 settings.prepare_directories()
@@ -2197,3 +2206,66 @@ app.include_router(viral_predictor_router, prefix="/api/v1")
 
 # --- Channel Growth Strategy Integration ---
 app.include_router(channel_growth_strategy_router, prefix="/api/v1")
+
+# --- Full Pipeline Engine Integration ---
+app.include_router(full_pipeline_router, prefix="/api/v1")
+
+# --- Visual Content Synthesis Integration ---
+app.include_router(synthesis_router, prefix="/api/v1")
+
+# --- Personalized Recommendation Integration ---
+app.include_router(recommendation_router, prefix="/api/v1")
+
+# --- Multilingual Content Translator Integration ---
+app.include_router(translator_router, prefix="/api/v1")
+
+# --- Video Analytics Dashboard Integration ---
+app.include_router(analytics_router, prefix="/api/v1")
+
+# --- Content Calendar Manager Integration ---
+app.include_router(calendar_router, prefix="/api/v1")
+
+# --- Creator Monetization Engine Integration ---
+app.include_router(monetization_router, prefix="/api/v1")
+
+# --- Audience Growth Predictor Integration ---
+app.include_router(growth_router, prefix="/api/v1")
+
+# --- Creator Collaboration Manager Integration ---
+app.include_router(collab_router, prefix="/api/v1")
+
+# --- Thumbnail Optimizer Integration ---
+from app.services.thumbnail_optimizer import router as thumbnail_router
+app.include_router(thumbnail_router, prefix="/api/v1")
+
+# --- Content A/B Tester Integration ---
+from app.services.content_ab_tester import router as ab_tester_router
+app.include_router(ab_tester_router, prefix="/api/v1")
+
+# --- Content Performance Analyzer Integration ---
+from app.services.content_performance_analyzer import router as content_perf_router
+app.include_router(content_perf_router, prefix="/api/v1/vyralx", tags=["Content Performance"])
+
+# --- Creator Economy Analyzer Integration ---
+from app.services.creator_economy_analyzer import router as creator_economy_router
+app.include_router(creator_economy_router, prefix="/api/v1/vyralx", tags=["Creator Economy"])
+
+# --- Audience Attention Predictor Integration ---
+from app.services.audience_attention_predictor import router as attention_router
+app.include_router(attention_router, prefix="/api/v1/vyralx", tags=["Audience Attention"])
+
+# --- Content Recommendation Explainer Integration ---
+from app.services.content_recommendation_explainer import router as explainer_router
+app.include_router(explainer_router, prefix="/api/v1/vyralx", tags=["Recommendation Explainer"])
+
+# --- Content Moderation Engine Integration ---
+from app.services.content_moderation_engine import router as moderation_router
+app.include_router(moderation_router, prefix="/api/v1/vyralx", tags=["Content Moderation"])
+
+# --- Creator Collaboration Matcher Integration ---
+from app.services.creator_collaboration_matcher import router as collab_matcher_router
+app.include_router(collab_matcher_router, prefix="/api/v1/vyralx", tags=["Creator Collaboration"])
+
+# --- Subscriber Retention Predictor Integration ---
+from app.services.subscriber_retention_predictor import router as retention_router
+app.include_router(retention_router, prefix="/api/v1")
