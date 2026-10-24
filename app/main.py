@@ -53,6 +53,7 @@ from app.services.rights import append_stock_attribution, find_repeat_use_blocke
 from app.services.viral_predictor import router as viral_predictor_router
 from app.services.channel_growth_strategy import router as channel_growth_strategy_router
 from app.services.full_pipeline_engine import router as full_pipeline_router
+from app.services.visual_content_synthesis import router as synthesis_router
 
 settings = get_settings()
 settings.prepare_directories()
@@ -2201,3 +2202,6 @@ app.include_router(channel_growth_strategy_router, prefix="/api/v1")
 
 # --- Full Pipeline Engine Integration ---
 app.include_router(full_pipeline_router, prefix="/api/v1")
+
+# --- Visual Content Synthesis Integration ---
+app.include_router(synthesis_router, prefix="/api/v1")
