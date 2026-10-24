@@ -52,6 +52,7 @@ from app.services.pexels import import_video_file, search_videos
 from app.services.rights import append_stock_attribution, find_repeat_use_blockers, is_project_scene_publishable, source_is_publishable, verified_render_sources
 from app.services.viral_predictor import router as viral_predictor_router
 from app.services.channel_growth_strategy import router as channel_growth_strategy_router
+from app.services.full_pipeline_engine import router as full_pipeline_router
 
 settings = get_settings()
 settings.prepare_directories()
@@ -2197,3 +2198,6 @@ app.include_router(viral_predictor_router, prefix="/api/v1")
 
 # --- Channel Growth Strategy Integration ---
 app.include_router(channel_growth_strategy_router, prefix="/api/v1")
+
+# --- Full Pipeline Engine Integration ---
+app.include_router(full_pipeline_router, prefix="/api/v1")
