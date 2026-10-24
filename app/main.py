@@ -50,6 +50,8 @@ from app.services.project_pipeline import sync_project_memory
 from app.services.youtube import clear_upload_session_checkpoint, clear_upload_success_checkpoint
 from app.services.pexels import import_video_file, search_videos
 from app.services.rights import append_stock_attribution, find_repeat_use_blockers, is_project_scene_publishable, source_is_publishable, verified_render_sources
+from app.services.viral_predictor import router as viral_predictor_router
+from app.services.channel_growth_strategy import router as channel_growth_strategy_router
 
 settings = get_settings()
 settings.prepare_directories()
@@ -2110,3 +2112,88 @@ def cancel_agent_task(
         raise HTTPException(409, "Task state changed; refresh before cancelling")
     db.refresh(task)
     return _agent_task_summary(task)
+
+
+# --- Autonomous Channel Orchestrator Integration ---
+
+@app.post("/api/orchestrator/plan", dependencies=[Depends(require_api_key)])
+async def create_weekly_plan():
+    """Generate a weekly content plan using the autonomous orchestrator."""
+    from app.services.autonomous_orchestrator import autonomous_orchestrator
+    try:
+        plan = await autonomous_orchestrator.generate_weekly_plan()
+        return {
+            "status": "PLANNED",
+            "week_start": plan.week_start.isoformat(),
+            "videos_scheduled": len(plan.ideas),
+            "ideas": [
+                {"topic": i.topic, "confidence": i.confidence, "source": i.source}
+                for i in plan.ideas
+            ],
+        }
+    except Exception as exc:
+        raise HTTPException(500, f"Plan generation failed: {exc}")
+
+
+@app.post("/api/orchestrator/produce", dependencies=[Depends(require_api_key)])
+async def produce_video_autonomous(topic: str = "...", angle: str = "..."):
+    """Produce a video autonomously from a topic and angle."""
+    from app.services.autonomous_orchestrator import autonomous_orchestrator, ContentIdea
+    try:
+        idea = ContentIdea(topic=topic, angle=angle, confidence=0.7, source="manual")
+        result = await autonomous_orchestrator.produce_video(idea)
+        return result
+    except Exception as exc:
+        raise HTTPException(500, f"Video production failed: {exc}")
+
+
+@app.get("/api/orchestrator/analytics", dependencies=[Depends(require_api_key)])
+async def get_channel_analytics():
+    """Get channel performance analytics and self-improvement insights."""
+    from app.services.autonomous_orchestrator import autonomous_orchestrator
+    try:
+        metrics = await autonomous_orchestrator.analyze_performance()
+        insights = await autonomous_orchestrator.self_improve()
+        return {
+            "metrics": {
+                "total_views": metrics.total_views,
+                "avg_retention": metrics.avg_retention,
+                "avg_ctr": metrics.avg_ctr,
+                "engagement_rate": metrics.engagement_rate,
+                "top_video": metrics.top_video_title,
+                "top_video_views": metrics.top_video_views,
+            },
+            "insights": insights,
+        }
+    except Exception as exc:
+        raise HTTPException(500, f"Analytics failed: {exc}")
+
+
+@app.post("/api/orchestrator/start", dependencies=[Depends(require_api_key)])
+async def start_autonomous_loop():
+    """Start the autonomous channel management loop."""
+    from app.services.autonomous_orchestrator import autonomous_orchestrator
+    import asyncio
+    try:
+        task = asyncio.create_task(autonomous_orchestrator.run_autonomous_loop())
+        return {"status": "STARTED", "message": "Autonomous channel orchestrator started"}
+    except Exception as exc:
+        raise HTTPException(500, f"Failed to start autonomous loop: {exc}")
+
+
+@app.post("/api/orchestrator/stop", dependencies=[Depends(require_api_key)])
+async def stop_autonomous_loop():
+    """Stop the autonomous channel management loop."""
+    from app.services.autonomous_orchestrator import autonomous_orchestrator
+    try:
+        await autonomous_orchestrator.stop()
+        return {"status": "STOPPED", "message": "Autonomous channel orchestrator stopped"}
+    except Exception as exc:
+        raise HTTPException(500, f"Failed to stop autonomous loop: {exc}")
+
+
+# --- Viral Predictor Integration ---
+app.include_router(viral_predictor_router, prefix="/api/v1")
+
+# --- Channel Growth Strategy Integration ---
+app.include_router(channel_growth_strategy_router, prefix="/api/v1")

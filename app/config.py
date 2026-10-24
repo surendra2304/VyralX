@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     channel_brand_voice: str = Field(default="", max_length=240)
     channel_call_to_action: str = Field(default="", max_length=240)
     channel_language: str = Field(default="English", max_length=80)
+    # Autonomous mode only queues licensed-source projects; YouTube publishing remains manual.
+    autonomous_channel_enabled: bool = False
+    autonomous_pexels_license_confirmed: bool = False
+    autonomous_daily_project_limit: int = Field(default=1, ge=1, le=5)
     inference_generation_path: str = "/v1/task/execute"
     inference_timeout_seconds: int = 60
     tts_provider: str = "espeak"
