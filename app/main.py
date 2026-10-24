@@ -2242,6 +2242,10 @@ app.include_router(thumbnail_router, prefix="/api/v1")
 from app.services.content_ab_tester import router as ab_tester_router
 app.include_router(ab_tester_router, prefix="/api/v1")
 
+# --- Content Performance Analyzer Integration ---
+from app.services.content_performance_analyzer import router as content_perf_router
+app.include_router(content_perf_router, prefix="/api/v1/vyralx", tags=["Content Performance"])
+
 # --- Subscriber Retention Predictor Integration ---
 from app.services.subscriber_retention_predictor import router as retention_router
 app.include_router(retention_router, prefix="/api/v1")
