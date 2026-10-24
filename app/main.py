@@ -58,6 +58,7 @@ from app.services.personalized_recommendation import router as recommendation_ro
 from app.services.multilingual_content_translator import router as translator_router
 from app.services.video_analytics_dashboard import router as analytics_router
 from app.services.content_calendar_manager import router as calendar_router
+from app.services.creator_monetization_engine import router as monetization_router
 
 settings = get_settings()
 settings.prepare_directories()
@@ -2221,3 +2222,6 @@ app.include_router(analytics_router, prefix="/api/v1")
 
 # --- Content Calendar Manager Integration ---
 app.include_router(calendar_router, prefix="/api/v1")
+
+# --- Creator Monetization Engine Integration ---
+app.include_router(monetization_router, prefix="/api/v1")
