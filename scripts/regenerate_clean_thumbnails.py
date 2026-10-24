@@ -1,13 +1,12 @@
 """Regenerates pristine, high-CTR viral thumbnails from clean raw sources (ZERO burnt subtitles)."""
 from pathlib import Path
-import re
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.services.thumbnail_designer import generate_genre_thumbnail
+from app.services.thumbnail_designer import generate_genre_thumbnail  # noqa: E402
 
 TITLE_MAP = {
     "A_Q2qpbHrqo": ("The $9,999,999 Michelin Restaurant", "COMEDY"),

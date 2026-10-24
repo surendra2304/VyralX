@@ -1,6 +1,4 @@
 import urllib.request
-import json
-import sys
 
 def check_all():
     agents = [

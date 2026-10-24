@@ -15,14 +15,12 @@ import math
 import subprocess
 import textwrap
 from pathlib import Path
-from typing import Any
 
 import cv2
-import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont
 
 from app.config import get_settings
-from app.services.video_styler import GENRE_PROFILES, get_genre_profile
+from app.services.video_styler import get_genre_profile
 
 log = logging.getLogger("vyralx.thumbnail_designer")
 

@@ -5,7 +5,6 @@ using top-tier viral titles, engagement descriptions, and high-volume SEO search
 """
 from __future__ import annotations
 
-import json
 import logging
 import sys
 import time
@@ -15,9 +14,13 @@ sys.stdout.reconfigure(encoding="utf-8")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("vyralx.raw_uploader")
 
-from app.config import get_settings
-from app.services.seo_optimizer import build_seo_description, generate_optimized_title, generate_seo_tags
-from app.services.youtube import upload_video
+# Ensure direct execution from scripts/ can import the project package.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.services.seo_optimizer import build_seo_description, generate_seo_tags  # noqa: E402
+from app.services.youtube import upload_video  # noqa: E402
 
 RAW_VIRAL_UPLOADS = [
     {

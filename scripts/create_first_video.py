@@ -2,7 +2,6 @@
 import json
 import logging
 import math
-import os
 import sys
 from pathlib import Path
 
@@ -12,18 +11,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("vyralx.first_video")
 
-from app.config import get_settings
-from app.database import SessionLocal
-from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoProject, utcnow
-from app.services.captions import segment_script, write_ass, write_srt
-from app.services.montage import render_montage
-from app.services.probe import probe_media
-from app.services.rights import append_stock_attribution, is_project_scene_publishable, verified_render_sources
-from app.services.sentinel import compute_provenance_hash
-from app.services.thumbnail import extract_thumbnail
-from app.services.unsplash import import_photo, search_photos
-from app.services.voiceover import synthesize_voiceover
-from app.services.youtube import upload_video, youtube_credentials
+from app.config import get_settings  # noqa: E402
+from app.database import SessionLocal  # noqa: E402
+from app.models import Asset, PublishJob, RenderJob, Source, utcnow  # noqa: E402
+from app.services.captions import segment_script, write_ass, write_srt  # noqa: E402
+from app.services.montage import render_montage  # noqa: E402
+from app.services.probe import probe_media  # noqa: E402
+from app.services.rights import append_stock_attribution, verified_render_sources  # noqa: E402
+from app.services.sentinel import compute_provenance_hash  # noqa: E402
+from app.services.thumbnail import extract_thumbnail  # noqa: E402
+from app.services.unsplash import import_photo, search_photos  # noqa: E402
+from app.services.voiceover import synthesize_voiceover  # noqa: E402
+from app.services.youtube import upload_video  # noqa: E402
 
 
 def main():
@@ -34,7 +33,7 @@ def main():
     topic = "Quantum AI Just Broke Physics: The 12-Millisecond Breakthrough"
     hook = "Artificial Intelligence just solved a fifty-year-old physics impossibility, and almost nobody noticed."
     voiceover_script = (
-        "Artificial Intelligence just solved a fifty-year-old physics impossibility, and almost nobody noticed. "
+        f"{hook} "
         "Deep neural networks successfully simulated quantum entanglement at room temperature, cracking calculations "
         "that would take standard supercomputers forty years in just twelve milliseconds. "
         "This rewrites the future of encryption, drug discovery, and computing power forever. "
@@ -48,7 +47,7 @@ def main():
         "deep space satellite telecommunications network",
     ]
 
-    title = "Quantum AI Just Broke Physics: What Nobody Is Telling You #Shorts"
+    title = f"{topic} #Shorts"
     description = (
         "Deep neural networks just simulated room-temperature quantum entanglement in 12 milliseconds—solving "
         "a calculation that would take supercomputers 40 years.\n\n"

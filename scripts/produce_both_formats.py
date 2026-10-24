@@ -21,11 +21,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 log = logging.getLogger("vyralx.producer")
 
-from app.database import SessionLocal
-from app.models import Asset, ContentPack, RenderJob, Source, VideoProject, utcnow
-from app.services.mixkit import import_video_file
-from app.services.probe import probe_media
-from app.services.project_pipeline import execute_project_pipeline
+from app.database import SessionLocal  # noqa: E402
+from app.models import Asset, ContentPack, Source, VideoProject, utcnow  # noqa: E402
+from app.services.mixkit import import_video_file  # noqa: E402
+from app.services.probe import probe_media  # noqa: E402
+from app.services.project_pipeline import execute_project_pipeline  # noqa: E402
 
 
 def _register_mixkit_asset(db, video_id: str, title: str, expected_duration: float = 3.0) -> Asset:
@@ -168,7 +168,7 @@ def produce_video_1_dna_mystery(db) -> dict:
     if project.status != "completed":
         raise RuntimeError(f"Video 1 pipeline failed: {project.error}")
 
-    from app.config import get_settings
+    from app.config import get_settings  # noqa: E402
     settings = get_settings()
     video_path = settings.render_dir / f"{project.project_key}-attempt-1.mp4"
     meta = probe_media(video_path) if video_path.is_file() else {}
@@ -291,7 +291,7 @@ def produce_video_2_wealth_leverage(db) -> dict:
     if project.status != "completed":
         raise RuntimeError(f"Video 2 pipeline failed: {project.error}")
 
-    from app.config import get_settings
+    from app.config import get_settings  # noqa: E402
     settings = get_settings()
     video_path = settings.render_dir / f"{project.project_key}-attempt-1.mp4"
     meta = probe_media(video_path) if video_path.is_file() else {}

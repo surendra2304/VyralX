@@ -5,9 +5,7 @@ sponsorship templates, and revenue tracking across viral Shorts & Reels.
 """
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
 
 log = logging.getLogger("vyralx.monetization")
 

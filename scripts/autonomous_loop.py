@@ -13,11 +13,8 @@ Autonomously runs the entire lifecycle on a scheduled cadence:
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import logging
-import os
-import re
 import subprocess
 import sys
 import time
@@ -28,7 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.services.autonomous_pipeline import (
+from app.services.autonomous_pipeline import (  # noqa: E402
     VideoJob,
     create_visual_job_from_source,
     run_pipeline,
@@ -116,7 +113,13 @@ def search_and_download_viral_clip(query: str, download_dir: Path) -> Path | Non
                     "-o", str(dest_file),
                     f"https://youtube.com/shorts/{vid}"
                 ]
-                dl_res = subprocess.run(dl_cmd, capture_output=True)
+                dl_res = subprocess.run(
+                    dl_cmd, capture_output=True, text=True, timeout=180
+                )
+                if dl_res.returncode != 0:
+                    detail = (dl_res.stderr or dl_res.stdout or "no diagnostic output").strip()
+                    log.warning("Source download failed for %s: %s", vid, detail[-500:])
+                    continue
                 if dest_file.exists() and dest_file.stat().st_size > 0:
                     meta_file = download_dir / f"{vid}.json"
                     meta_file.write_text(
@@ -131,7 +134,7 @@ def search_and_download_viral_clip(query: str, download_dir: Path) -> Path | Non
                     )
                     log.info("Successfully ingested clean source: %s (%.2f MB)", dest_file.name, dest_file.stat().st_size / (1024 * 1024))
                     return dest_file
-        except Exception as e:
+        except Exception:
             continue
     return None
 

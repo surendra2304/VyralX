@@ -9,12 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("vyralx.publish")
 
-from app.config import get_settings
-from app.database import SessionLocal
-from app.models import Asset, PublishJob, RenderJob, Source, utcnow
-from app.services.rights import append_stock_attribution, verified_render_sources
-from app.services.sentinel import compute_provenance_hash
-from app.services.youtube import upload_video
+from app.config import get_settings  # noqa: E402
+from app.database import SessionLocal  # noqa: E402
+from app.models import Asset, PublishJob, RenderJob, Source, utcnow  # noqa: E402
+from app.services.rights import append_stock_attribution, verified_render_sources  # noqa: E402
+from app.services.sentinel import compute_provenance_hash  # noqa: E402
+from app.services.youtube import upload_video  # noqa: E402
 
 
 def publish():

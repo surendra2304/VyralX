@@ -14,14 +14,12 @@ import asyncio
 import logging
 import re
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import edge_tts
 
 from app.config import get_settings
-from app.services.thumbnail_designer import generate_genre_thumbnail
 
 log = logging.getLogger("vyralx.commentator")
 
@@ -260,7 +258,12 @@ def render_transformative_short(
         str(output_path),
     ]
 
-    log.info("Rendering transformative short for %s...", source_video_path.name)
+    log.info(
+        "Rendering transformative short (category=%s, narration=%.1fs) for %s...",
+        category,
+        narration_duration,
+        source_video_path.name,
+    )
     subprocess.run(cmd, check=True, capture_output=True)
     log.info("Transformative short complete: %s (%.2f MB)", output_path.name, output_path.stat().st_size / (1024 * 1024))
     return output_path

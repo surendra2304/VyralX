@@ -1,7 +1,5 @@
 """Unit tests for VyralX Transformative Commentary Engine."""
 import unittest
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from app.services.transformative_commentator import (
     COMMENTARY_SCRIPTS,
