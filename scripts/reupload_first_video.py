@@ -32,7 +32,7 @@ VIDEO = {
         "He dressed up in a luxury tuxedo for a 5-star Michelin dinner... but the waitress served him literal soap bubbles and blasted him with a bubble gun! 💀😂\n\n"
         "The final bill for this soap dinner? Exactly $9,999,999!\n\n"
         "💬 Would you pay the bill or run out of the restaurant? Drop your answer below! 👇\n\n"
-        "#Shorts #Comedy #Funny #MichelinStar #FineDining #Viral #Humor #Relatable #Trending #Memes #Reels"
+        "💼 Business & Sponsorship Inquiries: vyralx.creator@gmail.com\n\n"
     ),
     "tags": [
         "shorts", "comedy", "funny", "michelin star", "fine dining",

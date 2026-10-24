@@ -19,6 +19,7 @@ log = logging.getLogger("vyralx.oauth")
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 
 
@@ -53,4 +54,3 @@ def run_auth(secrets_file: str = "data/credentials/client_secrets.json"):
 if __name__ == "__main__":
     secrets = sys.argv[1] if len(sys.argv) > 1 else "data/credentials/client_secrets.json"
     run_auth(secrets)
-

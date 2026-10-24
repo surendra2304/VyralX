@@ -283,7 +283,6 @@ def publish_or_stage(job: VideoJob, video_path: Path) -> dict[str, Any]:
         f"💬 QUESTION OF THE DAY: {job.debate_question}\n"
         f"Drop your answer below! 👇\n\n"
         f"🔔 SUBSCRIBE to @VyralXAgent for daily unhinged comedy & viral moments!\n\n"
-        f"💼 Business & Sponsorship Inquiries: vyralx.creator@gmail.com\n\n"
         f"#Shorts #Viral #Trending #Entertainment #Comedy #Satisfying #Explore #Reels"
     )
 
