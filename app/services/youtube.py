@@ -147,9 +147,9 @@ def clear_upload_success_checkpoint(publish_job_id: int) -> None:
 
 
 _UPLOAD_ENDPOINT = "https://www.googleapis.com/upload/youtube/v3/videos"
-UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
-_UPLOAD_HTTP_TIMEOUT = (10, 90)
-_UPLOAD_STALL_LIMIT = 3
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+_UPLOAD_HTTP_TIMEOUT = (15, 180)
+_UPLOAD_STALL_LIMIT = 6
 
 
 class _UploadSessionExpired(RuntimeError):
