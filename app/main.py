@@ -2246,6 +2246,10 @@ app.include_router(ab_tester_router, prefix="/api/v1")
 from app.services.content_performance_analyzer import router as content_perf_router
 app.include_router(content_perf_router, prefix="/api/v1/vyralx", tags=["Content Performance"])
 
+# --- Creator Economy Analyzer Integration ---
+from app.services.creator_economy_analyzer import router as creator_economy_router
+app.include_router(creator_economy_router, prefix="/api/v1/vyralx", tags=["Creator Economy"])
+
 # --- Subscriber Retention Predictor Integration ---
 from app.services.subscriber_retention_predictor import router as retention_router
 app.include_router(retention_router, prefix="/api/v1")
