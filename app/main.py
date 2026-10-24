@@ -55,6 +55,7 @@ from app.services.channel_growth_strategy import router as channel_growth_strate
 from app.services.full_pipeline_engine import router as full_pipeline_router
 from app.services.visual_content_synthesis import router as synthesis_router
 from app.services.personalized_recommendation import router as recommendation_router
+from app.services.multilingual_content_translator import router as translator_router
 
 settings = get_settings()
 settings.prepare_directories()
@@ -2209,3 +2210,6 @@ app.include_router(synthesis_router, prefix="/api/v1")
 
 # --- Personalized Recommendation Integration ---
 app.include_router(recommendation_router, prefix="/api/v1")
+
+# --- Multilingual Content Translator Integration ---
+app.include_router(translator_router, prefix="/api/v1")
