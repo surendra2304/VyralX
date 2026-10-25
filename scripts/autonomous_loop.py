@@ -41,6 +41,30 @@ logging.basicConfig(
 )
 log = logging.getLogger("vyralx.loop")
 
+VERIFIED_VIRAL_CATALOG = [
+    {"id": "28897", "title": "Approaching Analog Clock In Total Silence", "topic": "psychology and tension"},
+    {"id": "45703", "title": "High Speed Money Counting Machine", "topic": "extreme wealth and cash"},
+    {"id": "26748", "title": "Candlestick Trading Charts Collapse", "topic": "stock market crash and trading"},
+    {"id": "47012", "title": "Surging Candlestick Trading Charts", "topic": "day trading profit surge"},
+    {"id": "47050", "title": "Glowing Fiber Optics in Supercomputer Facility", "topic": "high tech server room"},
+    {"id": "46635", "title": "Matrix Fast Green Code Stream", "topic": "elite coding cyber heist"},
+    {"id": "18296", "title": "Hands Rapidly Flipping 100 Dollar Banknotes", "topic": "billionaire cash counting"},
+    {"id": "47491", "title": "Red and Blue Emergency Lights in Darkness", "topic": "police interrogation drama"},
+    {"id": "49329", "title": "Suspect Under Interrogation Tension", "topic": "true crime investigation"},
+    {"id": "23215", "title": "High Frequency Trading Server Racks", "topic": "billion dollar algorithm"},
+    {"id": "30873", "title": "3D Stock Market Indices Collapsing", "topic": "financial market crash"},
+    {"id": "50745", "title": "Programmer Staring Into Screens", "topic": "cyber security breakthrough"},
+    {"id": "5580", "title": "Molten Steel Pouring in Industrial Foundry", "topic": "satisfying molten metal"},
+    {"id": "5485", "title": "Precision Laser CNC Machine Cutting Metal", "topic": "satisfying precision cnc"},
+    {"id": "46747", "title": "Microscopic Fluid Dynamics Reaction", "topic": "hypnotic science reaction"},
+    {"id": "47783", "title": "Hydraulic Press Crushing Objects", "topic": "hydraulic press destruction"},
+    {"id": "3780", "title": "Glass Blowing Molten Precision Art", "topic": "satisfying glass crafting"},
+    {"id": "29351", "title": "Wood Carving High Speed Lathe", "topic": "satisfying woodturning craft"},
+    {"id": "4075", "title": "Extreme Precision Domino Chain Reaction", "topic": "precision domino physics"},
+    {"id": "18791", "title": "Kinetic Sand Clean Slicing ASMR", "topic": "kinetic sand slicing"},
+    {"id": "31596", "title": "High Speed Supercar Drifting on Track", "topic": "hypercar extreme drift"}
+]
+
 SEARCH_TOPICS = [
     "oddly satisfying visual compilation no talking no voice",
     "satisfying industrial machine factory loop silent",
@@ -201,7 +225,46 @@ def run_autonomous_cycle(batch_size: int = 1):
             if len(candidates) >= batch_size:
                 break
 
-    # 2. If more candidates needed, search YouTube topics
+    # 2. Cycle through verified high-motion viral catalog
+    if len(candidates) < batch_size:
+        for entry in VERIFIED_VIRAL_CATALOG:
+            vid = entry["id"]
+            cand_stem = f"mixkit_{vid}"
+            if cand_stem in processed_ids:
+                continue
+            dest_file = source_dir / f"{cand_stem}.mp4"
+            if not dest_file.exists() or dest_file.stat().st_size < 100_000:
+                log.info("Ingesting verified candidate from CDN: %s ('%s')...", cand_stem, entry["title"])
+                try:
+                    import httpx
+                    url = f"https://assets.mixkit.co/videos/{vid}/{vid}-720.mp4"
+                    with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+                        with client.stream("GET", url) as resp:
+                            if resp.status_code == 200:
+                                with open(dest_file, "wb") as f:
+                                    for chunk in resp.iter_bytes(chunk_size=65536):
+                                        f.write(chunk)
+                except Exception as dl_err:
+                    log.warning("Failed to download catalog clip %s: %s", vid, dl_err)
+                    continue
+
+            if dest_file.exists() and dest_file.stat().st_size > 100_000:
+                meta_file = source_dir / f"{cand_stem}.json"
+                meta_file.write_text(
+                    json.dumps({
+                        "id": cand_stem,
+                        "title": entry["title"],
+                        "description": f"Hypnotic high-retention visual action: {entry['topic']}",
+                        "duration": 25,
+                    }, indent=2),
+                    encoding="utf-8"
+                )
+                candidates.append(dest_file)
+                log.info("Selected fresh catalog candidate: %s ('%s', %.2f MB)", dest_file.name, entry["title"], dest_file.stat().st_size / (1024 * 1024))
+                if len(candidates) >= batch_size:
+                    break
+
+    # 3. If still needed, search topics
     if len(candidates) < batch_size:
         for topic in SEARCH_TOPICS:
             clip = search_and_download_viral_clip(topic, source_dir)
@@ -214,11 +277,12 @@ def run_autonomous_cycle(batch_size: int = 1):
         log.warning("No eligible viral candidates found in this cycle.")
         return []
 
-    # 3. Perform frame-grounded Multimodal Vision Analysis for each candidate
+    # 4. Perform frame-grounded Multimodal Vision Analysis for each candidate
     jobs: list[VideoJob] = []
     for c in candidates:
         try:
-            job = create_visual_job_from_source(c)
+            job = create_visual_job_from_source(c, voice="en-US-GuyNeural")
+            job.privacy_status = "private"  # STRICTLY DRAFT
             jobs.append(job)
         except Exception as e:
             log.exception("Vision analysis failed for %s: %s", c.name, e)
