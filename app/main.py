@@ -2271,3 +2271,7 @@ app.include_router(collab_matcher_router, prefix="/api/v1/vyralx", tags=["Creato
 # --- Subscriber Retention Predictor Integration ---
 from app.services.subscriber_retention_predictor import router as retention_router
 app.include_router(retention_router, prefix="/api/v1")
+
+# --- Real Media & Growth Engines (ClaudeAds, TopRank, OpenHiggsfield, Hyperframes) ---
+from app.services.real_media_routes import router as real_media_router
+app.include_router(real_media_router, prefix="/api/v1/vyralx")
