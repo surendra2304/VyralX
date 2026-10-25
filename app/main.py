@@ -61,6 +61,7 @@ from app.services.content_calendar_manager import router as calendar_router
 from app.services.creator_monetization_engine import router as monetization_router
 from app.services.audience_growth_predictor import router as growth_router
 from app.services.creator_collaboration_manager import router as collab_router
+from app.services.diagram_service import router as diagram_router
 
 settings = get_settings()
 settings.prepare_directories()
@@ -2233,6 +2234,7 @@ app.include_router(growth_router, prefix="/api/v1")
 
 # --- Creator Collaboration Manager Integration ---
 app.include_router(collab_router, prefix="/api/v1")
+app.include_router(diagram_router)  # /api/v1/diagrams/* (self-contained HTML+SVG)
 
 # --- Thumbnail Optimizer Integration ---
 from app.services.thumbnail_optimizer import router as thumbnail_router

@@ -275,4 +275,12 @@ def generate_content_pack(
     pack["requires_editor_review"] = True
     pack["fact_check_passed"] = False
     pack = attach_research_review_notes(pack, safe_research)
+    # Every content pack ships with one self-contained explainer diagram so the
+    # operator does not need a second render request; failures never block.
+    try:
+        from app.services.diagram_service import attach_explainer
+
+        pack = attach_explainer(pack, topic)
+    except Exception:  # pragma: no cover - optional enrichment
+        pack.setdefault("explainer_diagram", {"error": "diagram service unavailable"})
     return pack
