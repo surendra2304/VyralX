@@ -33,6 +33,11 @@ from app.services.autonomous_pipeline import (
     create_visual_job_from_source,
     run_pipeline,
 )
+from app.services.audience_reach_learner import (
+    AudienceReachLearner,
+    calculate_optimal_post_time,
+    find_cohort_for_topic,
+)
 
 sys.stdout.reconfigure(encoding="utf-8")
 logging.basicConfig(
@@ -196,80 +201,114 @@ def search_and_download_viral_clip(query: str, download_dir: Path) -> Path | Non
 
 
 def get_processed_video_ids() -> set[str]:
-    manifest_path = Path("data/published_shorts_manifest.json")
-    if not manifest_path.exists():
-        return set()
-    try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        return {item["video_id"] for item in data if "video_id" in item}
-    except Exception:
-        return set()
+    ids = set()
+    for p in [Path("data/published_shorts_manifest.json"), Path("data/autonomous_run_manifest.json")]:
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                for item in data:
+                    for key in ("video_id", "id", "yt_id", "youtube_id"):
+                        val = item.get(key)
+                        if val:
+                            ids.add(str(val))
+            except Exception:
+                pass
+    return ids
 
 
 def run_autonomous_cycle(batch_size: int = 1):
-    """Executes a single end-to-end autonomous discovery, production, and publication cycle."""
+    """Executes a single end-to-end autonomous discovery, learning, production, and drafting cycle."""
     log.info("==================================================================")
     log.info("STARTING VYRALX 24/7 AUTONOMOUS CYCLE (BATCH SIZE: %d)", batch_size)
     log.info("==================================================================")
+
+    # 1. Initialize Audience & Reach Learning Engine
+    learner = AudienceReachLearner()
+    manifest_path = Path("data/published_shorts_manifest.json")
+    try:
+        existing_manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else []
+    except Exception:
+        existing_manifest = []
+
+    # 2. Refresh YouTube reach metrics and update topic reinforcement weights
+    log.info("Refreshing channel reach and learning from existing audience telemetry...")
+    learning_summary = learner.refresh_and_learn(existing_manifest)
+    log.info(
+        "Audience Learning State: Completed %d cycles, %d drafts created. Active topic weights: %s",
+        learning_summary.get("total_cycles", 1),
+        learning_summary.get("total_drafts_created", 0),
+        json.dumps(learning_summary.get("active_topic_weights", {}), indent=None)
+    )
 
     processed_ids = get_processed_video_ids()
     source_dir = Path("media/viral_sources").resolve()
     source_dir.mkdir(parents=True, exist_ok=True)
 
-    candidates: list[Path] = []
+    candidates: list[tuple[Path, str, dict[str, Any]]] = []
 
-    # 1. First check existing downloaded clips that haven't been produced
-    for f in sorted(source_dir.glob("*.mp4")):
-        if f.stem not in processed_ids and f.stat().st_size > 100_000:
-            candidates.append(f)
-            if len(candidates) >= batch_size:
-                break
+    # 3. Select fresh candidates using learned audience reach weights
+    while len(candidates) < batch_size:
+        chosen_entry, chosen_weight = learner.select_weighted_candidate(VERIFIED_VIRAL_CATALOG, processed_ids)
+        if not chosen_entry:
+            log.warning("All verified catalog candidates have been processed or none available.")
+            break
 
-    # 2. Cycle through verified high-motion viral catalog
-    if len(candidates) < batch_size:
-        for entry in VERIFIED_VIRAL_CATALOG:
-            vid = entry["id"]
-            cand_stem = f"mixkit_{vid}"
-            if cand_stem in processed_ids:
+        vid = str(chosen_entry["id"])
+        cand_stem = f"mixkit_{vid}"
+        dest_file = source_dir / f"{cand_stem}.mp4"
+
+        if not dest_file.exists() or dest_file.stat().st_size < 100_000:
+            log.info(
+                "Ingesting candidate from CDN: %s ('%s', topic: '%s', weight: %.2f)...",
+                cand_stem, chosen_entry["title"], chosen_entry["topic"], chosen_weight
+            )
+            try:
+                import httpx
+                url = f"https://assets.mixkit.co/videos/{vid}/{vid}-720.mp4"
+                with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+                    with client.stream("GET", url) as resp:
+                        if resp.status_code == 200:
+                            with open(dest_file, "wb") as f:
+                                for chunk in resp.iter_bytes(chunk_size=65536):
+                                    f.write(chunk)
+            except Exception as dl_err:
+                log.warning("Failed to download catalog clip %s: %s", vid, dl_err)
+                processed_ids.add(cand_stem)
                 continue
-            dest_file = source_dir / f"{cand_stem}.mp4"
-            if not dest_file.exists() or dest_file.stat().st_size < 100_000:
-                log.info("Ingesting verified candidate from CDN: %s ('%s')...", cand_stem, entry["title"])
-                try:
-                    import httpx
-                    url = f"https://assets.mixkit.co/videos/{vid}/{vid}-720.mp4"
-                    with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-                        with client.stream("GET", url) as resp:
-                            if resp.status_code == 200:
-                                with open(dest_file, "wb") as f:
-                                    for chunk in resp.iter_bytes(chunk_size=65536):
-                                        f.write(chunk)
-                except Exception as dl_err:
-                    log.warning("Failed to download catalog clip %s: %s", vid, dl_err)
-                    continue
 
-            if dest_file.exists() and dest_file.stat().st_size > 100_000:
-                meta_file = source_dir / f"{cand_stem}.json"
-                meta_file.write_text(
-                    json.dumps({
-                        "id": cand_stem,
-                        "title": entry["title"],
-                        "description": f"Hypnotic high-retention visual action: {entry['topic']}",
-                        "duration": 25,
-                    }, indent=2),
-                    encoding="utf-8"
-                )
-                candidates.append(dest_file)
-                log.info("Selected fresh catalog candidate: %s ('%s', %.2f MB)", dest_file.name, entry["title"], dest_file.stat().st_size / (1024 * 1024))
-                if len(candidates) >= batch_size:
-                    break
+        if dest_file.exists() and dest_file.stat().st_size > 100_000:
+            meta_file = source_dir / f"{cand_stem}.json"
+            meta_file.write_text(
+                json.dumps({
+                    "id": cand_stem,
+                    "title": chosen_entry["title"],
+                    "description": f"Hypnotic high-retention visual action: {chosen_entry['topic']}",
+                    "duration": 25,
+                    "topic": chosen_entry["topic"],
+                    "selection_weight": chosen_weight
+                }, indent=2),
+                encoding="utf-8"
+            )
+            # Calculate optimal posting time & target audience cohort
+            schedule_info = calculate_optimal_post_time(chosen_entry["topic"])
+            schedule_info["selection_weight"] = chosen_weight
+            candidates.append((dest_file, chosen_entry["topic"], schedule_info))
+            processed_ids.add(cand_stem)
+            log.info(
+                "Selected Candidate: %s ('%s') | Cohort: '%s' | Optimal Post Time: %s",
+                dest_file.name, chosen_entry["title"],
+                schedule_info["target_audience_cohort"],
+                schedule_info["optimal_post_time_ist"]
+            )
 
-    # 3. If still needed, search topics
+    # 4. Fallback search if catalog exhausted
     if len(candidates) < batch_size:
         for topic in SEARCH_TOPICS:
             clip = search_and_download_viral_clip(topic, source_dir)
             if clip and clip.stem not in processed_ids:
-                candidates.append(clip)
+                sched = calculate_optimal_post_time(topic)
+                candidates.append((clip, topic, sched))
+                processed_ids.add(clip.stem)
                 if len(candidates) >= batch_size:
                     break
 
@@ -277,37 +316,65 @@ def run_autonomous_cycle(batch_size: int = 1):
         log.warning("No eligible viral candidates found in this cycle.")
         return []
 
-    # 4. Perform frame-grounded Multimodal Vision Analysis for each candidate
-    jobs: list[VideoJob] = []
-    for c in candidates:
+    # 5. Perform frame-grounded Multimodal Vision Analysis for each candidate
+    jobs: list[tuple[VideoJob, str, dict[str, Any]]] = []
+    for c_path, topic, sched in candidates:
         try:
-            job = create_visual_job_from_source(c, voice="en-US-GuyNeural")
+            job = create_visual_job_from_source(c_path, voice="en-US-GuyNeural")
             job.privacy_status = "private"  # STRICTLY DRAFT
-            jobs.append(job)
+            jobs.append((job, topic, sched))
         except Exception as e:
-            log.exception("Vision analysis failed for %s: %s", c.name, e)
+            log.exception("Vision analysis failed for %s: %s", c_path.name, e)
 
     if not jobs:
         log.error("Failed to generate visual jobs for any candidate.")
         return []
 
-    # 4. Render and publish
-    results = run_pipeline(jobs)
+    # 6. Render and publish strictly to Drafts
+    video_jobs_only = [j[0] for j in jobs]
+    results = run_pipeline(video_jobs_only)
 
-    # 5. Update published manifest
-    manifest_path = Path("data/published_shorts_manifest.json")
+    # 7. Match results with learning metadata and update manifests
+    for idx, r in enumerate(results):
+        if idx < len(jobs):
+            _, topic, sched = jobs[idx]
+            r["topic"] = topic
+            r["privacy"] = "private"
+            r["status"] = "draft"
+            r["audience_learning"] = {
+                "target_audience_cohort": sched.get("target_audience_cohort"),
+                "optimal_post_time_utc": sched.get("optimal_post_time_utc"),
+                "optimal_post_time_ist": sched.get("optimal_post_time_ist"),
+                "optimal_post_time_est": sched.get("optimal_post_time_est"),
+                "posting_rationale": sched.get("posting_rationale"),
+                "topic_weight": sched.get("selection_weight", 1.0)
+            }
+            uploaded_id = r.get("youtube_id") or r.get("yt_id")
+            if uploaded_id:
+                learner.record_draft_created(uploaded_id, topic, sched)
+
+    # 8. Update published manifest
     try:
         existing = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else []
     except Exception:
         existing = []
 
     for r in results:
-        if r.get("status") in ("published", "staged_quota_limited"):
+        if r.get("status") in ("published", "draft", "staged_quota_limited"):
             existing.append(r)
     manifest_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
 
     log.info("==================================================================")
-    log.info("CYCLE COMPLETE: %d VIDEOS PROCESSED", len(results))
+    log.info("CYCLE COMPLETE: %d DRAFT SHORT(S) PRODUCED & SCHEDULED", len(results))
+    for r in results:
+        learn = r.get("audience_learning", {})
+        log.info(
+            "Draft: %s | Watch URL: %s | Optimal Post: %s (%s)",
+            r.get("title", "Untitled"),
+            r.get("watch_url"),
+            learn.get("optimal_post_time_ist"),
+            learn.get("target_audience_cohort")
+        )
     log.info("==================================================================")
     return results
 
