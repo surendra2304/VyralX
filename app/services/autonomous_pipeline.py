@@ -51,6 +51,7 @@ class VideoJob:
     voice: str = "en-US-GuyNeural"
     tags: list[str] = field(default_factory=list)
     debate_question: str = ""
+    privacy_status: str = "private"
 
 
 def create_visual_job_from_source(source_file: Path, voice: str = "en-US-GuyNeural") -> VideoJob:
@@ -257,7 +258,7 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
 
 
 def publish_or_stage(job: VideoJob, video_path: Path) -> dict[str, Any]:
-    """Attempts direct YouTube publication; gracefully stages if daily limit is reached."""
+    """Uploads video to YouTube as a draft (private) for review."""
     clean_title = job.title_concept.strip()
     if not clean_title.endswith("#shorts") and "#Shorts" not in clean_title and "#shorts" not in clean_title:
         clean_title = f"{clean_title} #Shorts"
@@ -270,18 +271,21 @@ def publish_or_stage(job: VideoJob, video_path: Path) -> dict[str, Any]:
         f"#Shorts #Viral #Trending #Entertainment #Comedy #Satisfying #Explore #Reels"
     )
 
-    log.info("Initiating upload check for '%s'...", clean_title)
+    settings = get_settings()
+    target_privacy = getattr(job, "privacy_status", None) or getattr(settings, "youtube_default_privacy", "private") or "private"
+
+    log.info("Initiating upload for '%s' to DRAFTS (privacy: %s)...", clean_title, target_privacy)
     try:
         yt_id = upload_video(
             file_path=str(video_path),
             title=clean_title,
             description=desc,
             tags=job.tags or ["shorts", "viral", "trending", "comedy", "satisfying"],
-            privacy_status="public",
+            privacy_status=target_privacy,
             category_id=job.category_id,
         )
         watch_url = f"https://youtube.com/shorts/{yt_id}"
-        log.info("PUBLISHED SUCCESSFULLY! Watch URL: %s (Native video frame thumbnail)", watch_url)
+        log.info("DRAFT SAVED TO YOUTUBE! Watch URL: %s (Privacy: %s, Native video frame thumbnail)", watch_url, target_privacy)
 
         # Update published manifest
         manifest_path = Path("data/published_shorts_manifest.json")
@@ -294,17 +298,19 @@ def publish_or_stage(job: VideoJob, video_path: Path) -> dict[str, Any]:
             "yt_id": yt_id,
             "title": clean_title,
             "watch_url": watch_url,
+            "privacy": target_privacy,
             "published_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "status": "published"
+            "status": "draft" if target_privacy == "private" else "published"
         })
         manifest_path.write_text(json.dumps(m_data, indent=2), encoding="utf-8")
 
         return {
             "video_id": job.video_id,
-            "status": "published",
+            "status": "draft" if target_privacy == "private" else "published",
             "youtube_id": yt_id,
             "watch_url": watch_url,
-            "file": str(video_path)
+            "file": str(video_path),
+            "privacy": target_privacy,
         }
     except Exception as e:
         err_str = str(e)

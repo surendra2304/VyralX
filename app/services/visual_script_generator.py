@@ -86,10 +86,22 @@ def _extract_json(raw: str) -> dict[str, Any]:
     try:
         return json.loads(candidate)
     except json.JSONDecodeError:
-        start, end = candidate.find("{"), candidate.rfind("}")
-        if start >= 0 and end > start:
-            return json.loads(candidate[start : end + 1])
-        raise
+        pass
+
+    start, end = candidate.find("{"), candidate.rfind("}")
+    if start >= 0 and end > start:
+        block = candidate[start : end + 1]
+        try:
+            return json.loads(block)
+        except Exception:
+            try:
+                import ast
+                val = ast.literal_eval(block)
+                if isinstance(val, dict):
+                    return val
+            except Exception:
+                pass
+    raise ValueError(f"Could not parse valid JSON from model response")
 
 
 def get_inference_config() -> tuple[str, str]:
