@@ -93,21 +93,34 @@ def _extract_json(raw: str) -> dict[str, Any]:
 
 
 def get_inference_config() -> tuple[str, str]:
-    """Retrieves Inference gateway URL and API key from environment or production config."""
-    url = os.environ.get("INFERENCE_URL", "").strip() or "http://10.0.0.121:8001"
+    """Retrieves Inference gateway URL and API key from settings or environment."""
+    url = os.environ.get("INFERENCE_URL", "").strip()
     key = os.environ.get("INFERENCE_API_KEY", "").strip()
-    if not key:
-        env_file = Path("/etc/default/friday_universe.env")
-        if env_file.exists():
-            try:
-                for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
-                    if line.startswith("INFERENCE_API_KEY="):
-                        key = line.split("=", 1)[1].strip()
-                    elif line.startswith("INFERENCE_URL="):
-                        url = line.split("=", 1)[1].strip()
-            except Exception:
-                pass
-    return url, key
+
+    if not url or not key:
+        try:
+            from app.config import get_settings
+            settings = get_settings()
+            if not url and hasattr(settings, "inference_url"):
+                url = str(settings.inference_url or "").strip()
+            if not key and hasattr(settings, "inference_api_key"):
+                key = str(settings.inference_api_key or "").strip()
+        except Exception:
+            pass
+
+    if not key or not url:
+        for env_path in [Path(".env"), Path("/opt/friday_universe/VyralX/.env"), Path("/etc/default/friday_universe.env")]:
+            if env_path.exists():
+                try:
+                    for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                        if line.startswith("INFERENCE_API_KEY=") and not key:
+                            key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        elif line.startswith("INFERENCE_URL=") and not url:
+                            url = line.split("=", 1)[1].strip().strip('"').strip("'")
+                except Exception:
+                    pass
+
+    return url or "http://10.0.0.121:8001", key
 
 
 def analyze_video_frames(video_path: Path, num_frames: int = 4) -> VisualAnalysisResult:
@@ -165,6 +178,8 @@ def analyze_video_frames(video_path: Path, num_frames: int = 4) -> VisualAnalysi
     headers = {"Content-Type": "application/json"}
     if inf_key:
         headers["X-INFERENCE-API-KEY"] = inf_key
+        headers["X-API-Key"] = inf_key
+        headers["Authorization"] = f"Bearer {inf_key}"
 
     # Route 1: Direct OpenAI-compatible chat completion via Inference
     completions_url = f"{inf_url.rstrip('/')}/v1/chat/completions"
