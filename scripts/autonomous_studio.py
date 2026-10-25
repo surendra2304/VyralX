@@ -257,7 +257,7 @@ def produce_autonomous_short(cfg: dict, db: SessionLocal) -> str:
     db.commit()
 
     # 8. Copy to artifact brain dir
-    brain_dir = Path(r"C:\Users\Surendra\.gemini\antigravity\brain\9eb461ef-8e8c-48bb-9abe-936c30ea157d")
+    brain_dir = Path(r"USER_HOME\.gemini\antigravity\brain\9eb461ef-8e8c-48bb-9abe-936c30ea157d")
     target_artifact = brain_dir / f"{cfg['key']}.mp4"
     shutil.copy2(rendered, target_artifact)
 

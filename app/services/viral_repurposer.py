@@ -212,7 +212,7 @@ def process_and_repurpose_video(candidate: dict[str, Any], db: SessionLocal, *, 
     )
 
     # 5. Copy to showcase artifacts directory
-    brain_dir = Path(r"C:\Users\Surendra\.gemini\antigravity\brain\9eb461ef-8e8c-48bb-9abe-936c30ea157d")
+    brain_dir = Path(r"USER_HOME\.gemini\antigravity\brain\9eb461ef-8e8c-48bb-9abe-936c30ea157d")
     brain_video = brain_dir / f"vyralx-repurpose-{video_id}.mp4"
     brain_thumb = brain_dir / f"vyralx-repurpose-{video_id}-thumbnail.jpg"
     shutil.copy2(rendered, brain_video)

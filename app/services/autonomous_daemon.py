@@ -457,7 +457,7 @@ def execute_production_cycle(cfg: dict, db: SessionLocal, *, publish: bool = Tru
     db.commit()
 
     # Copy to showcase artifact directory
-    brain_dir = Path(r"C:\Users\Surendra\.gemini\antigravity\brain\9eb461ef-8e8c-48bb-9abe-936c30ea157d")
+    brain_dir = Path(r"USER_HOME\.gemini\antigravity\brain\9eb461ef-8e8c-48bb-9abe-936c30ea157d")
     target_artifact = brain_dir / f"{cfg['key']}.mp4"
     target_thumb = brain_dir / f"{cfg['key']}-thumbnail.jpg"
     shutil.copy2(rendered, target_artifact)

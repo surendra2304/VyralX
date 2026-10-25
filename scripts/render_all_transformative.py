@@ -22,7 +22,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("vyralx.render_transformative")
 
-ARTIFACT_DIR = Path(r"C:\Users\Surendra\.gemini\antigravity\brain\9eb461ef-8e8c-48bb-9abe-936c30ea157d")
+ARTIFACT_DIR = Path(r"USER_HOME\.gemini\antigravity\brain\9eb461ef-8e8c-48bb-9abe-936c30ea157d")
 RENDERS_DIR = Path("renders")
 RENDERS_DIR.mkdir(parents=True, exist_ok=True)
 
