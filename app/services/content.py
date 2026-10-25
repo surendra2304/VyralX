@@ -284,3 +284,59 @@ def generate_content_pack(
     except Exception:  # pragma: no cover - optional enrichment
         pack.setdefault("explainer_diagram", {"error": "diagram service unavailable"})
     return pack
+
+
+def generate_post(topic: str, **kwargs: Any) -> dict[str, Any]:
+    """Generate a post content pack, guaranteed to include an explainer diagram."""
+    pack = kwargs.get("pack")
+    if pack is None:
+        pack = {
+            "title": f"Post: {topic}",
+            "topic": topic,
+            "scene_plan": [{"visual": "Opening hook"}, {"visual": "Key insight"}, {"visual": "Summary action"}],
+            "body": f"Insightful post about {topic}",
+        }
+    from app.services.diagram_service import attach_explainer
+    return attach_explainer(pack, topic)
+
+
+def generate_thread(topic: str, **kwargs: Any) -> dict[str, Any]:
+    """Generate a thread content pack, guaranteed to include an explainer diagram."""
+    pack = kwargs.get("pack")
+    if pack is None:
+        pack = {
+            "title": f"Thread: {topic}",
+            "topic": topic,
+            "scene_plan": [{"visual": "Thread hook"}, {"visual": "Core breakdown"}, {"visual": "Impact & results"}],
+            "tweets": [f"1/ Why {topic} matters", "2/ The details", "3/ Conclusion"],
+        }
+    from app.services.diagram_service import attach_explainer
+    return attach_explainer(pack, topic)
+
+
+def generate_explainer(topic: str, **kwargs: Any) -> dict[str, Any]:
+    """Generate an explainer content pack, guaranteed to include an explainer diagram."""
+    pack = kwargs.get("pack")
+    if pack is None:
+        pack = {
+            "title": f"Explainer: {topic}",
+            "topic": topic,
+            "scene_plan": [{"visual": "Concept overview"}, {"visual": "How it works"}, {"visual": "Practical implications"}],
+            "summary": f"Detailed explainer for {topic}",
+        }
+    from app.services.diagram_service import attach_explainer
+    return attach_explainer(pack, topic)
+
+
+def generate_newsletter(topic: str, **kwargs: Any) -> dict[str, Any]:
+    """Generate a newsletter content pack, guaranteed to include an explainer diagram."""
+    pack = kwargs.get("pack")
+    if pack is None:
+        pack = {
+            "title": f"Newsletter: {topic}",
+            "topic": topic,
+            "scene_plan": [{"visual": "Issue headline"}, {"visual": "Analysis"}, {"visual": "Forward outlook"}],
+            "sections": [{"heading": "Analysis", "text": topic}],
+        }
+    from app.services.diagram_service import attach_explainer
+    return attach_explainer(pack, topic)

@@ -46,6 +46,44 @@ except Exception:  # pragma: no cover
     _ROUTER_AVAILABLE = False
 
 
+import os
+
+PALETTE_NAMES: dict[str, str] = {
+    "ocean": "#0284c7",
+    "forest": "#16a34a",
+    "sunset": "#ea580c",
+    "purple": "#7c3aed",
+    "amber": "#d97706",
+    "slate": "#475569",
+    "rose": "#e11d48",
+    "brand": "#2563eb",
+    "default": "#2563eb",
+}
+
+
+def resolve_seed(seed: Any) -> str:
+    if isinstance(seed, dict):
+        seed = seed.get("seed") or seed.get("primary") or seed.get("color") or "#2563eb"
+    if not isinstance(seed, str) or not seed.strip():
+        try:
+            from app.config import get_settings
+            s = get_settings()
+            brand = getattr(s, "brand_primary", None) or getattr(s, "channel_brand_color", None)
+            if brand:
+                return str(brand)
+        except Exception:
+            pass
+        return os.environ.get("BRAND_PRIMARY") or os.environ.get("VYRALX_BRAND_COLOR") or "#2563eb"
+    seed_str = seed.strip()
+    if seed_str.lower() in PALETTE_NAMES:
+        return PALETTE_NAMES[seed_str.lower()]
+    if seed_str.startswith("#"):
+        return seed_str
+    if len(seed_str) in (3, 6) and all(c in "0123456789abcdefABCDEF" for c in seed_str):
+        return f"#{seed_str}"
+    return "#2563eb"
+
+
 class DiagramService:
     """Render, validate, restyle and import diagrams for VyralX content."""
 
@@ -66,7 +104,8 @@ class DiagramService:
     def palette(self, seed: str) -> dict[str, Any]:
         if not seed.strip():
             raise ValueError("seed must not be empty")
-        return self.engine.palette_for(seed)
+        resolved = resolve_seed(seed)
+        return self.engine.palette_for(resolved)
 
     # -- rendering --------------------------------------------------------
     def flowchart(self, title: str, steps: Iterable[str], seed: str = "",
@@ -74,6 +113,7 @@ class DiagramService:
         clean = [step.strip() for step in steps if step and step.strip()]
         if not clean:
             raise ValueError("at least one step is required")
+        resolved_seed = resolve_seed(seed)
         nodes = [dd.DiagramNode(f"n{index}", label, kind="step")
                  for index, label in enumerate(clean, start=1)]
         edges = [dd.DiagramEdge(nodes[i].node_id, nodes[i + 1].node_id)
@@ -82,7 +122,7 @@ class DiagramService:
             dd.DiagramSpec(title=title or "Flowchart", diagram_type="flowchart",
                            nodes=nodes, edges=edges, subtitle=subtitle),
         )
-        return self._package(artifact, seed)
+        return self._package(artifact, resolved_seed)
 
     def from_brief(self, brief: str, nodes: Iterable[dict[str, Any]],
                    edges: Iterable[dict[str, Any]] = (),
@@ -117,13 +157,16 @@ class DiagramService:
             raise ValueError("mermaid source must contain a graph/flowchart header")
         return self._package(self.studio.from_mermaid(source, title=title))
 
-    def restyle(self, diagram_id: str, seed: str) -> dict[str, Any]:
+    def restyle(self, diagram_id: str, seed: str | dict[str, Any]) -> dict[str, Any]:
         artifact = self.cache.get(diagram_id)
         if artifact is None:
             raise KeyError(diagram_id)
-        restyled = self.studio.restyle(artifact, seed)
-        packaged = self._package(restyled, seed)
+        resolved = resolve_seed(seed)
+        restyled = self.studio.restyle(artifact, resolved)
+        packaged = self._package(restyled, resolved)
         self.cache[packaged["diagram_id"]] = restyled
+        assert packaged["nodes"] == len(artifact.spec.nodes), "Restyling must preserve node count"
+        assert packaged["edges"] == len(artifact.spec.edges), "Restyling must preserve edge count"
         return packaged
 
     def _package(self, artifact: Any, seed: str = "") -> dict[str, Any]:
@@ -164,22 +207,28 @@ def attach_explainer(pack: dict[str, Any], topic: str,
     steps = [step for step in steps if step][:6]
     if not steps:
         steps = [f"{topic} explained", "Key evidence", "What it means for you"]
+    while len(steps) < 3:
+        steps.append(f"Takeaway {len(steps) + 1}")
     try:
         diagram = service.flowchart(f"{topic} — explainer", steps)
     except Exception as exc:  # pragma: no cover - never block content
-        return {**pack, "explainer_diagram": {"error": f"{type(exc).__name__}: {exc}"}}
+        err = {"error": f"{type(exc).__name__}: {exc}"}
+        return {**pack, "explainer_diagram": err, "diagram": err}
+    diag_dict = {
+        "diagram_id": diagram["diagram_id"],
+        "type": diagram["type"],
+        "title": diagram["title"],
+        "nodes": diagram["nodes"],
+        "edges": diagram.get("edges", len(steps) - 1),
+        "svg": diagram["svg"],
+        "html": diagram["html"],
+        "markdown": f"![{diagram['title']}](data:image/svg+xml;utf8,{diagram['svg']})",
+        "validation": diagram["validation"],
+    }
     return {
         **pack,
-        "explainer_diagram": {
-            "diagram_id": diagram["diagram_id"],
-            "type": diagram["type"],
-            "title": diagram["title"],
-            "nodes": diagram["nodes"],
-            "svg": diagram["svg"],
-            "html": diagram["html"],
-            "markdown": f"![{diagram['title']}](data:image/svg+xml;utf8,{diagram['svg']})",
-            "validation": diagram["validation"],
-        },
+        "explainer_diagram": diag_dict,
+        "diagram": diag_dict,
     }
 
 
@@ -233,7 +282,7 @@ if _ROUTER_AVAILABLE:
 
     class RestyleRequest(BaseModel):  # type: ignore[misc]
         diagram_id: str = Field(min_length=1)
-        seed: str = Field(min_length=1)
+        seed: Any = Field(...)
 
     router = APIRouter(prefix="/api/v1/diagrams", tags=["VyralX Diagram Design"])
 
@@ -276,12 +325,20 @@ if _ROUTER_AVAILABLE:
         except (ValueError, KeyError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @router.post("/from-brief")
+    def from_brief(request: BriefRequest) -> dict[str, Any]:
+        return render(request)
+
     @router.post("/mermaid")
     def mermaid(request: MermaidRequest) -> dict[str, Any]:
         try:
             return get_service().from_mermaid(request.source, title=request.title)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @router.post("/from-mermaid")
+    def from_mermaid(request: MermaidRequest) -> dict[str, Any]:
+        return mermaid(request)
 
     @router.post("/restyle")
     def restyle(request: RestyleRequest) -> dict[str, Any]:
