@@ -151,7 +151,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: VyralXModern,Montserrat Black,105,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0.5,0,1,5.5,3.0,2,60,60,450,1
+Style: AntonBold,Anton,96,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,0,0,0,0,100,100,1.5,0,1,6.0,3.5,2,70,70,450,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -173,7 +173,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             else:
                 styled.append(w)
         line = " ".join(styled)
-        events.append(f"Dialogue: 0,{st},{et},VyralXModern,,0,0,0,,{line}")
+        events.append(f"Dialogue: 0,{st},{et},AntonBold,,0,0,0,,{line}")
 
     ass_path.parent.mkdir(parents=True, exist_ok=True)
     ass_path.write_text(header + "\n".join(events), encoding="utf-8")
@@ -253,22 +253,6 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
     subprocess.run(cmd, check=True)
     size_mb = dest_video.stat().st_size / (1024 * 1024)
     log.info("Render complete: %s (%.2f MB)", dest_video.name, size_mb)
-
-    # 4. Generate pristine viral thumbnail from the raw clean source clip (ZERO burnt subtitles)
-    try:
-        from app.services.thumbnail_designer import generate_genre_thumbnail
-        thumb_dest = output_dir / f"vyralx-commentary-{job.video_id}-thumbnail.jpg"
-        clean_headline = re.sub(r"[#@][\w]+", "", job.title_concept).strip()
-        generate_genre_thumbnail(
-            video_path=job.source_file,
-            output_path=thumb_dest,
-            headline=clean_headline,
-            category="SATISFYING",
-        )
-        log.info("Pristine high-CTR thumbnail created: %s", thumb_dest.name)
-    except Exception as thumb_err:
-        log.warning("Thumbnail generation warning: %s", thumb_err)
-
     return dest_video
 
 
@@ -297,24 +281,7 @@ def publish_or_stage(job: VideoJob, video_path: Path) -> dict[str, Any]:
             category_id=job.category_id,
         )
         watch_url = f"https://youtube.com/shorts/{yt_id}"
-        log.info("PUBLISHED SUCCESSFULLY! Watch URL: %s", watch_url)
-
-        # Attach custom thumbnail if available
-        thumb_dest = video_path.parent / f"vyralx-commentary-{job.video_id}-thumbnail.jpg"
-        if thumb_dest.is_file():
-            try:
-                from googleapiclient.discovery import build
-                from googleapiclient.http import MediaFileUpload
-                from app.services.youtube import youtube_credentials
-                creds = youtube_credentials()
-                service = build("youtube", "v3", credentials=creds, cache_discovery=False)
-                service.thumbnails().set(
-                    videoId=yt_id,
-                    media_body=MediaFileUpload(str(thumb_dest), mimetype="image/jpeg", resumable=True),
-                ).execute()
-                log.info("SUCCESS! Custom thumbnail attached to video: %s", yt_id)
-            except Exception as th_err:
-                log.warning("Thumbnail upload skipped/fallback: %s", th_err)
+        log.info("PUBLISHED SUCCESSFULLY! Watch URL: %s (Native video frame thumbnail)", watch_url)
 
         # Update published manifest
         manifest_path = Path("data/published_shorts_manifest.json")

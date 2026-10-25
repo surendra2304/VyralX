@@ -82,57 +82,92 @@ def search_and_download_viral_clip(query: str, download_dir: Path) -> Path | Non
         "--match-filter", "duration <= 60 & duration >= 12"
     ]
     res = subprocess.run(search_cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
-    if not res.stdout:
-        log.warning("No search results for query: %s", query)
-        return None
+    if res.stdout:
+        for line in res.stdout.strip().split("\n"):
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+                vid = d.get("id")
+                title = d.get("title", "")
+                desc = d.get("description", "")
+                views = d.get("view_count", 0)
+                dur = d.get("duration", 0)
 
-    for line in res.stdout.strip().split("\n"):
-        if not line:
-            continue
-        try:
-            d = json.loads(line)
-            vid = d.get("id")
-            title = d.get("title", "")
-            desc = d.get("description", "")
-            views = d.get("view_count", 0)
-            dur = d.get("duration", 0)
+                # Strict filter: Reject any clip with talking, commentary, or dialogue
+                if not is_clip_clean_and_silent(title, desc):
+                    continue
 
-            # Strict filter: Reject any clip with talking, commentary, or dialogue
-            if not is_clip_clean_and_silent(title, desc):
+                # Look for clips with strong view velocity
+                if views and views > 200_000:
+                    dest_file = download_dir / f"{vid}.mp4"
+                    if dest_file.exists():
+                        log.info("Clip %s already exists on disk, reusing.", vid)
+                        return dest_file
+
+                    log.info("Found clean viral candidate: %s ('%s', %d views, %ds)", vid, title[:40], views, dur)
+                    dl_cmd = [
+                        "yt-dlp",
+                        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                        "--merge-output-format", "mp4",
+                        "-o", str(dest_file),
+                        f"https://youtube.com/shorts/{vid}"
+                    ]
+                    dl_res = subprocess.run(dl_cmd, capture_output=True)
+                    if dest_file.exists() and dest_file.stat().st_size > 0:
+                        meta_file = download_dir / f"{vid}.json"
+                        meta_file.write_text(
+                            json.dumps({
+                                "id": vid,
+                                "title": title,
+                                "views": views,
+                                "duration": dur,
+                                "description": desc
+                            }, indent=2),
+                            encoding="utf-8"
+                        )
+                        log.info("Successfully ingested clean source: %s (%.2f MB)", dest_file.name, dest_file.stat().st_size / (1024 * 1024))
+                        return dest_file
+            except Exception as e:
                 continue
 
-            # Look for clips with strong view velocity
-            if views and views > 200_000:
-                dest_file = download_dir / f"{vid}.mp4"
-                if dest_file.exists():
-                    log.info("Clip %s already exists on disk, reusing.", vid)
-                    return dest_file
+    # Fallback: Mixkit Licensed High-Motion Video Library (100% reliable on cloud datacenter IPs)
+    log.info("Checking Mixkit high-motion CDN for candidate query: '%s'...", query)
+    try:
+        from app.services.mixkit import import_video_file, search_videos
+        mix_results = search_videos(query, max_results=8)
+        for item in mix_results:
+            vid = str(item.get("id"))
+            dest_file = download_dir / f"mixkit_{vid}.mp4"
+            if dest_file.exists() and dest_file.stat().st_size > 100_000:
+                log.info("Mixkit clip %s already exists on disk, reusing.", dest_file.name)
+                return dest_file
 
-                log.info("Found clean viral candidate: %s ('%s', %d views, %ds)", vid, title[:40], views, dur)
-                dl_cmd = [
-                    "yt-dlp",
-                    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                    "--merge-output-format", "mp4",
-                    "-o", str(dest_file),
-                    f"https://youtube.com/shorts/{vid}"
-                ]
-                dl_res = subprocess.run(dl_cmd, capture_output=True)
-                if dest_file.exists() and dest_file.stat().st_size > 0:
-                    meta_file = download_dir / f"{vid}.json"
-                    meta_file.write_text(
-                        json.dumps({
-                            "id": vid,
-                            "title": title,
-                            "views": views,
-                            "duration": dur,
-                            "description": desc
-                        }, indent=2),
-                        encoding="utf-8"
-                    )
-                    log.info("Successfully ingested clean source: %s (%.2f MB)", dest_file.name, dest_file.stat().st_size / (1024 * 1024))
-                    return dest_file
-        except Exception as e:
-            continue
+            imported = import_video_file(
+                video_id=vid,
+                download_url=item.get("download_url", ""),
+                fallback_url=item.get("fallback_url", ""),
+                title=item.get("title", f"Visual Craft {vid}")
+            )
+            downloaded = Path(imported["file_path"])
+            if downloaded.exists() and downloaded.stat().st_size > 100_000:
+                import shutil
+                shutil.copy2(downloaded, dest_file)
+                meta_file = download_dir / f"mixkit_{vid}.json"
+                meta_file.write_text(
+                    json.dumps({
+                        "id": f"mixkit_{vid}",
+                        "title": item.get("title", query.title()),
+                        "description": f"Satisfying high-speed visual demonstration: {query}",
+                        "duration": 24,
+                    }, indent=2),
+                    encoding="utf-8"
+                )
+                log.info("Successfully ingested clean Mixkit source: %s (%.2f MB)", dest_file.name, dest_file.stat().st_size / (1024 * 1024))
+                return dest_file
+    except Exception as exc:
+        log.warning("Mixkit candidate retrieval notice: %s", exc)
+
     return None
 
 
