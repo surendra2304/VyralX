@@ -292,7 +292,7 @@ class VisualContentSynthesisEngine:
             total_time += render.render_time_sec
 
         return {
-            "batch_id": hashlib.md5(f"batch:{time.time()}").hexdigest()[:12],
+            "batch_id": hashlib.md5(f"batch:{time.time()}".encode()).hexdigest()[:12],
             "total_projects": len(results),
             "total_time_sec": total_time,
             "results": results,

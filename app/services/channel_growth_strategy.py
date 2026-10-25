@@ -145,7 +145,7 @@ class ChannelGrowthStrategist:
         projected_growth = viral_coefficient * 100
 
         loop = GrowthLoop(
-            loop_id=hashlib.md5(f"loop:{name}:{time.time()}").hexdigest()[:12],
+            loop_id=hashlib.md5(f"loop:{name}:{time.time()}".encode()).hexdigest()[:12],
             name=name,
             trigger=trigger,
             action=action,

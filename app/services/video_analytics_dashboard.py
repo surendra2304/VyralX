@@ -190,7 +190,7 @@ class VideoAnalyticsDashboard:
         segments = []
         for i in range(10):
             timestamp_pct = (i + 1) * 10
-            retention_pct = 100 - (i * 8) - (ord(hashlib.md5(f"{video_id}:{i}").encode()) % 5)
+            retention_pct = 100 - (i * 8) - (ord(hashlib.md5(f"{video_id}:{i}".encode()).encode()) % 5)
             segments.append({
                 "timestamp_pct": timestamp_pct,
                 "retention_pct": retention_pct,
@@ -299,7 +299,7 @@ class VideoAnalyticsDashboard:
 
         if metrics.views > 1000000:
             alerts.append(PerformanceAlert(
-                alert_id=hashlib.md5(f"alert:views:{video_id}:{time.time()}").hexdigest()[:12],
+                alert_id=hashlib.md5(f"alert:views:{video_id}:{time.time()}".encode()).hexdigest()[:12],
                 video_id=video_id,
                 alert_type="views_spike",
                 severity="high",
@@ -311,7 +311,7 @@ class VideoAnalyticsDashboard:
 
         if metrics.engagement_rate < 2.0:
             alerts.append(PerformanceAlert(
-                alert_id=hashlib.md5(f"alert:eng:{video_id}:{time.time()}").hexdigest()[:12],
+                alert_id=hashlib.md5(f"alert:eng:{video_id}:{time.time()}".encode()).hexdigest()[:12],
                 video_id=video_id,
                 alert_type="engagement_low",
                 severity="medium",
@@ -323,7 +323,7 @@ class VideoAnalyticsDashboard:
 
         if metrics.virality_score > 40:
             alerts.append(PerformanceAlert(
-                alert_id=hashlib.md5(f"alert:viral:{video_id}:{time.time()}").hexdigest()[:12],
+                alert_id=hashlib.md5(f"alert:viral:{video_id}:{time.time()}".encode()).hexdigest()[:12],
                 video_id=video_id,
                 alert_type="virality_high",
                 severity="high",
@@ -338,7 +338,7 @@ class VideoAnalyticsDashboard:
 
     def create_dashboard(self, title: str) -> dict:
         """Create a dashboard."""
-        dashboard_id = hashlib.md5(f"dashboard:{title}:{time.time()}").hexdigest()[:12]
+        dashboard_id = hashlib.md5(f"dashboard:{title}:{time.time()}".encode()).hexdigest()[:12]
 
         widgets = [
             DashboardWidget(
