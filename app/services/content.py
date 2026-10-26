@@ -146,8 +146,40 @@ def generate_content_pack(
     target_seconds: int = 45,
     research_context: list[dict[str, Any]] | None = None,
     memora_context: list[dict[str, Any]] | None = None,
+    use_money_printer: bool = True,
 ) -> dict[str, Any]:
-    """Use Inference /v1/task/execute to generate original scripts and scene plans."""
+    """Use Inference /v1/task/execute to generate original scripts and scene plans.
+    
+    When use_money_printer=True, uses MoneyPrinterTurbo pipeline for enhanced
+    script generation with scene planning, voiceover, and video assembly.
+    """
+    # Use MoneyPrinterTurbo if requested
+    if use_money_printer:
+        try:
+            logger.info(f"[CONTENT] Using MoneyPrinterTurbo pipeline for topic: {topic}")
+            script_result = generate_script_with_money_printer(topic, [], "en")
+            
+            return {
+                "topic": topic,
+                "video_format": video_format,
+                "audience": audience,
+                "hook": script_result["hook"],
+                "script": script_result["script"],
+                "scene_plan": script_result["scene_plan"],
+                "voiceover": script_result["voiceover"],
+                "caption": script_result["caption"],
+                "titles": script_result["titles"],
+                "description": script_result["description"],
+                "tags": script_result["tags"],
+                "thumbnail_brief": script_result["thumbnail_brief"],
+                "metadata": {
+                    "generator": "money_printer_turbo",
+                    "word_count": len(script_result["script"].split()),
+                }
+            }
+        except Exception as e:
+            logger.warning(f"[CONTENT] MoneyPrinterTurbo failed, falling back to Inference: {e}")
+    
     settings = get_settings()
     if not settings.inference_url or not settings.inference_api_key:
         raise RuntimeError("INFERENCE_URL and INFERENCE_API_KEY must be configured")
@@ -340,3 +372,408 @@ def generate_newsletter(topic: str, **kwargs: Any) -> dict[str, Any]:
         }
     from app.services.diagram_service import attach_explainer
     return attach_explainer(pack, topic)
+
+# ── MoneyPrinterTurbo Integration ─────────────────────────────────────────
+
+def generate_script_with_money_printer(topic: str, keywords: list[str] | None = None, language: str = "en") -> dict[str, Any]:
+    """Generate video script using MoneyPrinterTurbo's script generator."""
+    try:
+        from app.agents.real_money_printer import (
+            MoneyPrinterScriptGenerator, MoneyPrinterVideoAssembler,
+        )
+
+        if not keywords:
+            keywords = [topic.replace(" ", "_").lower(), f"{topic} guide", f"{topic} tutorial"]
+
+        generator = MoneyPrinterScriptGenerator()
+        chunks = generator.generate_script(topic, keywords, language)
+
+        script_parts = []
+        scene_plan = []
+        for i, chunk in enumerate(chunks):
+            script_parts.append(chunk.text)
+            scene_plan.append({
+                "timecode": f"{sum(c.estimated_duration for c in chunks[:i]):.0f}s",
+                "visual": chunk.visual_suggestion,
+                "on_screen_text": chunk.text[:100],
+            })
+
+        script_text = "\n\n".join(script_parts)
+
+        return {
+            "hook": chunks[0].text if chunks else topic,
+            "script": script_text,
+            "scene_plan": scene_plan,
+            "voiceover": script_text,
+            "caption": script_text,
+            "title_options": [f"{topic} - Complete Guide", f"Everything About {topic}"],
+            "description": f"Learn everything about {topic}. Subscribe for more content!",
+            "tags": keywords[:5],
+            "thumbnail_brief": f"Eye-catching thumbnail for {topic}",
+            "provider_model": "money_printer_turbo",
+        }
+    except Exception as e:
+        raise ValueError(f"MoneyPrinterTurbo script generation failed: {e}")
+
+
+def create_video_with_money_printer(topic: str, keywords: list[str] | None = None, language: str = "en") -> dict[str, Any]:
+    """
+    Create a complete video using MoneyPrinterTurbo pipeline.
+    Generates script, creates video project, and assembles final video.
+    
+    Args:
+        topic: Video topic
+        keywords: Focus keywords
+        language: Language code
+        
+    Returns:
+        Dictionary with video project and assembly status
+    """
+    try:
+        logger.info(f"[CONTENT] Starting MoneyPrinterTurbo video creation for: {topic}")
+        
+        # Step 1: Generate script
+        script_result = generate_script_with_money_printer(topic, keywords or [], language)
+        
+        # Step 2: Create video project
+        from app.agents.real_money_printer import MoneyPrinterPipeline, PipelineConfig
+        
+        config = PipelineConfig(
+            topic=topic,
+            keywords=keywords or [],
+            language=language,
+            video_format="shorts"
+        )
+        
+        pipeline = MoneyPrinterPipeline(config)
+        script_chunks = pipeline.generate_script()
+        project = pipeline.create_project()
+        segments = pipeline.generate_segments()
+        
+        # Step 3: Assemble video
+        video_result = pipeline.assemble_video()
+        
+        return {
+            "topic": topic,
+            "script": script_result["script"],
+            "scene_plan": script_result["scene_plan"],
+            "project": project.to_dict(),
+            "segments": [seg.to_dict() for seg in segments],
+            "video_result": video_result,
+            "status": "completed",
+            "metadata": {
+                "generator": "money_printer_turbo",
+                "total_duration": project.total_duration(),
+                "total_words": project.total_words(),
+            }
+        }
+    except Exception as e:
+        logger.error(f"[CONTENT] MoneyPrinterTurbo video creation failed: {e}")
+        raise
+
+
+def create_video_with_money_printer(topic: str, keywords: list[str] | None = None, language: str = "en") -> dict[str, Any]:
+    """
+    Create a complete video using MoneyPrinterTurbo pipeline.
+    Generates script, creates video project, and assembles final video.
+    
+    Args:
+        topic: Video topic
+        keywords: Focus keywords
+        language: Language code
+        
+    Returns:
+        Dictionary with video project and assembly status
+    """
+    try:
+        logger.info(f"[CONTENT] Starting MoneyPrinterTurbo video creation for: {topic}")
+        
+        # Step 1: Generate script
+        script_result = generate_script_with_money_printer(topic, keywords or [], language)
+        
+        # Step 2: Create video project
+        from app.agents.real_money_printer import MoneyPrinterPipeline, PipelineConfig
+        
+        config = PipelineConfig(
+            topic=topic,
+            keywords=keywords or [],
+            language=language,
+            video_format="shorts"
+        )
+        
+        pipeline = MoneyPrinterPipeline(config)
+        script_chunks = pipeline.generate_script()
+        project = pipeline.create_project()
+        segments = pipeline.generate_segments()
+        
+        # Step 3: Assemble video
+        video_result = pipeline.assemble_video()
+        
+        return {
+            "topic": topic,
+            "script": script_result["script"],
+            "scene_plan": script_result["scene_plan"],
+            "project": project.to_dict(),
+            "segments": [seg.to_dict() for seg in segments],
+            "video_result": video_result,
+            "status": "completed",
+            "metadata": {
+                "generator": "money_printer_turbo",
+                "total_duration": project.total_duration(),
+                "total_words": project.total_words(),
+            }
+        }
+    except Exception as e:
+        logger.error(f"[CONTENT] MoneyPrinterTurbo video creation failed: {e}")
+        raise
+
+
+def create_video_with_money_printer(topic: str, keywords: list[str] | None = None, language: str = "en") -> dict[str, Any]:
+    """
+    Create a complete video using MoneyPrinterTurbo pipeline.
+    Generates script, creates video project, and assembles final video.
+    
+    Args:
+        topic: Video topic
+        keywords: Focus keywords
+        language: Language code
+        
+    Returns:
+        Dictionary with video project and assembly status
+    """
+    try:
+        logger.info(f"[CONTENT] Starting MoneyPrinterTurbo video creation for: {topic}")
+        
+        # Step 1: Generate script
+        script_result = generate_script_with_money_printer(topic, keywords or [], language)
+        
+        # Step 2: Create video project
+        from app.agents.real_money_printer import MoneyPrinterPipeline, PipelineConfig
+        
+        config = PipelineConfig(
+            topic=topic,
+            keywords=keywords or [],
+            language=language,
+            video_format="shorts"
+        )
+        
+        pipeline = MoneyPrinterPipeline(config)
+        script_chunks = pipeline.generate_script()
+        project = pipeline.create_project()
+        segments = pipeline.generate_segments()
+        
+        # Step 3: Assemble video
+        video_result = pipeline.assemble_video()
+        
+        return {
+            "topic": topic,
+            "script": script_result["script"],
+            "scene_plan": script_result["scene_plan"],
+            "project": project.to_dict(),
+            "segments": [seg.to_dict() for seg in segments],
+            "video_result": video_result,
+            "status": "completed",
+            "metadata": {
+                "generator": "money_printer_turbo",
+                "total_duration": project.total_duration(),
+                "total_words": project.total_words(),
+            }
+        }
+    except Exception as e:
+        logger.error(f"[CONTENT] MoneyPrinterTurbo video creation failed: {e}")
+        raise
+
+
+def create_video_with_money_printer(topic: str, keywords: list[str] | None = None, language: str = "en") -> dict[str, Any]:
+    """
+    Create a complete video using MoneyPrinterTurbo pipeline.
+    Generates script, creates video project, and assembles final video.
+    
+    Args:
+        topic: Video topic
+        keywords: Focus keywords
+        language: Language code
+        
+    Returns:
+        Dictionary with video project and assembly status
+    """
+    try:
+        logger.info(f"[CONTENT] Starting MoneyPrinterTurbo video creation for: {topic}")
+        
+        # Step 1: Generate script
+        script_result = generate_script_with_money_printer(topic, keywords or [], language)
+        
+        # Step 2: Create video project
+        from app.agents.real_money_printer import MoneyPrinterPipeline, PipelineConfig
+        
+        config = PipelineConfig(
+            topic=topic,
+            keywords=keywords or [],
+            language=language,
+            video_format="shorts"
+        )
+        
+        pipeline = MoneyPrinterPipeline(config)
+        script_chunks = pipeline.generate_script()
+        project = pipeline.create_project()
+        segments = pipeline.generate_segments()
+        
+        # Step 3: Assemble video
+        video_result = pipeline.assemble_video()
+        
+        return {
+            "topic": topic,
+            "script": script_result["script"],
+            "scene_plan": script_result["scene_plan"],
+            "project": project.to_dict(),
+            "segments": [seg.to_dict() for seg in segments],
+            "video_result": video_result,
+            "status": "completed",
+            "metadata": {
+                "generator": "money_printer_turbo",
+                "total_duration": project.total_duration(),
+                "total_words": project.total_words(),
+            }
+        }
+    except Exception as e:
+        logger.error(f"[CONTENT] MoneyPrinterTurbo video creation failed: {e}")
+        raise
+
+
+def create_video_with_money_printer(topic: str, keywords: list[str] | None = None, language: str = "en") -> dict[str, Any]:
+    """
+    Create a complete video using MoneyPrinterTurbo pipeline.
+    Generates script, creates video project, and assembles final video.
+    
+    Args:
+        topic: Video topic
+        keywords: Focus keywords
+        language: Language code
+        
+    Returns:
+        Dictionary with video project and assembly status
+    """
+    try:
+        logger.info(f"[CONTENT] Starting MoneyPrinterTurbo video creation for: {topic}")
+        
+        # Step 1: Generate script
+        script_result = generate_script_with_money_printer(topic, keywords or [], language)
+        
+        # Step 2: Create video project
+        from app.agents.real_money_printer import MoneyPrinterPipeline, PipelineConfig
+        
+        config = PipelineConfig(
+            topic=topic,
+            keywords=keywords or [],
+            language=language,
+            video_format="shorts"
+        )
+        
+        pipeline = MoneyPrinterPipeline(config)
+        script_chunks = pipeline.generate_script()
+        project = pipeline.create_project()
+        segments = pipeline.generate_segments()
+        
+        # Step 3: Assemble video
+        video_result = pipeline.assemble_video()
+        
+        return {
+            "topic": topic,
+            "script": script_result["script"],
+            "scene_plan": script_result["scene_plan"],
+            "project": project.to_dict(),
+            "segments": [seg.to_dict() for seg in segments],
+            "video_result": video_result,
+            "status": "completed",
+            "metadata": {
+                "generator": "money_printer_turbo",
+                "total_duration": project.total_duration(),
+                "total_words": project.total_words(),
+            }
+        }
+    except Exception as e:
+        logger.error(f"[CONTENT] MoneyPrinterTurbo video creation failed: {e}")
+        raise
+
+
+def create_video_with_money_printer(topic: str, keywords: list[str] | None = None, language: str = "en") -> dict[str, Any]:
+    """
+    Create a complete video using MoneyPrinterTurbo pipeline.
+    Generates script, creates video project, and assembles final video.
+    
+    Args:
+        topic: Video topic
+        keywords: Focus keywords
+        language: Language code
+        
+    Returns:
+        Dictionary with video project and assembly status
+    """
+    try:
+        logger.info(f"[CONTENT] Starting MoneyPrinterTurbo video creation for: {topic}")
+        
+        # Step 1: Generate script
+        script_result = generate_script_with_money_printer(topic, keywords or [], language)
+        
+        # Step 2: Create video project
+        from app.agents.real_money_printer import MoneyPrinterPipeline, PipelineConfig
+        
+        config = PipelineConfig(
+            topic=topic,
+            keywords=keywords or [],
+            language=language,
+            video_format="shorts"
+        )
+        
+        pipeline = MoneyPrinterPipeline(config)
+        script_chunks = pipeline.generate_script()
+        project = pipeline.create_project()
+        segments = pipeline.generate_segments()
+        
+        # Step 3: Assemble video
+        video_result = pipeline.assemble_video()
+        
+        return {
+            "topic": topic,
+            "script": script_result["script"],
+            "scene_plan": script_result["scene_plan"],
+            "project": project.to_dict(),
+            "segments": [seg.to_dict() for seg in segments],
+            "video_result": video_result,
+            "status": "completed",
+            "metadata": {
+                "generator": "money_printer_turbo",
+                "total_duration": project.total_duration(),
+                "total_words": project.total_words(),
+            }
+        }
+    except Exception as e:
+        logger.error(f"[CONTENT] MoneyPrinterTurbo video creation failed: {e}")
+        raise
+
+
+def assemble_video_with_money_printer(project_config: dict[str, Any]) -> dict[str, Any]:
+    """Assemble video using MoneyPrinterTurbo's pipeline."""
+    try:
+        from app.agents.real_money_printer import (
+            MoneyPrinterPipeline,
+        )
+
+        config = MoneyPrinterPipeline.PipelineConfig(
+            topic=project_config.get("topic", ""),
+            keywords=project_config.get("keywords", []),
+            language=project_config.get("language", "en"),
+            aspect_ratio=project_config.get("aspect_ratio", "9:16"),
+            bgm_genre=project_config.get("bgm_genre", "lofi"),
+            num_segments=project_config.get("num_segments", 5),
+        )
+
+        pipeline = MoneyPrinterPipeline(config)
+        chunks = pipeline.generate_script()
+        project = pipeline.create_project()
+        segments = pipeline.generate_segments()
+        result = pipeline.assemble_video()
+
+        return result
+    except Exception as e:
+        raise ValueError(f"MoneyPrinterTurbo video assembly failed: {e}")
