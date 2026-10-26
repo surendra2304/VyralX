@@ -25,6 +25,7 @@ log = logging.getLogger("vyralx.cleanup")
 PROTECTED_IDS = {"sAymMXXCjFQ", "1C9CyiqW1kI"}
 
 BAD_STOCK_DRAFT_IDS = [
+    "zxahvBAgLnQ",  # Matrix Fast Green Code Stream
     "Kl_C7mZOUC0",  # High Speed Money Counting Machine
     "iQm8hNqQoSE",  # Glowing Fiber Optics
     "cJhhB9zxP-s",  # Kinetic Sand Clean Slicing
@@ -69,6 +70,10 @@ def cleanup():
             log.info("Manifest cleaned: preserved %d authentic master videos, removed all bad stock entries.", len(cleaned))
         except Exception as e:
             log.warning("Error updating manifest: %s", e)
+
+    run_manifest = Path("data/autonomous_run_manifest.json")
+    if run_manifest.exists():
+        run_manifest.write_text("[]", encoding="utf-8")
 
     log.info("Cleanup complete: %d bad drafts deleted from YouTube Studio.", deleted_count)
 
