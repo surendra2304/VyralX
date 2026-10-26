@@ -35,7 +35,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [VyralX-Master] %(message)s")
 log = logging.getLogger("vyralx.master")
 
-MASTER_CATALOG = {
+MASTER_CATALOG: dict[str, dict[str, Any]] = {
     "heI4DLab-l8": {
         "title": "Trying Not to Laugh in a Dead-Silent Classroom 😭💀 #Shorts",
         "topic": "school relatable comedy",
@@ -101,6 +101,49 @@ MASTER_CATALOG = {
         "cyan_keywords": {"SPORTS", "CAR", "CHEETAH", "PURRING", "ROAR", "VOCAL", "BONE", "TWENTY-FIVE", "HERTZ", "SAFE", "RELAXED"},
         "debate_question": "Would you pet a wild cheetah if you had the chance? YES or NO? 🐆👇",
         "tags": ["shorts", "wildlife", "cheetah", "animals", "nature", "purring", "viral"]
+    },
+    "JjuQ2ink05Q": {
+        "title": "The Most Satisfying Video On The Internet 🤤✨ #Shorts",
+        "topic": "oddly satisfying precision",
+        "category_id": "24",
+        "voice": "en-US-GuyNeural",
+        "script": (
+            "This might be the single most oddly satisfying video on the entire internet. "
+            "From razor-sharp blades slicing through kinetic sand to millimeter-perfect liquid flow, "
+            "every single second resets your brain. "
+            "You are already watching this for the second time."
+        ),
+        "cyan_keywords": {"ODDLY", "SATISFYING", "INTERNET", "RAZOR-SHARP", "BLADES", "SLICING", "KINETIC", "SAND", "MILLIMETER-PERFECT", "RESETS", "BRAIN", "SECOND", "TIME"},
+        "debate_question": "On a scale of 1 to 10, how satisfying was this? Be honest! 🤤👇",
+        "tags": ["shorts", "satisfying", "oddly satisfying", "kinetic sand", "relaxing", "trending", "viral"]
+    },
+    "bS_CSAPHjUY": {
+        "title": "How To Open A Can With Just Concrete 🏕️🥫 #Shorts",
+        "topic": "survival genius hacks",
+        "category_id": "24",
+        "voice": "en-US-GuyNeural",
+        "script": (
+            "If you are ever trapped in the wild with canned food and no can opener, do not panic. "
+            "Turn the can upside down and rub the rim vigorously against rough concrete for twenty seconds. "
+            "The friction wears down the seal instantly. Give it a gentle squeeze, and the lid pops right off."
+        ),
+        "cyan_keywords": {"TRAPPED", "WILD", "CANNED", "FOOD", "OPENER", "PANIC", "CONCRETE", "RUB", "FRICTION", "SEAL", "INSTANTLY", "POPS", "LID"},
+        "debate_question": "Did you know about this concrete trick before watching this? YES or NO? 🏕️👇",
+        "tags": ["shorts", "survival", "lifehacks", "bushcraft", "camping", "diy", "smart hacks", "viral"]
+    },
+    "k--pkJcePTM": {
+        "title": "Millimeter-Perfect Extreme Stunt That Shocked Millions 😱🔥 #Shorts",
+        "topic": "extreme precision stunts",
+        "category_id": "24",
+        "voice": "en-US-GuyNeural",
+        "script": (
+            "One inch to the left, and this would have been an absolute catastrophe. "
+            "Watch the insane level of millimeter precision as this stunt is executed with zero margin for error. "
+            "That is pure raw talent and nerves of steel."
+        ),
+        "cyan_keywords": {"ONE", "INCH", "CATASTROPHE", "INSANE", "MILLIMETER", "PRECISION", "ZERO", "MARGIN", "ERROR", "TALENT", "STEEL"},
+        "debate_question": "Rate this insane stunt from 1 to 10! 🔥👇",
+        "tags": ["shorts", "stunt", "extreme", "precision", "insane", "one in a million", "viral"]
     }
 }
 
@@ -184,6 +227,7 @@ def render_and_draft_video(vid: str, conf: dict[str, Any]) -> dict[str, Any]:
         raise FileNotFoundError(f"Source file not found: {source_file}")
 
     dest_video = Path(f"media/edited_videos/vyralx-commentary-{vid}.mp4").resolve()
+    dest_video.parent.mkdir(parents=True, exist_ok=True)
     audio_path = Path(f"media/voiceovers/voice_master_{vid}.mp3").resolve()
     ass_path = Path(f"media/voiceovers/subs_master_{vid}.ass").resolve()
 
@@ -238,6 +282,7 @@ def render_and_draft_video(vid: str, conf: dict[str, Any]) -> dict[str, Any]:
 
     log.info("Rendering %s -> %s...", source_file.name, dest_video.name)
     subprocess.run(cmd, check=True)
+
     size_mb = dest_video.stat().st_size / (1024 * 1024)
     log.info("Render complete: %s (%.2f MB)", dest_video.name, size_mb)
 
