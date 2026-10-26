@@ -166,23 +166,27 @@ def analyze_video_frames(video_path: Path, num_frames: int = 4) -> VisualAnalysi
         title_context = video_path.stem.replace("-", " ").replace("_", " ").title()
 
     prompt = (
-        f"Video Title / Action: {title_context}\n"
-        f"Clip Duration: {duration:.1f} seconds.\n"
-        "TASK:\n"
-        "1. Write an energetic, witty, high-retention commentary voiceover script (35 to 55 words, ~18-22 seconds) "
-        "that describes, reacts to, and highlights this exact visual action second-by-second.\n"
-        "MANDATORY INVARIANTS:\n"
-        "- ZERO GENERIC FILLER: Never say 'Wait till the end', 'You won't believe this', 'Watch what happens next'.\n"
-        "- STRICT RELEVANCE: Speak specifically about the action, physical movement, and tension on screen.\n"
-        "- VOICE: Natural, charismatic, confident (no corporate speak, zero 'sir').\n"
-        "- START DIRECTLY WITH '{' AND END WITH '}'. NO THINKING. NO MARKDOWN. NO PREAMBLE.\n"
+        f"Video Subject: {title_context}\n"
+        f"Clip Length: {duration:.1f}s\n\n"
+        "TASK: Write a genuinely viral, funny, high-hook commentary narration for YouTube Shorts (35 to 55 words, ~18-24 seconds).\n"
+        "STYLE: High-energy, relatable, charismatic storyteller (like Daily Dose of Internet meets high-end viral comedy).\n"
+        "STORYTELLING BLUEPRINT:\n"
+        "1. Immediate Relatable Hook: Start with a captivating, funny opening (e.g., 'When you jokingly ask for...', 'He dressed up for... but the menu had other plans', 'We all have that one friend who...').\n"
+        "2. Escalating Story: Describe the absurdity, hilarious reaction, unexpected turn, or crazy skill with punchy, colorful language.\n"
+        "3. Memorable Finish: End with a funny observation, punchline, or mic-drop summary.\n\n"
+        "CRITICAL RULES:\n"
+        "- NEVER use robotic timestamps like 'At zero seconds', 'At two seconds', 'By tick three', 'At frame four'.\n"
+        "- NEVER say generic clickbait like 'Wait till the end', 'You won't believe this', 'Watch till the end'.\n"
+        "- NO corporate speak, ZERO 'sir'. Use conversational, confident, punchy English.\n"
+        "- START DIRECTLY WITH '{' AND END WITH '}'. NO THINKING. NO MARKDOWN. NO PREAMBLE.\n\n"
+        "OUTPUT JSON FORMAT:\n"
         "{\n"
-        f'  "visual_summary": "One sentence describing the exact scene and action for {title_context}",\n'
-        '  "script": "Complete spoken voiceover narration perfectly matching the visual events (around 40 words)",\n'
+        f'  "visual_summary": "One sentence describing the core humor or action in {title_context}",\n'
+        '  "script": "The complete spoken viral voiceover narration (~40-50 words)",\n'
         f'  "title": "{title_context} #Shorts",\n'
-        '  "cyan_keywords": ["KEYWORD1", "KEYWORD2", "KEYWORD3", "KEYWORD4"],\n'
-        '  "debate_question": "Provocative question directly related to the video action for comments",\n'
-        '  "tags": ["shorts", "viral", "trending"]\n'
+        '  "cyan_keywords": ["HOOK", "PUNCH", "KEYWORD", "ACTION"],\n'
+        '  "debate_question": "Engaging, funny question for the comments to drive replies",\n'
+        '  "tags": ["shorts", "viral", "comedy", "trending", "funny"]\n'
         "}"
     )
 

@@ -141,8 +141,51 @@ async def generate_speech_with_word_sync(script: str, voice: str, audio_file: Pa
     return chunks
 
 
+def check_video_has_audio(file_path: Path) -> bool:
+    """Checks if source video has an active audio stream."""
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "a:0",
+            "-show_entries", "stream=codec_type",
+            "-of", "csv=p=0",
+            str(file_path)
+        ]
+        res = subprocess.check_output(cmd).decode().strip()
+        return "audio" in res
+    except Exception:
+        return False
+
+
+def get_video_dimensions(file_path: Path) -> tuple[int, int]:
+    """Retrieves source video dimensions (width, height)."""
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=s=x:p=0",
+            str(file_path)
+        ]
+        out = subprocess.check_output(cmd).decode().strip()
+        parts = out.split("x")
+        return int(parts[0]), int(parts[1])
+    except Exception:
+        return 1080, 1920
+
+
+def get_ambient_bgm() -> Path | None:
+    """Finds an ambient/upbeat background music track for silent clips."""
+    import random
+    candidates = []
+    for dir_path in [Path("media/music"), Path("data/music"), PROJECT_ROOT / "media/music", PROJECT_ROOT / "data/music"]:
+        if dir_path.exists():
+            candidates.extend(list(dir_path.glob("*.mp3")) + list(dir_path.glob("*.m4a")))
+    return random.choice(candidates) if candidates else None
+
+
 def build_ass_subtitles(cues: list[dict[str, Any]], cyan_words: set[str], ass_path: Path):
-    """Builds styled ASS subtitle file using wide un-squeezed Montserrat Black at 105pt."""
+    """Builds styled ASS subtitle file using punchy Anton Bold at 86pt with Shorts UI safe zone."""
     header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -152,7 +195,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: AntonBold,Anton,96,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,0,0,0,0,100,100,1.5,0,1,6.0,3.5,2,70,70,450,1
+Style: AntonBold,Anton,86,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,0,0,0,0,100,100,1.2,0,1,5.5,3.0,2,80,80,380,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -178,11 +221,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     ass_path.parent.mkdir(parents=True, exist_ok=True)
     ass_path.write_text(header + "\n".join(events), encoding="utf-8")
-    log.info("ASS Subtitles generated: %s (%d events)", ass_path.name, len(events))
+    log.info("ASS Subtitles generated: %s (%d events, safe zone MarginV=380)", ass_path.name, len(events))
 
 
 def render_video_job(job: VideoJob, output_dir: Path) -> Path:
-    """Renders high-voltage vertical short with audio mastering and burned subtitles."""
+    """Renders high-voltage vertical short with audio mastering, ducking, and adaptive framing."""
     output_dir.mkdir(parents=True, exist_ok=True)
     dest_video = output_dir / f"vyralx-commentary-{job.video_id}.mp4"
 
@@ -194,7 +237,6 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
     # 1. Synthesize audio
     cues = asyncio.run(generate_speech_with_word_sync(job.script, job.voice, audio_path))
 
-    # Auto-bound duration to speech end + 1.0s buffer to avoid rendering trailing dead air
     render_duration = job.trim_duration
     if not render_duration and cues:
         render_duration = round(cues[-1]["end"] + 1.0, 2)
@@ -215,14 +257,49 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
         drive, rest = ass_filter_path.split(":", 1)
         ass_filter_path = f"{drive}\\:{rest}"
 
-    video_filter = (
-        f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
-        f"crop=1080:1920,eq=contrast=1.06:saturation=1.12,"
-        f"subtitles='{ass_filter_path}':fontsdir='{fonts_dir_escaped}'[v]"
-    )
+    # 4. Adaptive Framing (detect landscape vs portrait)
+    width, height = get_video_dimensions(job.source_file)
+    if width > height:
+        log.info("Landscape video detected (%dx%d): Applying cinematic blurred background padding...", width, height)
+        video_filter = (
+            f"[0:v]split[bg][fg];"
+            f"[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=22:22,eq=brightness=-0.12[blurred_bg];"
+            f"[fg]scale=1080:-1[sharp_fg];"
+            f"[blurred_bg][sharp_fg]overlay=(W-w)/2:(H-h)/2[base_v];"
+            f"[base_v]subtitles='{ass_filter_path}':fontsdir='{fonts_dir_escaped}'[v]"
+        )
+    else:
+        video_filter = (
+            f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+            f"crop=1080:1920,eq=contrast=1.06:saturation=1.10,"
+            f"subtitles='{ass_filter_path}':fontsdir='{fonts_dir_escaped}'[v]"
+        )
 
-    # Single clean voice track: Completely mute/exclude original speech to eliminate all voice overlap
-    audio_filter = "[1:a]volume=1.0,loudnorm=I=-14:LRA=9:TP=-1.5[a]"
+    # 5. Dual-Layer Audio Mastering: preserve original sound ducked, or add BGM if silent
+    has_audio = check_video_has_audio(job.source_file)
+    bgm_track = None
+    extra_inputs = []
+
+    if has_audio:
+        log.info("Source clip has original audio: Applying 22%% ducked mix under voiceover...")
+        audio_filter = (
+            "[0:a]volume=0.22[orig_a];"
+            "[1:a]volume=1.0[voice_a];"
+            "[orig_a][voice_a]amix=inputs=2:duration=first:dropout_transition=2,loudnorm=I=-14:LRA=9:TP=-1.5[a]"
+        )
+    else:
+        bgm_track = get_ambient_bgm()
+        if bgm_track:
+            log.info("Silent source clip detected: Mixing ducked ambient track '%s' (14%% volume)...", bgm_track.name)
+            extra_inputs.extend(["-stream_loop", "-1", "-i", str(bgm_track.resolve())])
+            audio_filter = (
+                "[2:a]volume=0.14[bgm_a];"
+                "[1:a]volume=1.0[voice_a];"
+                "[voice_a][bgm_a]amix=inputs=2:duration=first:dropout_transition=2,loudnorm=I=-14:LRA=9:TP=-1.5[a]"
+            )
+        else:
+            log.info("Silent source with no BGM: Clean voice mastering...")
+            audio_filter = "[1:a]volume=1.0,loudnorm=I=-14:LRA=9:TP=-1.5[a]"
 
     cmd = [
         "ffmpeg",
@@ -237,6 +314,9 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
     cmd.extend([
         "-i", str(job.source_file.resolve()),
         "-i", str(audio_path),
+    ])
+    cmd.extend(extra_inputs)
+    cmd.extend([
         "-filter_complex", f"{video_filter};{audio_filter}",
         "-map", "[v]",
         "-map", "[a]",
