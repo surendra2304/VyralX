@@ -22,9 +22,10 @@ sys.stdout.reconfigure(encoding="utf-8")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [VyralX-Cleanup] %(message)s")
 log = logging.getLogger("vyralx.cleanup")
 
-PROTECTED_IDS = {"sAymMXXCjFQ", "1C9CyiqW1kI"}
+PROTECTED_IDS = {"sAymMXXCjFQ", "1C9CyiqW1kI", "tONnSERd8sk"}
 
 BAD_STOCK_DRAFT_IDS = [
+    "Kd8H9u14EgU",  # Precision Laser CNC Machine Cutting Metal (Stock B-roll)
     "ITApbTejLEc",  # Supercar Drifts
     "ZWVUTfKs49k",  # Track Turned Stunt Playground
     "zxahvBAgLnQ",  # Matrix Fast Green Code Stream
