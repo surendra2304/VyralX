@@ -25,6 +25,8 @@ log = logging.getLogger("vyralx.cleanup")
 PROTECTED_IDS = {"sAymMXXCjFQ", "1C9CyiqW1kI"}
 
 BAD_STOCK_DRAFT_IDS = [
+    "ITApbTejLEc",  # Supercar Drifts
+    "ZWVUTfKs49k",  # Track Turned Stunt Playground
     "zxahvBAgLnQ",  # Matrix Fast Green Code Stream
     "Kl_C7mZOUC0",  # High Speed Money Counting Machine
     "iQm8hNqQoSE",  # Glowing Fiber Optics
@@ -43,7 +45,7 @@ BAD_STOCK_DRAFT_IDS = [
 
 def cleanup():
     yt = youtube_service()
-    log.info("Starting cleanup of %d bad stock draft videos from YouTube...", len(BAD_STOCK_DRAFT_IDS))
+    log.info("Starting cleanup of %d bad draft videos from YouTube...", len(BAD_STOCK_DRAFT_IDS))
 
     deleted_count = 0
     for vid in BAD_STOCK_DRAFT_IDS:
@@ -67,7 +69,7 @@ def cleanup():
                 if (item.get("yt_id") in PROTECTED_IDS or item.get("youtube_id") in PROTECTED_IDS)
             ]
             manifest_path.write_text(json.dumps(cleaned, indent=2), encoding="utf-8")
-            log.info("Manifest cleaned: preserved %d authentic master videos, removed all bad stock entries.", len(cleaned))
+            log.info("Manifest cleaned: preserved %d authentic master videos, removed all bad entries.", len(cleaned))
         except Exception as e:
             log.warning("Error updating manifest: %s", e)
 
