@@ -236,9 +236,9 @@ class MultilingualContentTranslator:
         report = LocalizationReport(video_id=video_id)
 
         report.translation_accuracy = 0.75 + (ord(hashlib.md5(video_id.encode()).hexdigest()[:1]) % 25) / 100
-        report.cultural_relevance = 0.65 + (ord(hashlib.md5(f"cultural:{video_id}".encode()).encode()) % 30) / 100
-        report.subtitle_sync = 0.85 + (ord(hashlib.md5(f"sync:{video_id}".encode()).encode()) % 15) / 100
-        report.voice_quality = 0.70 + (ord(hashlib.md5(f"voice:{video_id}".encode()).encode()) % 30) / 100
+        report.cultural_relevance = 0.65 + (ord(hashlib.md5(f"cultural:{video_id}".encode()).hexdigest()[:1]) % 30) / 100
+        report.subtitle_sync = 0.85 + (ord(hashlib.md5(f"sync:{video_id}".encode()).hexdigest()[:1]) % 15) / 100
+        report.voice_quality = 0.70 + (ord(hashlib.md5(f"voice:{video_id}".encode()).hexdigest()[:1]) % 30) / 100
 
         report.overall_score = (
             report.translation_accuracy * 0.3 +

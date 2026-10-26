@@ -190,7 +190,7 @@ class VideoAnalyticsDashboard:
         segments = []
         for i in range(10):
             timestamp_pct = (i + 1) * 10
-            retention_pct = 100 - (i * 8) - (ord(hashlib.md5(f"{video_id}:{i}".encode()).encode()) % 5)
+            retention_pct = 100 - (i * 8) - (ord(hashlib.md5(f"{video_id}:{i}".encode()).hexdigest()[:1]) % 5)
             segments.append({
                 "timestamp_pct": timestamp_pct,
                 "retention_pct": retention_pct,
