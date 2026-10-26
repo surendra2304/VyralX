@@ -390,6 +390,7 @@ def publish_or_stage(job: VideoJob, video_path: Path) -> dict[str, Any]:
             "status": "draft" if target_privacy == "private" else "published",
             "youtube_id": yt_id,
             "watch_url": watch_url,
+            "title": clean_title,
             "file": str(video_path),
             "privacy": target_privacy,
         }

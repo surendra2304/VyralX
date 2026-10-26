@@ -183,7 +183,7 @@ def analyze_video_frames(video_path: Path, num_frames: int = 4) -> VisualAnalysi
         "{\n"
         f'  "visual_summary": "One sentence describing the core humor or action in {title_context}",\n'
         '  "script": "The complete spoken viral voiceover narration (~40-50 words)",\n'
-        f'  "title": "{title_context} #Shorts",\n'
+        '  "title": "A high-CTR, curiosity-driven funny viral title under 60 chars with 1-2 emojis and #Shorts",\n'
         '  "cyan_keywords": ["HOOK", "PUNCH", "KEYWORD", "ACTION"],\n'
         '  "debate_question": "Engaging, funny question for the comments to drive replies",\n'
         '  "tags": ["shorts", "viral", "comedy", "trending", "funny"]\n'
