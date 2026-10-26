@@ -263,7 +263,7 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
         log.info("Landscape video detected (%dx%d): Applying cinematic blurred background padding...", width, height)
         video_filter = (
             f"[0:v]split[bg][fg];"
-            f"[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=22:22,eq=brightness=-0.12[blurred_bg];"
+            f"[bg]scale=180:320:force_original_aspect_ratio=increase,crop=180:320,boxblur=4:4,scale=1080:1920:flags=bilinear,eq=brightness=-0.12[blurred_bg];"
             f"[fg]scale=1080:-1[sharp_fg];"
             f"[blurred_bg][sharp_fg]overlay=(W-w)/2:(H-h)/2[base_v];"
             f"[base_v]subtitles='{ass_filter_path}':fontsdir='{fonts_dir_escaped}'[v]"
@@ -322,7 +322,8 @@ def render_video_job(job: VideoJob, output_dir: Path) -> Path:
         "-map", "[a]",
         "-c:v", "libx264",
         "-r", "30",
-        "-preset", "veryfast",
+        "-preset", "ultrafast",
+        "-threads", "2",
         "-crf", "22",
         "-c:a", "aac",
         "-b:a", "192k",

@@ -47,38 +47,25 @@ logging.basicConfig(
 log = logging.getLogger("vyralx.loop")
 
 VERIFIED_VIRAL_CATALOG = [
-    {"id": "28897", "title": "Approaching Analog Clock In Total Silence", "topic": "psychology and tension"},
-    {"id": "45703", "title": "High Speed Money Counting Machine", "topic": "extreme wealth and cash"},
-    {"id": "26748", "title": "Candlestick Trading Charts Collapse", "topic": "stock market crash and trading"},
-    {"id": "47012", "title": "Surging Candlestick Trading Charts", "topic": "day trading profit surge"},
-    {"id": "47050", "title": "Glowing Fiber Optics in Supercomputer Facility", "topic": "high tech server room"},
-    {"id": "46635", "title": "Matrix Fast Green Code Stream", "topic": "elite coding cyber heist"},
-    {"id": "18296", "title": "Hands Rapidly Flipping 100 Dollar Banknotes", "topic": "billionaire cash counting"},
-    {"id": "47491", "title": "Red and Blue Emergency Lights in Darkness", "topic": "police interrogation drama"},
-    {"id": "49329", "title": "Suspect Under Interrogation Tension", "topic": "true crime investigation"},
-    {"id": "23215", "title": "High Frequency Trading Server Racks", "topic": "billion dollar algorithm"},
-    {"id": "30873", "title": "3D Stock Market Indices Collapsing", "topic": "financial market crash"},
-    {"id": "50745", "title": "Programmer Staring Into Screens", "topic": "cyber security breakthrough"},
-    {"id": "5580", "title": "Molten Steel Pouring in Industrial Foundry", "topic": "satisfying molten metal"},
-    {"id": "5485", "title": "Precision Laser CNC Machine Cutting Metal", "topic": "satisfying precision cnc"},
-    {"id": "46747", "title": "Microscopic Fluid Dynamics Reaction", "topic": "hypnotic science reaction"},
-    {"id": "47783", "title": "Hydraulic Press Crushing Objects", "topic": "hydraulic press destruction"},
-    {"id": "3780", "title": "Glass Blowing Molten Precision Art", "topic": "satisfying glass crafting"},
-    {"id": "29351", "title": "Wood Carving High Speed Lathe", "topic": "satisfying woodturning craft"},
+    {"id": "31596", "title": "High Speed Supercar Drifting on Track", "topic": "hypercar extreme drift"},
+    {"id": "47783", "title": "Hydraulic Press Crushing With Insane Pressure", "topic": "hydraulic press destruction"},
     {"id": "4075", "title": "Extreme Precision Domino Chain Reaction", "topic": "precision domino physics"},
-    {"id": "18791", "title": "Kinetic Sand Clean Slicing ASMR", "topic": "kinetic sand slicing"},
-    {"id": "31596", "title": "High Speed Supercar Drifting on Track", "topic": "hypercar extreme drift"}
+    {"id": "29351", "title": "High Speed Wood Carving Lathe Spin", "topic": "satisfying woodturning craft"},
+    {"id": "3780", "title": "Glass Blowing Molten Precision Artistry", "topic": "satisfying glass crafting"},
+    {"id": "41576", "title": "Extreme Motorcycle Freestyle Track Stunts", "topic": "extreme motorsport stunts"},
+    {"id": "5580", "title": "Molten Steel Glowing Pour in Industrial Foundry", "topic": "satisfying molten metal"},
+    {"id": "5485", "title": "Precision Laser CNC Machine Cutting Metal", "topic": "satisfying precision cnc"},
+    {"id": "14631", "title": "High Voltage Tesla Coil Electricity Dance", "topic": "high voltage tesla physics"},
 ]
 
 SEARCH_TOPICS = [
-    "oddly satisfying visual compilation no talking no voice",
-    "satisfying industrial machine factory loop silent",
-    "hypnotic kinetic sand slicing asmr no talking",
-    "extreme balance precision visual trickshot silent",
-    "woodturning wood carving process satisfying silent",
-    "satisfying glass cutting demonstration no commentary",
-    "miniature cooking visual food craft no talking",
-    "mesmerizing soap cutting satisfying silent asmr"
+    "extreme sports parkour visual stunts no commentary",
+    "unbelievable physics trickshot extreme precision",
+    "satisfying high speed supercar drift track visual",
+    "hydraulic press crushing unexpected objects satisfying",
+    "hypnotic domino falling chain reaction visual",
+    "high voltage electric tesla coil lightning visual",
+    "molten glass crafting blowing extreme precision"
 ]
 
 DISQUALIFIED_KEYWORDS = {
