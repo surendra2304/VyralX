@@ -10,23 +10,21 @@ if str(PROJECT_ROOT) not in sys.path:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-from app.services.autonomous_pipeline import create_visual_job_from_source, render_video
+from app.services.autonomous_pipeline import create_visual_job_from_source, render_video_job
 
 clip_path = Path("media/viral_sources/mixkit_31596.mp4")
 print(f"Creating visual job for {clip_path}...")
 job = create_visual_job_from_source(clip_path, voice="en-US-GuyNeural")
 
 print("\n--- GENERATED VIRAL METADATA ---")
-print(f"Title: {job.title}")
-print(f"Hook: {job.hook}")
+print(f"Title: {job.title_concept}")
 print(f"Voice: {job.voice}")
 print(f"Script ({len(job.script.split())} words):\n{job.script}")
-print(f"Debate Question: {job.debate_question}")
-print(f"Tags: {job.tags[:5]}")
+print(f"Keywords: {job.cyan_keywords}")
 
 print("\n--- RENDERING TEST VIDEO ON SERVER 2 ---")
-output_path = Path("media/edited_videos/test_supercar_render.mp4")
-rendered = render_video(job, output_path)
+output_dir = Path("media/edited_videos")
+rendered = render_video_job(job, output_dir)
 
 print(f"\nSUCCESS! Rendered file: {rendered} ({rendered.stat().st_size / (1024*1024):.2f} MB)")
 
