@@ -141,14 +141,17 @@ def run_continuous_daemon(interval_minutes: int = 180):
 def main():
     parser = argparse.ArgumentParser(description="VyralX Autonomous Loop Engine")
     parser.add_argument("--once", action="store_true", help="Run a single autonomous cycle and exit")
-    parser.add_argument("--batch", type=int, default=1, help="Number of shorts to produce in cycle")
+    parser.add_argument("--batch", "--batch-size", dest="batch", type=int, default=1, help="Number of shorts to produce in cycle")
     parser.add_argument("--interval", type=int, default=180, help="Interval in minutes for continuous daemon")
+    parser.add_argument("--interval-hours", dest="interval_hours", type=float, default=None, help="Interval in hours for continuous daemon")
     args = parser.parse_args()
+
+    interval_minutes = int(args.interval_hours * 60) if args.interval_hours is not None else args.interval
 
     if args.once:
         run_autonomous_cycle(batch_size=args.batch)
     else:
-        run_continuous_daemon(interval_minutes=args.interval)
+        run_continuous_daemon(interval_minutes=interval_minutes)
 
 
 if __name__ == "__main__":
