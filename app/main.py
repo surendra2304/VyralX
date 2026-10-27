@@ -2202,38 +2202,40 @@ async def stop_autonomous_loop():
         raise HTTPException(500, f"Failed to stop autonomous loop: {exc}")
 
 
+# --- Routers below declare absolute paths (e.g. /api/v1/vyralx/...). ---
+# Mount them at the root; adding prefix="/api/v1" produced /api/v1/api/v1/... .
 # --- Viral Predictor Integration ---
-app.include_router(viral_predictor_router, prefix="/api/v1")
+app.include_router(viral_predictor_router)
 
 # --- Channel Growth Strategy Integration ---
-app.include_router(channel_growth_strategy_router, prefix="/api/v1")
+app.include_router(channel_growth_strategy_router)
 
 # --- Full Pipeline Engine Integration ---
-app.include_router(full_pipeline_router, prefix="/api/v1")
+app.include_router(full_pipeline_router)
 
 # --- Visual Content Synthesis Integration ---
-app.include_router(synthesis_router, prefix="/api/v1")
+app.include_router(synthesis_router)
 
 # --- Personalized Recommendation Integration ---
-app.include_router(recommendation_router, prefix="/api/v1")
+app.include_router(recommendation_router)
 
 # --- Multilingual Content Translator Integration ---
-app.include_router(translator_router, prefix="/api/v1")
+app.include_router(translator_router)
 
 # --- Video Analytics Dashboard Integration ---
-app.include_router(analytics_router, prefix="/api/v1")
+app.include_router(analytics_router)
 
 # --- Content Calendar Manager Integration ---
-app.include_router(calendar_router, prefix="/api/v1")
+app.include_router(calendar_router)
 
 # --- Creator Monetization Engine Integration ---
-app.include_router(monetization_router, prefix="/api/v1")
+app.include_router(monetization_router)
 
 # --- Audience Growth Predictor Integration ---
-app.include_router(growth_router, prefix="/api/v1")
+app.include_router(growth_router)
 
 # --- Creator Collaboration Manager Integration ---
-app.include_router(collab_router, prefix="/api/v1")
+app.include_router(collab_router)
 app.include_router(diagram_router)  # /api/v1/diagrams/* (self-contained HTML+SVG)
 
 # --- Thumbnail Optimizer Integration ---
@@ -2246,27 +2248,27 @@ app.include_router(ab_tester_router, prefix="/api/v1")
 
 # --- Content Performance Analyzer Integration ---
 from app.services.content_performance_analyzer import router as content_perf_router
-app.include_router(content_perf_router, prefix="/api/v1/vyralx", tags=["Content Performance"])
+app.include_router(content_perf_router, prefix="/api/v1", tags=["Content Performance"])
 
 # --- Creator Economy Analyzer Integration ---
 from app.services.creator_economy_analyzer import router as creator_economy_router
-app.include_router(creator_economy_router, prefix="/api/v1/vyralx", tags=["Creator Economy"])
+app.include_router(creator_economy_router, prefix="/api/v1", tags=["Creator Economy"])
 
 # --- Audience Attention Predictor Integration ---
 from app.services.audience_attention_predictor import router as attention_router
-app.include_router(attention_router, prefix="/api/v1/vyralx", tags=["Audience Attention"])
+app.include_router(attention_router, prefix="/api/v1", tags=["Audience Attention"])
 
 # --- Content Recommendation Explainer Integration ---
 from app.services.content_recommendation_explainer import router as explainer_router
-app.include_router(explainer_router, prefix="/api/v1/vyralx", tags=["Recommendation Explainer"])
+app.include_router(explainer_router, prefix="/api/v1", tags=["Recommendation Explainer"])
 
 # --- Content Moderation Engine Integration ---
 from app.services.content_moderation_engine import router as moderation_router
-app.include_router(moderation_router, prefix="/api/v1/vyralx", tags=["Content Moderation"])
+app.include_router(moderation_router, prefix="/api/v1", tags=["Content Moderation"])
 
 # --- Creator Collaboration Matcher Integration ---
 from app.services.creator_collaboration_matcher import router as collab_matcher_router
-app.include_router(collab_matcher_router, prefix="/api/v1/vyralx", tags=["Creator Collaboration"])
+app.include_router(collab_matcher_router, prefix="/api/v1", tags=["Creator Collaboration"])
 
 # --- Subscriber Retention Predictor Integration ---
 from app.services.subscriber_retention_predictor import router as retention_router
