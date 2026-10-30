@@ -18,6 +18,12 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
+from app.media_store import (
+    EDIT,
+    UPLOAD,
+    bootstrap_media_schema,
+    record_media_file,
+)
 from app.migrations import run_additive_migrations
 from app.models import AgentTask, Asset, PublishJob, RenderJob, Source, VideoProject, utcnow
 from app.services.captions import write_srt
@@ -48,6 +54,7 @@ settings = get_settings()
 settings.prepare_directories()
 Base.metadata.create_all(bind=engine)
 run_additive_migrations(engine)
+bootstrap_media_schema()
 logging.basicConfig(
     level=settings.log_level,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -345,6 +352,21 @@ def process_render_job(job_id: int) -> None:
                 job.status = "completed"
                 job.error = ""
                 log.info("Montage render completed job_id=%s scenes=%s preset=%s", job.id, len(assets), job.preset)
+                try:
+                    final_meta = probe_media(job.output_path)
+                except Exception:
+                    final_meta = {}
+                record_media_file(
+                    EDIT,
+                    job.output_path,
+                    project_key=str(options.get("project_key") or ""),
+                    render_job_id=job.id,
+                    source_ref=f"montage:{','.join(str(a.id) for a in assets)}",
+                    mime_type="video/mp4",
+                    duration_seconds=float(final_meta.get("duration_seconds") or 0.0),
+                    width=int(final_meta.get("width") or 0),
+                    height=int(final_meta.get("height") or 0),
+                )
             except Exception as exc:
                 job.status = "failed"
                 job.error = f"{type(exc).__name__}: {exc}"[:3000]
@@ -412,6 +434,21 @@ def process_render_job(job_id: int) -> None:
             job.status = "completed"
             job.error = ""
             log.info("Render completed job_id=%s asset_id=%s preset=%s", job.id, asset.id, job.preset)
+            try:
+                final_meta = probe_media(job.output_path)
+            except Exception:
+                final_meta = {}
+            record_media_file(
+                EDIT,
+                job.output_path,
+                project_key=str(options.get("project_key") or ""),
+                render_job_id=job.id,
+                source_ref=f"asset:{asset.id}",
+                mime_type="video/mp4",
+                duration_seconds=float(final_meta.get("duration_seconds") or 0.0),
+                width=int(final_meta.get("width") or 0),
+                height=int(final_meta.get("height") or 0),
+            )
         except Exception as exc:
             job.status = "failed"
             job.error = f"{type(exc).__name__}: {exc}"[:3000]
@@ -598,6 +635,14 @@ def process_publish_job(job_id: int) -> None:
             job.status = "uploaded"
             job.error = ""
             log.info("YouTube upload completed job_id=%s video_id=%s", job.id, video_id)
+            record_media_file(
+                UPLOAD,
+                render.output_path,
+                publish_job_id=job.id,
+                source_ref=f"youtube:{video_id}",
+                mime_type="video/mp4",
+                status="published",
+            )
             try:
                 from app.services.echo import dispatch_echo_notification
                 from app.services.datax import stream_datax_telemetry
@@ -724,6 +769,17 @@ def recover_interrupted_jobs() -> dict[str, int]:
                 job.updated_at = now
                 completed_jobs.append(job.id)
                 counts["uploads_recovered"] += 1
+                recovered_render = db.get(RenderJob, job.render_job_id)
+                if recovered_render is not None and recovered_render.output_path:
+                    record_media_file(
+                        UPLOAD,
+                        recovered_render.output_path,
+                        publish_job_id=job.id,
+                        source_ref=f"youtube:{video_id}",
+                        mime_type="video/mp4",
+                        status="published",
+                        checksum=False,
+                    )
                 continue
 
             session_state = load_upload_session_checkpoint(job.id, job.attempts)

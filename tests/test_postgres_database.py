@@ -19,9 +19,9 @@ from app.database import (
 
 
 def test_mask_url_password():
-    url = "postgresql://vyralx_user:lFvCakEtqlmoegjyEQUOlfAS@dokploy-postgres:5432/vyralx_db"
+    url = "postgresql://vyralx_user:placeholder-secret@dokploy-postgres:5432/vyralx_db"
     masked = _mask_url_password(url)
-    assert "lFvCakEtqlmoegjyEQUOlfAS" not in masked
+    assert "placeholder-secret" not in masked
     assert "vyralx_user:***@dokploy-postgres:5432/vyralx_db" in masked
 
     sqlite_url = "sqlite:///./data/vyralx.db"

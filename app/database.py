@@ -51,7 +51,9 @@ def _mask_url_password(url: str) -> str:
 
 
 def make_engine(url: str | None = None) -> Engine:
-    database_url = url or get_settings().database_url
+    database_url = url or get_settings().resolved_database_url()
+    if database_url.startswith("oracle+oracledb_async://"):
+        database_url = "oracle+oracledb://" + database_url[len("oracle+oracledb_async://"):]
     if database_url.startswith("sqlite"):
         kwargs = {"check_same_thread": False}
         return create_engine(database_url, connect_args=kwargs, pool_pre_ping=True)
@@ -62,7 +64,9 @@ def make_engine(url: str | None = None) -> Engine:
     elif database_url.startswith("postgres://"):
         database_url = "postgresql+psycopg2://" + database_url[11:]
 
-    # Production PostgreSQL pool configuration
+    # Pool configuration for the Oracle Autonomous Database (and any other
+    # network database used by a developer): keep connections warm but recycle
+    # them well inside ADB's idle timeout.
     engine_kwargs: dict[str, Any] = {
         "pool_size": 5,
         "max_overflow": 10,

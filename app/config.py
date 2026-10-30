@@ -20,7 +20,11 @@ class Settings(BaseSettings):
     port: int = 8000
     log_level: str = "INFO"
     api_key: str = "development-only-change-me"
-    database_url: str = "sqlite:///./data/vyralx.db"
+    # Oracle Autonomous Database only. Empty by default so a missing configuration
+    # fails closed instead of silently creating a SQLite file.
+    database_url: str = ""
+    # Second Oracle database: downloads, edits and uploads (media catalogue).
+    media_database_url: str = ""
     data_dir: Path = Path("./data")
     media_dir: Path = Path("./media")
     render_dir: Path = Path("./renders")
@@ -127,6 +131,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_settings(self) -> "Settings":
+        production = self.app_env.lower() != "development"
         if not shutil.which(self.ffmpeg_bin):
             try:
                 import static_ffmpeg
@@ -141,6 +146,22 @@ class Settings(BaseSettings):
             not self.api_key or self.api_key == "development-only-change-me"
         ):
             raise ValueError("Set a unique API_KEY outside development")
+        if production:
+            for label, value in (
+                ("DATABASE_URL", self.database_url),
+                ("MEDIA_DATABASE_URL", self.media_database_url),
+            ):
+                configured = (value or "").strip()
+                if not configured:
+                    raise ValueError(
+                        f"{label} is required outside development: VyralX stores its data in "
+                        "Oracle Autonomous Database, and there is no SQLite or PostgreSQL fallback"
+                    )
+                if not configured.startswith("oracle"):
+                    raise ValueError(
+                        f"{label} must be an Oracle Autonomous Database URL "
+                        f"(oracle+oracledb://...); got {configured.split('://')[0]!r}"
+                    )
         if self.worker_poll_seconds < 0.5:
             raise ValueError("WORKER_POLL_SECONDS must be at least 0.5")
         if self.worker_max_attempts < 1:
@@ -202,6 +223,50 @@ class Settings(BaseSettings):
         for directory in (self.data_dir, self.media_dir, self.render_dir):
             directory.mkdir(parents=True, exist_ok=True)
         self.youtube_token_file.parent.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def database_backend(self) -> str:
+        value = (self.database_url or "").strip()
+        if not value:
+            return "unconfigured"
+        scheme = value.split("://")[0]
+        if scheme.startswith("oracle"):
+            return "oracle"
+        if scheme.startswith("sqlite"):
+            return "sqlite"
+        if scheme.startswith("postgres"):
+            return "postgresql"
+        return scheme
+
+    @property
+    def media_database_backend(self) -> str:
+        value = (self.media_database_url or "").strip()
+        if not value:
+            return "unconfigured"
+        scheme = value.split("://")[0]
+        if scheme.startswith("oracle"):
+            return "oracle"
+        if scheme.startswith("sqlite"):
+            return "sqlite"
+        if scheme.startswith("postgres"):
+            return "postgresql"
+        return scheme
+
+    def resolved_database_url(self) -> str:
+        """Return the configured URL, or a development-only SQLite file.
+
+        The fallback exists purely so the unit-test suite and local development
+        run without Oracle credentials. Outside ``APP_ENV=development`` the
+        validator above has already rejected an empty value.
+        """
+
+        value = (self.database_url or "").strip()
+        if value:
+            return value
+        if self.app_env.lower() == "development":
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            return f"sqlite:///{(self.data_dir / 'vyralx-dev.db').as_posix()}"
+        raise RuntimeError("DATABASE_URL is not configured and APP_ENV is not development")
 
 
 @lru_cache

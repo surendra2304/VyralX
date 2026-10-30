@@ -8,7 +8,7 @@ x-vyralx-common: &vyralx-common
     APP_ENV: production
     PORT: "8000"
     API_KEY: ${API_KEY:?Set API_KEY in Dokploy environment}
-    DATABASE_URL: ${DATABASE_URL:-postgresql://vyralx_user:lFvCakEtqlmoegjyEQUOlfAS@dokploy-postgres:5432/vyralx_db}
+    DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be an Oracle DSN}
     DATA_DIR: /app/data
     MEDIA_DIR: /app/media
     RENDER_DIR: /app/renders

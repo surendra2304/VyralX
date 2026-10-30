@@ -23,7 +23,7 @@ The tested helper scripts/compare_oci_images.py FIRST.oci.tar SECOND.oci.tar val
 
 ## Deployment topology
 
-The Compose file starts three services: vyralx-init runs additive schema setup once, vyralx serves FastAPI on port 8000, and vyralx-worker consumes durable queues. API and worker wait for successful initialization. They share the SQLite database, media, renders and secrets volumes, and join the pre-existing external friday_mesh network. No host port is published. Configure Dokploy's reverse proxy for the intended private ingress and do not expose SQLite or internal APIs publicly.
+The Compose file starts three services: vyralx-init runs additive schema setup once, vyralx serves FastAPI on port 8000, and vyralx-worker consumes durable queues. API and worker wait for successful initialization. They share the Oracle Autonomous Database (`DATABASE_URL` plus `MEDIA_DATABASE_URL`), media, renders and secrets volumes, and join the pre-existing external friday_mesh network. No host port is published. Configure Dokploy's reverse proxy for the intended private ingress and do not expose database credentials or internal APIs publicly.
 
 The interim ~1 GB AMD VM has limited capacity. The stack caps schema init at 96 MB, API RAM at 192 MB and worker RAM at 384 MB, uses one worker process and caps FFmpeg resources. Monitor container memory, queue depth, and render duration before raising limits. Do not use these limits as proof that an untested VM can sustain simultaneous heavy jobs.
 
@@ -31,7 +31,7 @@ The interim ~1 GB AMD VM has limited capacity. The stack caps schema init at 96 
 
 - APP_ENV=production.
 - A unique high-entropy API_KEY.
-- Persistent DATABASE_URL, DATA_DIR, MEDIA_DIR and RENDER_DIR.
+- Persistent Oracle `DATABASE_URL` and `MEDIA_DATABASE_URL`, DATA_DIR, MEDIA_DIR and RENDER_DIR.
 - WORKER_REQUIRED=true, and worker/data volume shared between API and worker.
 - Keep YOUTUBE_UPLOAD_ENABLED=false until OAuth and a private test upload are confirmed.
 - YOUTUBE_DEFAULT_PRIVACY=private.

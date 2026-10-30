@@ -8,7 +8,7 @@ VyralX is an independent video discovery, production and distribution specialist
 
 - \`vyralx\`: FastAPI control plane, standard specialist port 8000.
 - \`vyralx-worker\`: one bounded worker process consuming persistent AgentTask, RenderJob and PublishJob queues.
-- A shared mounted data volume holds the SQLite database and worker heartbeat.
+- The API and worker share the Oracle Autonomous Database (the `VYRALX` schema plus the `VYRALX_MEDIA` schema); a mounted data volume holds the worker heartbeat.
 - Shared media and render volumes hold uploaded/stock source files, narration, renders and thumbnails.
 - Both containers join the existing \`friday_mesh\` bridge; the Compose template has no host port mappings.
 
@@ -96,4 +96,4 @@ The completed \`RenderJob.options_json\` retains the montage asset IDs. Source-r
 
 ## Limits not inferred as complete
 
-The code provides generic peer clients and a durable FRIDAY task contract, but the actual peer base URLs/routes/API keys, deployed Docker network name, OAuth/token validity, channel permissions, Inference model compatibility, and Sentinel response schema must be verified against live services. The Compose template targets the interim low-memory AMD host; the intended 2-OCPU/12-GB ARM instance is a separate target and must be tested on its own. Before sustained production operation, migrate SQLite schema management to Alembic and add automated backup/restore verification.
+The code provides generic peer clients and a durable FRIDAY task contract, but the actual peer base URLs/routes/API keys, deployed Docker network name, OAuth/token validity, channel permissions, Inference model compatibility, and Sentinel response schema must be verified against live services. The Compose template targets the interim low-memory AMD host; the intended 2-OCPU/12-GB ARM instance is a separate target and must be tested on its own. Before sustained production operation, move Oracle schema management to Alembic and add automated backup/restore verification.

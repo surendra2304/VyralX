@@ -13,6 +13,12 @@ from starlette.concurrency import run_in_threadpool
 
 from app.config import get_settings
 from app.database import Base, engine, get_db
+from app.media_store import (
+    DOWNLOAD,
+    bootstrap_media_schema,
+    media_warehouse_status,
+    record_media_file,
+)
 from app.migrations import run_additive_migrations
 from app.models import AgentTask, Asset, ContentPack, PublishJob, RenderJob, Source, VideoMetric, VideoProject, utcnow
 from app.schemas import (
@@ -67,6 +73,7 @@ settings = get_settings()
 settings.prepare_directories()
 Base.metadata.create_all(bind=engine)
 run_additive_migrations(engine)
+bootstrap_media_schema()
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("vyralx")
 
@@ -103,10 +110,17 @@ def ready():
             worker_status = "healthy" if worker_ok else "stale"
         except (OSError, ValueError, KeyError, TypeError):
             worker_status = "missing"
-    ready_state = database_ok and ffmpeg_ok and worker_ok
+    media_receipt = media_warehouse_status()
+    media_ok = (
+        not media_receipt["configured"]
+        or (media_receipt["connected"] and bool(media_receipt["tables_found"]))
+    )
+    ready_state = database_ok and ffmpeg_ok and worker_ok and media_ok
     response = {
         "status": "ready" if ready_state else "degraded",
         "database": "connected" if database_ok else "unavailable",
+        "database_backend": getattr(settings, "database_backend", "unconfigured"),
+        "media_database": media_receipt,
         "ffmpeg": ffmpeg_ok,
         "worker": worker_status,
     }
@@ -1018,6 +1032,15 @@ async def upload_asset(file: UploadFile = File(...), title: str = "Untitled asse
     db.add(asset)
     db.commit()
     db.refresh(asset)
+    record_media_file(
+        DOWNLOAD,
+        destination,
+        source_ref=f"asset:{asset.id}",
+        mime_type=f"video/{suffix.lstrip('.')}",
+        duration_seconds=asset.duration_seconds,
+        width=asset.width,
+        height=asset.height,
+    )
     return {"id": asset.id, "title": asset.title, **meta, "rights_verified": asset.rights_verified}
 
 
@@ -1465,6 +1488,14 @@ def import_unsplash_route(payload: dict, db: Session = Depends(get_db)):
     db.add(asset)
     db.commit()
     db.refresh(asset)
+    record_media_file(
+        DOWNLOAD,
+        imported["file_path"],
+        source_ref=f"unsplash:{source.id}",
+        mime_type="image/jpeg",
+        width=int(imported["width"] or 0),
+        height=int(imported["height"] or 0),
+    )
     return {"asset_id": asset.id, "source_id": source.id, "status": "imported", "asset": {"title": asset.title, "path": asset.file_path}}
 
 
@@ -1546,6 +1577,15 @@ def import_pexels_asset(payload: PexelsImportRequest, db: Session = Depends(get_
         db.add(asset)
         db.commit()
         db.refresh(asset)
+        record_media_file(
+            DOWNLOAD,
+            destination,
+            source_ref=f"pexels:{source.id}",
+            mime_type="video/mp4",
+            duration_seconds=asset.duration_seconds,
+            width=asset.width,
+            height=asset.height,
+        )
         return {
             "asset_id": asset.id,
             "source_id": source.id,
