@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-  "setuptools==84.0.0",
+  "setuptools==84.2.1",
   "wheel==0.48.0",
 ]
 build-backend = "setuptools.build_meta"
@@ -31,7 +31,7 @@ dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.6", "httpx>=0.27"]
 [tool.uv]
 # Hash-check the project's isolated PEP 517 build tools; they are not runtime dependencies.
 build-constraint-dependencies = [
-  { requirement = "setuptools==84.0.0", hashes = ["sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670"] },
+  { requirement = "setuptools==84.2.1", hashes = ["sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670"] },
   { requirement = "wheel==0.48.0", hashes = ["sha256:3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab"] },
 ]
 require-build-hashes = true
