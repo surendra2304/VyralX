@@ -16,6 +16,16 @@ VideoFormat = Literal["shorts", "long"]
 
 def _extract_json(raw: str) -> dict[str, Any]:
     candidate = raw.strip()
+    # Provider gateways sometimes mangle curly quotes/apostrophes into U+FFFD.
+    # Restore them so narration text stays readable and pronounceable.
+    for bad, good in (
+        ("\ufffd", "'"),
+        ("\u2018", "'"), ("\u2019", "'"),
+        ("\u201c", '"'), ("\u201d", '"'),
+        ("\u2010", "-"), ("\u2011", "-"), ("\u2012", "-"),
+        ("\u2013", "-"), ("\u2014", "-"), ("\u2015", "-"),
+    ):
+        candidate = candidate.replace(bad, good)
     if candidate.startswith("```"):
         lines = candidate.splitlines()
         if lines and lines[0].strip().startswith("```"):
@@ -214,50 +224,75 @@ def generate_content_pack(
         + json.dumps(context, ensure_ascii=False)
     )
     url = settings.inference_url.rstrip("/") + settings.inference_generation_path
-    envelope = {
-        "task_id": "vyralx-content-" + uuid4().hex[:16],
-        "source_agent": "vyralx",
-        "target_agent": "inference",
-        "action": "vyralx.content.generate",
-        "payload": {"prompt": prompt, "context": context},
-        "priority": "normal",
-        "trace_id": "vyralx-" + uuid4().hex[:12],
+    headers = {
+        "Authorization": f"Bearer {settings.inference_api_key}",
+        "X-FRIDAY-API-Key": settings.inference_api_key,
+        "X-API-Key": settings.inference_api_key,
+        "Content-Type": "application/json",
     }
+    # Inference exposes both a task envelope (/v1/task/execute) and an
+    # OpenAI-compatible chat endpoint. The chat endpoint returns a real model
+    # response, while the task endpoint maps a small fixed schema, so prefer
+    # chat whenever the operator points INFERENCE_GENERATION_PATH at it.
+    chat_mode = settings.inference_generation_path.rstrip("/").endswith("/chat/completions")
+    if chat_mode:
+        body: dict[str, Any] = {
+            "model": settings.inference_model or "auto",
+            "messages": [
+                {"role": "system", "content": "Return exactly one valid JSON object and no other text. Use plain ASCII characters only (no curly quotes or em dashes)."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.7,
+            "max_tokens": 3200,
+            "stream": False,
+        }
+    else:
+        body = {
+            "task_id": "vyralx-content-" + uuid4().hex[:16],
+            "source_agent": "vyralx",
+            "target_agent": "inference",
+            "action": "vyralx.content.generate",
+            "payload": {"prompt": prompt, "context": context},
+            "priority": "normal",
+            "trace_id": "vyralx-" + uuid4().hex[:12],
+        }
     try:
         response = httpx.post(
             url,
-            headers={
-                "Authorization": f"Bearer {settings.inference_api_key}",
-                "X-FRIDAY-API-Key": settings.inference_api_key,
-                "X-API-Key": settings.inference_api_key,
-                "Content-Type": "application/json",
-            },
-            json=envelope,
+            headers=headers,
+            json=body,
             timeout=settings.inference_timeout_seconds,
             follow_redirects=False,
         )
         response.raise_for_status()
         payload = response.json()
     except httpx.HTTPStatusError as exc:
-        raise RuntimeError(f"Inference task API returned HTTP {exc.response.status_code}") from None
+        raise RuntimeError(f"Inference API returned HTTP {exc.response.status_code}") from None
     except httpx.RequestError as exc:
         raise RuntimeError(f"Inference request failed ({type(exc).__name__})") from None
     except ValueError:
-        raise RuntimeError("Inference returned an invalid JSON task response") from None
+        raise RuntimeError("Inference returned an invalid JSON response") from None
 
-    status = str(payload.get("status", "")).upper()
-    if status not in {"SUCCESS", "COMPLETED"}:
-        detail = payload.get("error") or f"Inference task status was {status or 'missing'}"
-        raise RuntimeError(str(detail)[:300])
-    result = payload.get("result")
-    raw_content = result.get("response") if isinstance(result, dict) else None
-    if not raw_content and isinstance(payload.get("choices"), list) and payload["choices"]:
-        try:
-            raw_content = payload["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError):
-            raw_content = None
-    if not isinstance(raw_content, str) or not raw_content.strip():
-        raise RuntimeError("Inference task succeeded without returning textual JSON content")
+    result: dict[str, Any] = {}
+    provider_model = ""
+    if chat_mode:
+        choices = payload.get("choices") if isinstance(payload, dict) else None
+        raw_content = None
+        if isinstance(choices, list) and choices:
+            message = choices[0].get("message") if isinstance(choices[0], dict) else None
+            if isinstance(message, dict):
+                raw_content = message.get("content")
+        if not isinstance(raw_content, str) or not raw_content.strip():
+            raise RuntimeError("Inference chat completion did not return assistant content")
+        provider_model = str(payload.get("model") or "")
+    else:
+        status = str(payload.get("status", "")).upper()
+        if status not in {"SUCCESS", "COMPLETED"}:
+            detail = payload.get("error") or f"Inference task status was {status or 'missing'}"
+            raise RuntimeError(str(detail)[:300])
+        result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+        raw_content = result.get("response")
+        provider_model = str(result.get("model_used") or "")
     try:
         pack = _extract_json(raw_content)
     except (ValueError, TypeError) as exc:
@@ -267,10 +302,7 @@ def generate_content_pack(
     pack["format"] = video_format
     pack["target_seconds"] = target_seconds
     pack["channel_strategy"] = channel_strategy
-    pack["provider_model"] = (
-        str(result.get("model_used") or settings.inference_model or "auto")
-        if isinstance(result, dict) else (settings.inference_model or "auto")
-    )
+    pack["provider_model"] = provider_model or settings.inference_model or "auto"
     pack["generated_by"] = "inference"
     pack["requires_editor_review"] = True
     pack["fact_check_passed"] = False

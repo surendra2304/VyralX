@@ -17,7 +17,7 @@ def test_elevenlabs_config_validation():
     assert settings.elevenlabs_api_key == "sk_test"
 
     # Invalid provider
-    with pytest.raises(ValueError, match="TTS_PROVIDER must be espeak, external, or elevenlabs"):
+    with pytest.raises(ValueError, match="TTS_PROVIDER must be espeak, external, elevenlabs, or edge"):
         Settings(tts_provider="unsupported_provider")
 
 

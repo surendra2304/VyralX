@@ -153,7 +153,7 @@ class AutonomousChannelOrchestrator:
             ranked = rank_candidates(candidates)
         except Exception as exc:
             logger.warning("Trend discovery unavailable (%s)", type(exc).__name__)
-            return []
+            ranked = []
 
         ideas: list[ContentIdea] = []
         for item in ranked:
@@ -172,11 +172,49 @@ class AutonomousChannelOrchestrator:
                     keywords=self._extract_keywords(title),
                 )
             )
+        if not ideas:
+            ideas = self._pillar_ideas()
+            logger.info("Using %d editorial pillar ideas (trend feed unavailable)", len(ideas))
         ideas = self._rank_ideas(ideas)[:limit]
         self.idea_pool.extend(ideas)
         # Bound memory growth on a long-lived worker.
         self.idea_pool = self.idea_pool[-500:]
         logger.info("Discovered %d metadata-only content ideas", len(ideas))
+        return ideas
+
+    def _pillar_ideas(self) -> list[ContentIdea]:
+        """Build original on-niche ideas from the configured editorial pillars.
+
+        This is the offline fallback when the YouTube trend feed is unavailable
+        (missing/invalid API key or no network). It never reuses another creator's
+        title or media; it only restates the operator's own content pillars as
+        original prompts for the script generator.
+        """
+        pillars = [
+            value.strip()
+            for value in str(getattr(self.settings, "channel_content_pillars", "") or "").split(",")
+            if value.strip()
+        ]
+        if not pillars:
+            pillars = ["frontier technology breakthroughs"]
+        templates = (
+            "{pillar}: the breakthrough nobody is talking about",
+            "How {pillar_lower} will quietly reshape daily life",
+            "The hidden engineering behind {pillar_lower}",
+        )
+        ideas: list[ContentIdea] = []
+        for index, pillar in enumerate(pillars):
+            template = templates[index % len(templates)]
+            topic = template.format(pillar=pillar, pillar_lower=pillar[0].lower() + pillar[1:])
+            ideas.append(
+                ContentIdea(
+                    topic=topic[:500],
+                    angle=f"Original explainer within the channel pillar: {pillar}",
+                    confidence=0.45,
+                    source="editorial_pillars",
+                    keywords=self._extract_keywords(topic),
+                )
+            )
         return ideas
 
     @staticmethod

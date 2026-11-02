@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -1934,6 +1934,36 @@ def execute_friday_universe_task(
     db: Session = Depends(get_db),
 ):
     """Implement FRIDAY's canonical POST /v1/task/execute task-envelope contract."""
+    action_norm = (envelope.action or "").strip().lower()
+    if action_norm in ("status", "health", "ping", "report"):
+        # A status probe is not a video job. Answering it from the allowlist path
+        # would either reject it as an unknown action or queue phantom work, so it
+        # is served here with a receipt that names the queue it actually observed.
+        queued = db.scalar(select(func.count()).select_from(AgentTask)) or 0
+        return JSONResponse(
+            status_code=200,
+            content={
+                "task_id": envelope.task_id,
+                "target_agent": "vyralx",
+                "status": "SUCCESS",
+                "result": {"queued_tasks": int(queued), "endpoint": "/v1/task/execute"},
+                "summary": f"VyralX is accepting tasks; {int(queued)} task(s) recorded.",
+                "execution_time_ms": 0,
+                "receipt": {
+                    "requested_action": action_norm,
+                    "target": "vyralx",
+                    "authorization_decision": "AUTHORIZED",
+                    "execution_timestamp": datetime.now(timezone.utc).isoformat(),
+                    "result": {"queued_tasks": int(queued)},
+                    "verification_evidence": {
+                        "source": "vyralx.v1.task.execute",
+                        "task_id": envelope.task_id,
+                        "queued_tasks": int(queued),
+                    },
+                    "failure_reason": None,
+                },
+            },
+        )
     if envelope.requested_mode == "sync":
         raise HTTPException(422, "VyralX's durable task endpoint is asynchronous; use requested_mode='async' or 'background'")
     target = envelope.target_agent.strip().lower()

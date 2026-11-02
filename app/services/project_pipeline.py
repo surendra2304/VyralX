@@ -11,7 +11,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Asset, ContentPack, RenderJob, Source, VideoProject, utcnow
+from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoProject, utcnow
 from app.services.captions import segment_script, write_ass, write_srt
 from app.services.content import generate_content_pack
 from app.services.discovery import discover_youtube_videos
@@ -876,7 +876,9 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
 
         render_target_seconds = project.target_seconds
         if project.use_voiceover and voiceover_duration and voiceover_duration > 0:
-            render_target_seconds = max(project.target_seconds, math.ceil(voiceover_duration + 0.8))
+            # Never pad a silent tail: dead air after the narration hurts retention
+            # and trips the publish-time silence gate. Follow the narration length.
+            render_target_seconds = max(15, math.ceil(voiceover_duration + 0.8))
             project.target_seconds = render_target_seconds
             db.commit()
 
@@ -925,6 +927,8 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             bgm_volume=0.20,
             ducking_attenuation_db=-18.0,
             enable_ken_burns=enable_motion,
+            normalize_loudness=True,
+            loudness_target_lufs=float(getattr(settings, "render_audio_loudness_target_lufs", -14.0)),
         )
         metadata = probe_media(rendered)
         actual_duration = float(metadata.get("duration_seconds") or 0)
@@ -1051,6 +1055,38 @@ def execute_project_pipeline(project_id: int, db: Session) -> None:
             project.project_key, project.id, render_job.id, len(assets),
         )
         sync_project_memory(project.id, db)
+
+        # Autonomous mode: queue the rendered video for upload without a manual
+        # approval click, but only when the operator explicitly opted in.
+        if bool(getattr(settings, "autonomous_auto_publish", False)):
+            try:
+                title = str((pack.get("title_options") or [project.topic])[0])[:100]
+                if not title.strip():
+                    title = (project.topic or "VyralX video")[:100]
+                description = str(pack.get("description") or pack.get("script") or "")
+                cta = (getattr(settings, "channel_call_to_action", "") or "").strip()
+                if cta and cta not in description:
+                    description = (description + "\n\n" + cta).strip()
+                tags = [str(t) for t in (pack.get("tags") or []) if t][:30]
+                publish_job = PublishJob(
+                    asset_id=assets[0].id,
+                    render_job_id=render_job.id,
+                    title=title,
+                    description=description[:4900],
+                    tags_json=json.dumps(tags),
+                    privacy_status=str(getattr(settings, "autonomous_publish_privacy", "public")),
+                    status="queued",
+                    approved_at=utcnow(),
+                )
+                db.add(publish_job)
+                db.commit()
+                log.info(
+                    "Auto-publish queued project_id=%s publish_job_id=%s privacy=%s",
+                    project.id, publish_job.id, publish_job.privacy_status,
+                )
+            except Exception as ap_exc:
+                log.warning("Auto-publish queueing failed project_id=%s: %s", project.id, ap_exc)
+
         try:
             from app.services.echo import dispatch_echo_notification
             from app.services.mediax import register_mediax_asset

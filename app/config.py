@@ -65,6 +65,20 @@ class Settings(BaseSettings):
     autonomous_channel_enabled: bool = False
     autonomous_pexels_license_confirmed: bool = False
     autonomous_daily_project_limit: int = Field(default=1, ge=1, le=5)
+    # When enabled, a completed project queues its own PublishJob so the worker can
+    # upload without a manual approval step. The review gates stay in force.
+    autonomous_auto_publish: bool = False
+    autonomous_publish_privacy: str = "public"
+    autonomous_run_interval_minutes: int = Field(default=180, ge=10, le=1440)
+    # Viral repurposing pipeline: discovery thresholds and edit policy.
+    viral_min_source_views: int = Field(default=250_000, ge=0)
+    viral_min_source_seconds: float = Field(default=8.0, ge=3.0, le=60.0)
+    viral_max_source_seconds: float = Field(default=58.0, ge=10.0, le=60.0)
+    viral_whisper_model: str = Field(default="base", max_length=40)
+    # "reuse_licensed" only accepts Creative Commons clips; "transformative"
+    # follows the channel's existing commentary/attribution model instead.
+    viral_source_policy: str = Field(default="transformative", max_length=40)
+    viral_channel_handles: str = Field(default="", max_length=1200)
     inference_generation_path: str = "/v1/task/execute"
     inference_timeout_seconds: int = 60
     tts_provider: str = "espeak"
@@ -176,8 +190,8 @@ class Settings(BaseSettings):
             raise ValueError("Invalid audio loudness min/max bounds")
         if self.max_stock_clip_mb < 1 or self.max_stock_clip_mb > self.max_upload_mb:
             raise ValueError("MAX_STOCK_CLIP_MB must be between 1 and MAX_UPLOAD_MB")
-        if self.tts_provider.lower() not in {"espeak", "external", "elevenlabs"}:
-            raise ValueError("TTS_PROVIDER must be espeak, external, or elevenlabs")
+        if self.tts_provider.lower() not in {"espeak", "external", "elevenlabs", "edge"}:
+            raise ValueError("TTS_PROVIDER must be espeak, external, elevenlabs, or edge")
         if not 80 <= self.espeak_rate <= 300:
             raise ValueError("ESPEAK_RATE must be between 80 and 300")
         if not 1 <= self.caption_alignment_timeout_seconds <= 300:
@@ -206,8 +220,10 @@ class Settings(BaseSettings):
                 raise ValueError("CAPTION_ALIGNMENT_URL must be an HTTP(S) base URL without credentials")
             if not self.caption_alignment_api_key.strip():
                 raise ValueError("CAPTION_ALIGNMENT_API_KEY is required when alignment is configured")
-        if self.youtube_default_privacy not in {"private", "unlisted", "public"}:
-            raise ValueError("YOUTUBE_DEFAULT_PRIVACY must be private, unlisted, or public")
+        if self.autonomous_publish_privacy not in {"private", "unlisted", "public"}:
+            raise ValueError("AUTONOMOUS_PUBLISH_PRIVACY must be private, unlisted, or public")
+        if self.viral_source_policy not in {"reuse_licensed", "transformative"}:
+            raise ValueError("VIRAL_SOURCE_POLICY must be reuse_licensed or transformative")
         if self.sentinel_required_for_publish and not (
             self.sentinel_url and self.sentinel_api_key
             and self.sentinel_policy_path.startswith("/")

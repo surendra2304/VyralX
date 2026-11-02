@@ -1,6 +1,7 @@
 """Voiceover providers: local eSpeak for zero-key operation, or external TTS."""
 from __future__ import annotations
 
+import asyncio
 import shutil
 import subprocess
 import wave
@@ -148,6 +149,40 @@ def synthesize_voiceover(text: str, *, target_seconds: int | None = None, voice_
         except OSError:
             pass
         return {"file_path": str(path), "bytes": path.stat().st_size, "content_type": "audio/wav"}
+
+    if provider == "edge":
+        try:
+            import edge_tts
+        except Exception as exc:
+            raise RuntimeError("TTS_PROVIDER=edge requires the edge-tts package to be installed") from exc
+        audio_dir = settings.media_dir / "voiceovers"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        path = (audio_dir / (uuid4().hex + ".mp3")).resolve()
+        if audio_dir.resolve() not in path.parents:
+            raise RuntimeError("Invalid voiceover destination path")
+        words = len(normalized.split())
+        base_wpm = 150
+        if target_seconds and target_seconds > 0:
+            est_rate = max(80, min(round(words * 60 / target_seconds), 300))
+            pct = max(-40, min(50, round((est_rate / base_wpm - 1) * 100)))
+            rate = f"{pct:+d}%"
+        else:
+            rate = "+0%"
+        voice = "en-US-ChristopherNeural"
+        try:
+            comm = edge_tts.Communicate(normalized, voice, rate=rate)
+            asyncio.run(comm.save(str(path)))
+        except Exception as exc:
+            path.unlink(missing_ok=True)
+            raise RuntimeError(f"edge-tts synthesis failed ({type(exc).__name__})") from exc
+        if not path.is_file() or path.stat().st_size == 0:
+            path.unlink(missing_ok=True)
+            raise RuntimeError("edge-tts returned empty audio")
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+        return {"file_path": str(path), "bytes": path.stat().st_size, "content_type": "audio/mpeg"}
 
     if provider == "elevenlabs":
         api_key = settings.elevenlabs_api_key.strip()
