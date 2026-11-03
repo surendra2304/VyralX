@@ -18,8 +18,24 @@ _DEFAULT = Path("./data/youtube_cookies.txt")
 
 
 def _usable(path: Path) -> bool:
+    """True when *path* looks like a real Netscape cookie jar.
+
+    An empty template (header line only) is not usable and would otherwise make
+    every yt-dlp call fail with a confusing parser error.
+    """
     try:
-        return path.is_file() and path.stat().st_size > 0
+        if not path.is_file() or path.stat().st_size < 64:
+            return False
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for _ in range(50):
+                line = handle.readline()
+                if not line:
+                    break
+                if line.startswith("#") or not line.strip():
+                    continue
+                if line.count("\t") >= 6:
+                    return True
+        return False
     except OSError:
         return False
 

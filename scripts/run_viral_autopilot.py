@@ -34,6 +34,7 @@ from app.services.viral_discovery import (
     used_source_video_ids,
 )
 from app.services.viral_remix import produce_viral_short
+from app.services.ytdlp_support import cookies_file
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("vyralx.viral_autopilot")
@@ -64,13 +65,17 @@ def produce_one(settings: Settings, *, max_candidates: int) -> dict:
             max_seconds=float(getattr(settings, "viral_max_source_seconds", 58)),
             min_seconds=float(getattr(settings, "viral_min_source_seconds", 12)),
         )
-        candidates = discover_candidates(
-            seed_ids=set(list(used)[-4:]) if used else None,
-            **pool_kwargs,
-        )
+        candidates = []
+        if cookies_file():
+            candidates = discover_candidates(
+                seed_ids=set(list(used)[-4:]) if used else None,
+                **pool_kwargs,
+            )
+        else:
+            # yt-dlp cannot even list a channel from a datacenter IP without a
+            # signed-in cookie jar, so don't waste 40 failing extractions.
+            log.info("No YouTube cookie jar configured; discovering via the YouTube Data API")
         if not candidates:
-            # yt-dlp is bot-walled on datacenter IPs; the Data API is not.
-            log.info("yt-dlp discovery found nothing; trying the YouTube Data API")
             try:
                 candidates = discover_candidates_api(**pool_kwargs)
             except Exception as exc:
