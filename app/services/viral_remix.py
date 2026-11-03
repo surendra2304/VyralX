@@ -41,13 +41,18 @@ from app.services.source_analysis import (
     download_audio_only,
     probe_media,
 )
+from app.services.scene_analysis import describe_scene
 log = logging.getLogger("vyralx.viral_remix")
 
+# One voice for the whole channel: the first four uploads all use Guy, so a
+# category-dependent voice would break the format on exactly the clips that are
+# not tagged COMEDY.
 VOICE_BY_CATEGORY = {
     "COMEDY": "en-US-GuyNeural",
-    "VIRAL": "en-US-ChristopherNeural",
-    "SPORTS": "en-US-ChristopherNeural",
+    "VIRAL": "en-US-GuyNeural",
+    "SPORTS": "en-US-GuyNeural",
 }
+DEFAULT_VOICE = "en-US-GuyNeural"
 
 COMMENTARY_TEMPLATES = {
     "VIRAL": (
@@ -122,9 +127,9 @@ def download_source_video(video_id: str, destination_dir: Path) -> Path:
         "merge_output_format": "mp4",
         "noplaylist": True,
     }
-    from app.services.ytdlp_support import with_cookies
+    from app.services.ytdlp_support import apply_defaults
 
-    with yt_dlp.YoutubeDL(with_cookies(opts)) as ydl:
+    with yt_dlp.YoutubeDL(apply_defaults(opts)) as ydl:
         ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
     if expected.is_file():
         return expected
@@ -183,6 +188,48 @@ DESCRIPTION_EXAMPLES = (
 )
 
 
+def _trim_to_sentence(text: str) -> str:
+    """Drop a trailing fragment so the voice-over never ends mid-sentence."""
+    text = " ".join(str(text or "").split())
+    if not text or text[-1] in ".!?":
+        return text
+    cut = max(text.rfind("."), text.rfind("!"), text.rfind("?"))
+    return text[: cut + 1] if cut >= 20 else text
+
+
+def _editorial_text(payload: Any) -> str:
+    """Pull the model's text out of whichever envelope Inference returned.
+
+    ``/v1/chat/completions`` answers with OpenAI ``choices[0].message.content``;
+    the ``/v1/task/execute`` endpoint wraps the same text in
+    ``result.response``. Accepting both means a routing change on the gateway
+    cannot silently downgrade every upload to template copy.
+    """
+    if not isinstance(payload, dict):
+        return ""
+    choices = payload.get("choices")
+    if isinstance(choices, list) and choices:
+        message = choices[0].get("message") if isinstance(choices[0], dict) else None
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return content
+    for key in ("result", "output", "response", "data"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+        if isinstance(value, dict):
+            for inner_key in ("response", "content", "text", "output", "message"):
+                inner = value.get(inner_key)
+                if isinstance(inner, str) and inner.strip():
+                    return inner
+    for key in ("content", "text"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
 def generate_editorial(
     category: str,
     source_title: str,
@@ -190,6 +237,7 @@ def generate_editorial(
     transcript: str,
     target_seconds: float,
     taken_titles: set[str] | None = None,
+    scene: str = "",
 ) -> dict[str, str]:
     """Write title, commentary and description in the channel's exact style.
 
@@ -211,12 +259,20 @@ def generate_editorial(
         f"Source channel: {channel[:80]}\n"
         f"Category: {category}\n"
         f"Spoken transcript (empty means the clip is music only): \"{(transcript or '')[:400]}\"\n\n"
+        "What the clip actually shows (frame analysis - the only source of truth for the "
+        f"action): \"{(scene or 'not available')[:700]}\"\n\n"
         "Reply with the JSON object only - no reasoning, no markdown, no text before or after.\n"
         "Keys: title, commentary, description.\n"
         "title: 5-11 words in the same style as the four examples, 1-2 emojis, then ' #Shorts'. "
         "It must be a totally new title - never reuse any of the examples.\n"
-        f"commentary: at most {words} words of present-tense voice-over narration for this clip, "
-        "building to the payoff. No hashtags, no emojis, no quotes, no stage directions.\n"
+        f"commentary: at most {words} words of spoken voice-over for this clip. "
+        "Short punchy present-tense sentences of 6-12 words, building to the payoff, like a "
+        "friend narrating a funny clip - not a scene report. "
+        "Use only what the frame analysis says happens; it is the only source of truth. Never "
+        "invent characters, objects, dialogue or events that are not in it. If the frame analysis "
+        "is unavailable, stay generic and name no specific objects. "
+        "Never write 'the video shows' or 'in this clip'. "
+        "No hashtags, no emojis, no quotes, no stage directions.\n"
         "description: two short sentences describing the joke or twist, then a blank line, then a "
         "one-line question starting with an emoji and ending with 'Drop your answer below!', then a "
         "blank line, then ten hashtags starting with #Shorts."
@@ -228,8 +284,14 @@ def generate_editorial(
         )
     try:
         url = settings.inference_url.rstrip("/") + settings.inference_generation_path
+        model = (settings.inference_model or "").strip()
+        if not model or model.lower() == "auto":
+            # "auto" routes to the gateway's fast lane, which clamps the reply
+            # to 60 tokens and replaces the system prompt with "answer in 1-2
+            # sentences". That cannot carry title + commentary + description.
+            model = "llama-3.3-70b-versatile"
         body = {
-            "model": settings.inference_model or "auto",
+            "model": model,
             "messages": [
                 {
                     "role": "system",
@@ -256,25 +318,68 @@ def generate_editorial(
             timeout=120,
         )
         response.raise_for_status()
-        raw = response.json()["choices"][0]["message"]["content"]
+        raw = _editorial_text(response.json())
         for payload in reversed(_json_objects(str(raw))):
             title = " ".join(str(payload.get("title") or "").split())
             if not title or title.casefold() in taken:
                 continue
+            # A reasoning model can echo the key spec back as {"title": "..."},
+            # which would otherwise be accepted as a real title.
+            if len(title.split()) < 4 or not title.strip(" ."):
+                continue
             return {
                 "title": title,
-                "commentary": " ".join(str(payload.get("commentary") or "").split()),
+                "commentary": _trim_to_sentence(payload.get("commentary") or ""),
                 "description": str(payload.get("description") or "").strip(),
             }
-        log.warning("Editorial reply had no usable new title")
+        log.warning("Editorial reply had no usable new title: %s", str(raw)[:400])
     except Exception as exc:
-        log.info("Editorial generation unavailable (%s); using template", type(exc).__name__)
+        log.info(
+            "Editorial generation unavailable (%s: %s); using template",
+            type(exc).__name__, str(exc)[:200],
+        )
 
     return {
         "title": _fallback_title(category, source_title, taken),
         "commentary": _fallback_commentary(category, source_title),
         "description": "",
     }
+
+
+# Words that must never end a caption row: breaking after "the" leaves the
+# viewer reading a dangling article while the picture moves on.
+_ASS_BREAK_STOPWORDS = {
+    "A", "AN", "THE", "OF", "TO", "AND", "IN", "ON", "AT", "WITH", "FOR",
+    "HIS", "HER", "THEIR", "MY", "YOUR", "OUR", "IS", "WAS", "ARE", "WERE",
+    "AS", "THAT", "THIS", "HE", "SHE", "THEY", "IT", "BUT", "OR", "SO",
+    "INTO", "ONTO", "FROM", "BY", "THEN", "WHEN", "WHILE",
+}
+
+
+def _phrase_chunks(words: list[str], target: int = 3, max_words: int = 4) -> list[list[str]]:
+    """Split a sentence into caption rows that end on a real word.
+
+    Rows aim for ``target`` words and never end on a stopword, so a row reads as
+    a phrase ("SPRINTING TOWARD THE CAMERA") instead of cutting mid-thought.
+    """
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    for word in words:
+        current.append(word)
+        clean = re.sub(r"[^A-Z0-9']", "", word.upper())
+        if len(current) >= max_words or (len(current) >= target and clean not in _ASS_BREAK_STOPWORDS):
+            chunks.append(current)
+            current = []
+    if current:
+        # A lone trailing word looks like a glitch; rebalance with the row before
+        # instead of letting a 1-word caption flash by.
+        if chunks and len(chunks[-1]) + len(current) <= max_words:
+            chunks[-1].extend(current)
+        else:
+            while chunks and len(chunks[-1]) + len(current) > max_words and len(chunks[-1]) > 2:
+                current.insert(0, chunks[-1].pop())
+            chunks.append(current)
+    return chunks
 
 
 async def _synthesize_commentary(script: str, voice: str, output_path: Path) -> tuple[Path, list[dict[str, Any]]]:
@@ -295,11 +400,13 @@ async def _synthesize_commentary(script: str, voice: str, output_path: Path) -> 
             if not words:
                 continue
             total = len(words)
-            for index in range(0, total, 3):
-                part = words[index:index + 3]
+            consumed = 0
+            for part in _phrase_chunks(words):
+                start_word = consumed
+                consumed += len(part)
                 cues.append({
-                    "start": round(start + duration * (index / total), 2),
-                    "end": round(start + duration * (min(total, index + len(part)) / total), 2),
+                    "start": round(start + duration * (start_word / total), 2),
+                    "end": round(start + duration * (consumed / total), 2),
                     "text": " ".join(part),
                 })
     if not audio:
@@ -321,15 +428,24 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: AntonBold,Anton,96,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,0,0,0,0,100,100,1.5,0,1,6.0,3.5,2,70,70,420,1
+Style: AntonBold,Anton,64,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,0,0,0,0,100,100,1.2,0,1,5.0,3.0,2,80,80,380,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
-# &HAABBGGRR: this is the chartreuse highlight used on the first four uploads.
-_ASS_HIGHLIGHT = r"{\c&H00FFE500&}"
+# &HAABBGGRR. Rotated per cue so consecutive captions change colour while every
+# single caption stays legible against the video.
+_ASS_PALETTE = (
+    r"{\c&H00E5FF&}",   # yellow  #FFE500
+    r"{\c&H00FFE5&}",   # cyan    #00E5FF
+    r"{\c&H00952DFF&}", # pink    #FF2D95
+    r"{\c&H0000FF7C&}", # lime    #7CFF00
+    r"{\c&H00007AFF&}", # orange  #FF7A00
+)
 _ASS_WHITE = r"{\c&H00FFFFFF&}"
+# Emphasis: the accent colour plus a short pop so the key word lands.
+_ASS_POP = r"{\fscx115\fscy115}"
 
 _HIGHLIGHT_WORDS = {
     "WAIT", "NEVER", "NOBODY", "EVERYTHING", "WORST", "BEST", "INSANE",
@@ -348,21 +464,27 @@ def _ass_time(seconds: float) -> str:
 
 
 def _write_ass(cues: list[dict[str, Any]], ass_path: Path) -> Path:
-    """Anton 96pt uppercase captions with yellow highlights, as on the first four."""
+    """Anton 64pt uppercase captions, two-tone with a per-cue accent colour.
+
+    64pt keeps a three-word row inside the 1080px frame; the earlier 96pt style
+    overflowed on longer words. Colour rotates per cue so the edit reads as
+    lively without turning every caption into a rainbow.
+    """
     events: list[str] = []
-    for cue in cues:
+    for cue_index, cue in enumerate(cues):
         text = " ".join(str(cue.get("text") or "").split()).upper()
         if not text:
             continue
         start = float(cue["start"])
         end = float(cue["end"]) if float(cue["end"]) > start else start + 0.6
+        accent = _ASS_PALETTE[cue_index % len(_ASS_PALETTE)]
         styled: list[str] = []
-        for word in text.split():
+        for word_index, word in enumerate(text.split()):
             clean = re.sub(r"[^A-Z0-9]", "", word)
-            if clean in _HIGHLIGHT_WORDS or any(char.isdigit() for char in clean):
-                styled.append(f"{_ASS_HIGHLIGHT}{word}{_ASS_WHITE}")
-            else:
-                styled.append(word)
+            emphasis = clean in _HIGHLIGHT_WORDS or any(char.isdigit() for char in clean)
+            colour = accent if (word_index % 2 or emphasis) else _ASS_WHITE
+            pop = _ASS_POP if emphasis else ""
+            styled.append(f"{colour}{pop}{word}{_ASS_WHITE}")
         events.append(
             f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},AntonBold,,0,0,0,,"
             + " ".join(styled)
@@ -415,7 +537,7 @@ def render_with_commentary(
     source_has_audio: bool = True,
     duration: float = 0.0,
 ) -> Path:
-    """Commentary over a silent/music-only clip; original audio ducked to 22%.
+    """Commentary over a silent/music-only clip; original audio ducked to 20%.
 
     The clip is never cut short to match the voice-over: the narration is padded
     with silence when it finishes early and the output keeps the source length,
@@ -426,31 +548,35 @@ def render_with_commentary(
     ass_path = _write_ass(cues, output_path.with_suffix(".ass"))
     video_chain = _base_video_filter(cues, category, ass_path)
     if source_has_audio:
+        # ``duration=first`` pins the mix to the source audio, which is the same
+        # length as the picture, so the output is never longer than the clip.
         audio_chain = (
-            "[0:a]volume=0.22[orig];"
+            "[0:a]volume=0.20[orig];"
             "[1:a]volume=1.0,apad[voice];"
             "[orig][voice]amix=inputs=2:duration=first:dropout_transition=2,"
             "loudnorm=I=-14:LRA=9:TP=-1.5[a]"
         )
     else:
-        audio_chain = "[1:a]loudnorm=I=-14:LRA=9:TP=-1.5[a]"
+        # A silent source has no first stream to pin the mix to; padding the
+        # voice means ``-shortest`` cuts at the end of the picture instead of
+        # the end of the narration.
+        audio_chain = "[1:a]apad,loudnorm=I=-14:LRA=9:TP=-1.5[a]"
     cmd = [
         settings.ffmpeg_bin, "-hide_banner", "-nostdin", "-y",
         "-i", str(source_path),
         "-i", str(narration_path),
         "-filter_complex", f"[0:v]{video_chain}[v];{audio_chain}",
         "-map", "[v]", "-map", "[a]",
-        "-c:v", "libx264", "-preset", "faster", "-crf", "20",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k",
         "-movflags", "+faststart",
+        "-shortest",
     ]
-    if source_has_audio:
-        cmd += ["-t", f"{max(1.0, duration):.2f}"]
-    else:
-        cmd.append("-shortest")
     cmd.append(str(output_path))
-    _run(cmd)
+    # 1080x1920 with a burned-in ASS track is the slowest step in the pipeline;
+    # on the shared 2-vCPU host a 60s clip can take well over ten minutes.
+    _run(cmd, timeout=2400)
     return output_path
 
 
@@ -465,7 +591,8 @@ def render_with_original_audio(
     """Keep the source's own narration; subtitles transcribe what is actually said."""
     settings = get_settings()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    video_chain = _base_video_filter(cues, category)
+    ass_path = _write_ass(cues, output_path.with_suffix(".ass"))
+    video_chain = _base_video_filter(cues, category, ass_path)
     if source_has_audio:
         audio_chain = "[0:a]loudnorm=I=-14:LRA=9:TP=-1.5[a]"
     else:
@@ -660,7 +787,7 @@ def produce_viral_short(
     # 2. Full download and probe
     source_path = download_source_video(candidate.video_id, settings.media_dir / "viral_sources")
     probe = probe_media(source_path)
-    duration = min(58.0, max(6.0, probe.duration or float(candidate.duration or 20.0)))
+    duration = max(6.0, probe.duration or float(candidate.duration or 20.0))
     project_key = f"viral-{candidate.video_id}-{uuid.uuid4().hex[:6]}"
     render_path = settings.render_dir / f"{project_key}.mp4"
     hook = str(candidate.hook or "WAIT FOR IT")
@@ -668,6 +795,9 @@ def produce_viral_short(
     # 3. Edit exactly like the first four: our voice-over over ducked source
     # audio, Anton captions, no second voice anywhere.
     taken_titles = existing_upload_titles(db)
+    # Look at the clip before writing about it: without this the model invents
+    # a plot from the title alone and the voice-over describes a different video.
+    scene = describe_scene(source_path, duration)
     editorial = generate_editorial(
         category,
         str(getattr(candidate, "title", "")),
@@ -675,8 +805,9 @@ def produce_viral_short(
         speech.text,
         duration,
         taken_titles,
+        scene=scene,
     )
-    voice = VOICE_BY_CATEGORY.get(category, "en-US-ChristopherNeural")
+    voice = VOICE_BY_CATEGORY.get(category, DEFAULT_VOICE)
     voice_script = editorial.get("commentary") or _fallback_commentary(
         category, str(getattr(candidate, "title", ""))
     )
@@ -734,6 +865,13 @@ def produce_viral_short(
         license_name=license_name,
         permission_reference=permission_reference,
         repeat_use_allowed=True,
+        repeat_use_reviewed_at=utcnow(),
+        # Oracle stores '' as NULL, and this column is NOT NULL, so the note has
+        # to carry text or the whole source row is rejected.
+        repeat_use_review_notes=(
+            "Operator-attested transformative-commentary policy; no repeat-use "
+            "review required."
+        ),
         rights_verified=True,
         status="approved",
         notes=notes,

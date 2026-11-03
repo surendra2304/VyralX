@@ -31,3 +31,7 @@ test_*.mp3
 test_*.jpg
 test_*.mp4
 test_*.png
+
+# Exported browser cookies (session credentials)
+*youtube_cookies*.txt
+*tokens.txt

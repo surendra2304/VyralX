@@ -26,6 +26,7 @@ from app.models import Asset, ContentPack, PublishJob, RenderJob, Source, VideoP
 from app.services.discovery import discover_youtube_videos
 from app.services.thumbnail import create_viral_thumbnail
 from app.services.youtube import upload_video
+from app.services.ytdlp_support import apply_defaults
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [VyralX-Repurposer] %(message)s")
 log = logging.getLogger("vyralx.repurposer")
@@ -100,7 +101,7 @@ def download_youtube_short(video_id: str, destination_dir: Path) -> Path | None:
     }
     try:
         log.info("Downloading viral video %s...", video_id)
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(apply_defaults(ydl_opts)) as ydl:
             ydl.extract_info(url, download=True)
         if expected_path.is_file():
             return expected_path

@@ -204,7 +204,7 @@ def score_candidate(info: dict[str, Any], keywords: set[str]) -> float:
 
 
 def _extract(url: str, limit: int) -> list[dict[str, Any]]:
-    from app.services.ytdlp_support import with_cookies
+    from app.services.ytdlp_support import apply_defaults
 
     opts = {
         "quiet": True,
@@ -215,7 +215,7 @@ def _extract(url: str, limit: int) -> list[dict[str, Any]]:
         "noplaylist": False,
         "ignoreerrors": True,
     }
-    with yt_dlp.YoutubeDL(with_cookies(opts)) as ydl:
+    with yt_dlp.YoutubeDL(apply_defaults(opts)) as ydl:
         payload = ydl.extract_info(url, download=False)
     if not payload:
         return []
@@ -245,10 +245,10 @@ def related_video_ids(seed_id: str) -> list[str]:
 
 def _video_metadata(video_id: str) -> dict[str, Any] | None:
     try:
-        from app.services.ytdlp_support import with_cookies
+        from app.services.ytdlp_support import apply_defaults
 
         with yt_dlp.YoutubeDL(
-            with_cookies({"quiet": True, "no_warnings": True, "skip_download": True, "ignoreerrors": True})
+            apply_defaults({"quiet": True, "no_warnings": True, "skip_download": True, "ignoreerrors": True})
         ) as ydl:
             info = ydl.extract_info(
                 f"https://www.youtube.com/watch?v={video_id}", download=False

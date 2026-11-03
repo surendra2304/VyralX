@@ -53,7 +53,7 @@ class Source(Base):
     permission_reference: Mapped[str] = mapped_column(String(2048), default="")
     repeat_use_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
     repeat_use_reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    repeat_use_review_notes: Mapped[str] = mapped_column(Text, default="")
+    repeat_use_review_notes: Mapped[str] = mapped_column(Text, default="n/a")
     rights_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(40), default="discovered")
     notes: Mapped[str] = mapped_column(Text, default="")

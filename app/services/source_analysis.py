@@ -26,6 +26,7 @@ from typing import Any
 import yt_dlp
 
 from app.config import get_settings
+from app.services.ytdlp_support import apply_defaults
 
 log = logging.getLogger("vyralx.source_analysis")
 
@@ -210,6 +211,7 @@ def download_audio_only(video_id: str, destination_dir: Path) -> Path | None:
         "quiet": True,
         "no_warnings": True,
     }
+    apply_defaults(opts)
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([f"https://www.youtube.com/watch?v={video_id}"])

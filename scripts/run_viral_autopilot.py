@@ -20,9 +20,11 @@ Each cycle it:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import socket
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import Settings, get_settings
@@ -38,6 +40,57 @@ from app.services.ytdlp_support import cookies_file
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("vyralx.viral_autopilot")
+
+# Auditioning is expensive (download + Whisper), so a candidate that is rejected
+# on its merits must not come back on the next cycle. Without this ledger the
+# pool is re-ranked identically every run and the same narrated clip is
+# re-downloaded forever, starving the channel of uploads.
+_REJECT_LEDGER = Path(__file__).resolve().parents[1] / "data" / "rejected_sources.json"
+_REJECT_LIMIT = 500
+
+# Failures that say nothing about the clip itself: a retry may succeed once the
+# network, the cookie jar or the render host recovers.
+_TRANSIENT_REASONS = {
+    "audio_unavailable",
+    "download_failed",
+    "render_failed",
+    "tts_failed",
+    "upload_failed",
+    "timeout",
+}
+
+
+def _load_rejections() -> dict[str, dict]:
+    try:
+        raw = json.loads(_REJECT_LEDGER.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _rejected_ids() -> set[str]:
+    return {str(key) for key in _load_rejections()}
+
+
+def _record_rejection(video_id: str, reason: str) -> None:
+    """Persist a permanent rejection so the pool advances on the next cycle."""
+    if not video_id or str(reason).lower() in _TRANSIENT_REASONS:
+        return
+    data = _load_rejections()
+    data[str(video_id)] = {
+        "reason": str(reason),
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    if len(data) > _REJECT_LIMIT:
+        newest = sorted(data.items(), key=lambda item: item[1].get("at", ""))[-_REJECT_LIMIT:]
+        data = dict(newest)
+    try:
+        _REJECT_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+        staging = _REJECT_LEDGER.with_suffix(".json.tmp")
+        staging.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        staging.replace(_REJECT_LEDGER)
+    except OSError as exc:
+        log.warning("Could not persist rejection for %s: %s", video_id, exc)
 
 
 def bootstrap() -> Settings:
@@ -56,31 +109,39 @@ def bootstrap() -> Settings:
 
 
 def produce_one(settings: Settings, *, max_candidates: int) -> dict:
+    if not cookies_file():
+        # Every source download goes through yt-dlp, and YouTube refuses
+        # datacenter IPs without a signed-in jar. Fail fast with a clear reason
+        # instead of auditioning candidates that cannot be fetched.
+        log.warning(
+            "No YouTube cookie jar found (%s); source downloads cannot work on this host",
+            getattr(settings, "youtube_cookies_file", "./data/youtube_cookies.txt"),
+        )
+        return {"status": "NO_COOKIES"}
     with SessionLocal() as db:
         used = used_source_video_ids(db)
+        rejected = _rejected_ids()
         pool_kwargs = dict(
             limit=12,
-            exclude_ids=used,
+            exclude_ids=used | rejected,
             min_views=int(getattr(settings, "viral_min_source_views", 1_000_000)),
             max_seconds=float(getattr(settings, "viral_max_source_seconds", 58)),
             min_seconds=float(getattr(settings, "viral_min_source_seconds", 12)),
         )
+        # The Data API is the primary path: it answers in seconds, costs a
+        # handful of quota units, and is not subject to the browser bot wall or
+        # to yt-dlp's per-channel JS challenge solves.
         candidates = []
-        if cookies_file():
+        try:
+            candidates = discover_candidates_api(**pool_kwargs)
+        except Exception as exc:
+            log.warning("API discovery failed: %s", exc)
+        if not candidates and cookies_file():
+            log.info("Data API found nothing; falling back to yt-dlp discovery")
             candidates = discover_candidates(
                 seed_ids=set(list(used)[-4:]) if used else None,
                 **pool_kwargs,
             )
-        else:
-            # yt-dlp cannot even list a channel from a datacenter IP without a
-            # signed-in cookie jar, so don't waste 40 failing extractions.
-            log.info("No YouTube cookie jar configured; discovering via the YouTube Data API")
-        if not candidates:
-            try:
-                candidates = discover_candidates_api(**pool_kwargs)
-            except Exception as exc:
-                log.warning("API discovery failed: %s", exc)
-                candidates = []
         if not candidates:
             return {"status": "NO_CANDIDATES"}
 
@@ -95,7 +156,9 @@ def produce_one(settings: Settings, *, max_candidates: int) -> dict:
             attempts.append(result)
             if result.get("status") in {"QUEUED_FOR_PUBLISH", "RENDERED"}:
                 return {"status": "PRODUCED", "result": result, "attempts": attempts}
-            log.info("Skipped %s: %s", candidate.video_id, result.get("reason"))
+            reason = str(result.get("reason") or result.get("status") or "unknown")
+            _record_rejection(candidate.video_id, reason)
+            log.info("Skipped %s: %s", candidate.video_id, reason)
         return {"status": "ALL_CANDIDATES_REJECTED", "attempts": attempts}
 
 
@@ -164,7 +227,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="VyralX autonomous viral channel driver")
     parser.add_argument("--loop", action="store_true", help="run cycles forever")
     parser.add_argument("--interval", type=int, default=0, help="minutes between cycles (default: settings)")
-    parser.add_argument("--max-candidates", type=int, default=6, help="candidates to audition per cycle")
+    parser.add_argument("--max-candidates", type=int, default=10, help="candidates to audition per cycle")
     parser.add_argument("--timeout", type=int, default=1800, help="max seconds per publish drain")
     parser.add_argument("--allow-narrated", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--discover-only", action="store_true", help="print ranked candidates and exit")
@@ -189,14 +252,18 @@ def main() -> None:
             )
         return
 
+    # Every mode takes the lock: the timer fires a one-shot cycle, and a manual
+    # cycle running at the same time would double the render load on a 2-vCPU
+    # host and race the same candidate into two publish jobs.
+    lock = _acquire_single_instance_lock()
+    if lock is None:
+        log.error("Another autopilot cycle is already running; exiting.")
+        return
+
     if not args.loop:
         run_cycle(settings, args)
         return
 
-    lock = _acquire_single_instance_lock()
-    if lock is None:
-        log.error("Another autopilot loop is already running; exiting.")
-        return
     log.info("Autopilot loop lock acquired (127.0.0.1:8765)")
 
     interval = max(10, args.interval or settings.autonomous_run_interval_minutes)

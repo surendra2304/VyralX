@@ -65,9 +65,22 @@ def cookies_file() -> str | None:
     return None
 
 
-def with_cookies(opts: dict[str, Any]) -> dict[str, Any]:
-    """Inject ``cookiefile`` into a yt-dlp options dict when a jar exists."""
+def apply_defaults(opts: dict[str, Any]) -> dict[str, Any]:
+    """Apply the shared yt-dlp options to a call site.
+
+    Two things are required for this pipeline to work from a datacenter host:
+
+    * a signed-in cookie jar, otherwise YouTube answers with
+      "Sign in to confirm you're not a bot";
+    * the external EJS solver, otherwise the player's ``n`` challenge is left
+      unsolved and only storyboard images come back.
+    """
     jar = cookies_file()
     if jar:
         opts.setdefault("cookiefile", jar)
+    opts.setdefault("remote_components", ["ejs:github"])
     return opts
+
+
+# Backwards-compatible alias for call sites written before the solver was added.
+with_cookies = apply_defaults

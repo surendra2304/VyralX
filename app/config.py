@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     viral_channel_handles: str = Field(default="", max_length=1200)
     inference_generation_path: str = "/v1/task/execute"
     inference_timeout_seconds: int = 60
+    # Frame analysis: the commentary must describe what the clip actually shows,
+    # so three frames are sent to a vision model before any copy is written.
+    vision_api_key: str = ""
+    vision_base_url: str = "https://api.groq.com/openai/v1"
+    vision_model: str = "qwen/qwen3.8-27b"
+    vision_timeout_seconds: int = 90
     tts_provider: str = "espeak"
     espeak_bin: str = "espeak-ng"
     espeak_voice: str = "en-us"
