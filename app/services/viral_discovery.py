@@ -97,6 +97,10 @@ STYLE_CHANNELS: list[tuple[str, str]] = [
 
 REUSE_LICENSE_MARKERS = ("creative commons",)
 
+
+def _is_comedy(lane: dict[str, Any]) -> bool:
+    return str(lane.get("category", "")).upper() == "COMEDY"
+
 # The clips the channel's first four uploads were built from. Their YouTube
 # recommendation graph is the most accurate "more videos like this" signal we
 # have, so every cycle walks it for new candidates.
@@ -113,10 +117,9 @@ SEED_VIDEO_IDS = (
 # back-catalogue is deep. Every cycle reads these first.
 SEED_CREATOR_CHANNELS: tuple[tuple[str, str, str], ...] = (
     ("CuRe 구래", "UCkLNHZZsC3LKdUAroKNwOOw", "COMEDY"),
-    ("Red Bull", "UCblfuW_4rakIf2h6aqANefA", "SPORTS"),
     ("nishi tiwari", "UC8238GT1G2CmJ9bsmKpL-jw", "COMEDY"),
-    ("boxtoxtv", "UCCfKlFlKYBxZ-UU2dWc17IQ", "VIRAL"),
-    ("H&T Official", "UCYCh5_-In6wtzWR-s_kM03w", "VIRAL"),
+    ("boxtoxtv", "UCCfKlFlKYBxZ-UU2dWc17IQ", "COMEDY"),
+    ("H&T Official", "UCYCh5_-In6wtzWR-s_kM03w", "COMEDY"),
 )
 
 _RELATED_PATTERN = re.compile(r'"videoId":"([A-Za-z0-9_-]{11})"')
@@ -201,6 +204,8 @@ def score_candidate(info: dict[str, Any], keywords: set[str]) -> float:
 
 
 def _extract(url: str, limit: int) -> list[dict[str, Any]]:
+    from app.services.ytdlp_support import with_cookies
+
     opts = {
         "quiet": True,
         "no_warnings": True,
@@ -210,7 +215,7 @@ def _extract(url: str, limit: int) -> list[dict[str, Any]]:
         "noplaylist": False,
         "ignoreerrors": True,
     }
-    with yt_dlp.YoutubeDL(opts) as ydl:
+    with yt_dlp.YoutubeDL(with_cookies(opts)) as ydl:
         payload = ydl.extract_info(url, download=False)
     if not payload:
         return []
@@ -240,8 +245,10 @@ def related_video_ids(seed_id: str) -> list[str]:
 
 def _video_metadata(video_id: str) -> dict[str, Any] | None:
     try:
+        from app.services.ytdlp_support import with_cookies
+
         with yt_dlp.YoutubeDL(
-            {"quiet": True, "no_warnings": True, "skip_download": True, "ignoreerrors": True}
+            with_cookies({"quiet": True, "no_warnings": True, "skip_download": True, "ignoreerrors": True})
         ) as ydl:
             info = ydl.extract_info(
                 f"https://www.youtube.com/watch?v={video_id}", download=False
@@ -331,6 +338,8 @@ def _accept(
 ) -> bool:
     candidate = _candidate_from(info, lane, reuse_only)
     if candidate is None or candidate.video_id in exclude:
+        return False
+    if not _is_comedy(lane):
         return False
     if not (min_seconds <= candidate.duration <= max_seconds):
         return False
@@ -436,7 +445,7 @@ def discover_candidates(
 
     for info in metas:
         _accept(
-            info, _lane_for(info), reuse_only, found, exclude,
+            info, _lane_by_category("COMEDY"), reuse_only, found, exclude,
             min_seconds, max_seconds, min_views,
         )
 
@@ -444,7 +453,8 @@ def discover_candidates(
     if len(found) < max(3, limit // 2):
         tasks: list[tuple[dict[str, Any], Any]] = [
             (lane, lambda lane=lane: _search(lane["query"], 18, reuse_only))
-            for lane in STYLE_LANES[:6]
+            for lane in STYLE_LANES
+            if _is_comedy(lane)
         ]
         handles = [
             handle.strip().lstrip("@")
@@ -499,3 +509,62 @@ def used_source_video_ids(db: Any) -> set[str]:
 
 def utc_today() -> date:
     return datetime.now(timezone.utc).date()
+
+
+def candidates_from_api(rows: list[dict[str, Any]]) -> list[Candidate]:
+    """Convert :mod:`app.services.youtube_api_discovery` rows into candidates."""
+    candidates: list[Candidate] = []
+    for row in rows or []:
+        video_id = str(row.get("video_id") or "").strip()
+        if not video_id:
+            continue
+        candidates.append(
+            Candidate(
+                video_id=video_id,
+                title=str(row.get("title") or ""),
+                channel=str(row.get("channel") or ""),
+                duration=float(row.get("duration") or 0.0),
+                view_count=int(row.get("view_count") or 0),
+                like_count=int(row.get("like_count") or 0),
+                upload_date=str(row.get("upload_date") or ""),
+                license=str(row.get("license") or "transformative"),
+                category=str(row.get("category") or "COMEDY"),
+                hook=str(row.get("hook") or ""),
+                score=float(row.get("score") or 0.0),
+                tags=list(row.get("tags") or []),
+                description=str(row.get("description") or ""),
+                webpage_url=str(row.get("url") or f"https://www.youtube.com/watch?v={video_id}"),
+            )
+        )
+    return candidates
+
+
+def discover_candidates_api(
+    limit: int = 12,
+    exclude_ids: set[str] | None = None,
+    min_views: int = 500_000,
+    max_seconds: float = 58.0,
+    min_seconds: float = 10.0,
+) -> list[Candidate]:
+    """Discover through the official Data API instead of yt-dlp.
+
+    This is the fallback that keeps the autopilot alive on datacenter IPs:
+    ``playlistItems.list`` + ``videos.list`` are not subject to the browser bot
+    wall, so discovery still succeeds when extraction is blocked.
+    """
+    from app.services.youtube_api_discovery import discover_via_api
+
+    exclude = {str(value) for value in (exclude_ids or set()) if value}
+    rows = discover_via_api(
+        max_candidates=max(int(limit) * 3, 24),
+        min_views=min_views,
+        max_duration=max_seconds,
+        exclude_ids=exclude,
+    )
+    picked = [
+        candidate
+        for candidate in candidates_from_api(rows)
+        if candidate.video_id not in exclude and min_seconds <= candidate.duration <= max_seconds
+    ]
+    picked.sort(key=lambda candidate: candidate.score, reverse=True)
+    return picked[:limit]

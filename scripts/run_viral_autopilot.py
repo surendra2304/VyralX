@@ -28,7 +28,11 @@ from pathlib import Path
 from app.config import Settings, get_settings
 from app.database import Base, SessionLocal, engine
 from app.migrations import run_additive_migrations
-from app.services.viral_discovery import discover_candidates, used_source_video_ids
+from app.services.viral_discovery import (
+    discover_candidates,
+    discover_candidates_api,
+    used_source_video_ids,
+)
 from app.services.viral_remix import produce_viral_short
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -50,17 +54,28 @@ def bootstrap() -> Settings:
     return settings
 
 
-def produce_one(settings: Settings, *, allow_narrated: bool, max_candidates: int) -> dict:
+def produce_one(settings: Settings, *, max_candidates: int) -> dict:
     with SessionLocal() as db:
         used = used_source_video_ids(db)
-        candidates = discover_candidates(
+        pool_kwargs = dict(
             limit=12,
             exclude_ids=used,
-            seed_ids=set(list(used)[-4:]) if used else None,
             min_views=int(getattr(settings, "viral_min_source_views", 1_000_000)),
             max_seconds=float(getattr(settings, "viral_max_source_seconds", 58)),
             min_seconds=float(getattr(settings, "viral_min_source_seconds", 12)),
         )
+        candidates = discover_candidates(
+            seed_ids=set(list(used)[-4:]) if used else None,
+            **pool_kwargs,
+        )
+        if not candidates:
+            # yt-dlp is bot-walled on datacenter IPs; the Data API is not.
+            log.info("yt-dlp discovery found nothing; trying the YouTube Data API")
+            try:
+                candidates = discover_candidates_api(**pool_kwargs)
+            except Exception as exc:
+                log.warning("API discovery failed: %s", exc)
+                candidates = []
         if not candidates:
             return {"status": "NO_CANDIDATES"}
 
@@ -71,11 +86,7 @@ def produce_one(settings: Settings, *, allow_narrated: bool, max_candidates: int
                 candidate.video_id, candidate.duration, candidate.view_count,
                 candidate.score, candidate.title[:70],
             )
-            result = produce_viral_short(
-                candidate, db,
-                require_silent_source=not allow_narrated,
-                publish=True,
-            )
+            result = produce_viral_short(candidate, db, publish=True)
             attempts.append(result)
             if result.get("status") in {"QUEUED_FOR_PUBLISH", "RENDERED"}:
                 return {"status": "PRODUCED", "result": result, "attempts": attempts}
@@ -119,7 +130,6 @@ def report(limit: int = 5) -> None:
 def run_cycle(settings: Settings, args: argparse.Namespace) -> dict:
     produced = produce_one(
         settings,
-        allow_narrated=args.allow_narrated,
         max_candidates=args.max_candidates,
     )
     log.info("Production step: %s", produced.get("status"))
@@ -151,7 +161,7 @@ def main() -> None:
     parser.add_argument("--interval", type=int, default=0, help="minutes between cycles (default: settings)")
     parser.add_argument("--max-candidates", type=int, default=6, help="candidates to audition per cycle")
     parser.add_argument("--timeout", type=int, default=1800, help="max seconds per publish drain")
-    parser.add_argument("--allow-narrated", action="store_true", help="also accept sources that already have speech")
+    parser.add_argument("--allow-narrated", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--discover-only", action="store_true", help="print ranked candidates and exit")
     args = parser.parse_args()
 

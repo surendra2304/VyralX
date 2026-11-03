@@ -138,6 +138,10 @@ class Settings(BaseSettings):
     youtube_data_api_key: str = ""
     youtube_client_secrets_file: Path = Path("./secrets/youtube-client-secret.json")
     youtube_token_file: Path = Path("./data/secrets/youtube-token.json")
+    # Logged-in YouTube cookie jar (Netscape format). Datacenter IPs are
+    # challenged with "Sign in to confirm you're not a bot"; yt-dlp needs a
+    # cookie jar from a signed-in browser to get through.
+    youtube_cookies_file: Path = Path("./data/youtube_cookies.txt")
     youtube_default_privacy: str = "private"
     youtube_category_id: str = "28"
     youtube_upload_enabled: bool = False
