@@ -187,6 +187,26 @@ DESCRIPTION_EXAMPLES = (
     "#Shorts #MainCharacter #SchoolHumor #Attitude #Relatable #Viral #Trending #Funny #Savage",
 )
 
+# The real voice-over scripts from the channel's own uploads. The TTS voice is
+# already identical (en-US-GuyNeural); what makes the old videos sound different
+# is this writing: a hook in the first six words, a build, a turn, a payoff.
+COMMENTARY_EXAMPLES = (
+    "1 inch to the left, and this would have been an absolute catastrophe. Watch the insane "
+    "level of millimeter precision as the stunt is executed with zero margin for error. That is "
+    "pure raw talent and nerves of steel.",
+    "He dressed up in a luxury tuxedo for a five-star Michelin dinner, but the menu had other "
+    "plans. Instead of gourmet food, the waitress serves him a plate of literal soap bubbles. "
+    "And just when he thinks it cannot get any more ridiculous, she brings out a toy bubble gun "
+    "and blasts his head with foam. The final bill for this soap dinner? Exactly 9 million, "
+    "999 thousand.",
+    "When your friends try to roast you in the school hallway, but you have maximum main "
+    "character energy. While the entire squad is laughing and waiting for her to break, she just "
+    "hits them with the coldest, most unimpressed eye roll on the entire internet. And instead of "
+    "wasting a single second arguing back, she turns around and struts down the hallway like it "
+    "is her personal high fashion runway. Zero words, zero hesitation, pure unbothered "
+    "confidence.",
+)
+
 
 def _trim_to_sentence(text: str) -> str:
     """Drop a trailing fragment so the voice-over never ends mid-sentence."""
@@ -195,6 +215,25 @@ def _trim_to_sentence(text: str) -> str:
         return text
     cut = max(text.rfind("."), text.rfind("!"), text.rfind("?"))
     return text[: cut + 1] if cut >= 20 else text
+
+
+_SCENE_STOPWORDS = {
+    "that", "this", "with", "from", "into", "over", "then", "they", "them",
+    "their", "while", "when", "what", "have", "been", "were", "will", "your",
+    "about", "after", "before", "because", "there", "here", "just", "like",
+    "more", "most", "some", "very", "also", "onto", "than", "only", "even",
+    "still", "much", "many", "such", "each", "other", "both", "same", "does",
+    "doing", "make", "made", "gets", "goes", "going", "come", "comes", "says",
+    "said", "looks", "looking", "shows", "showing", "starts", "started",
+}
+
+
+def _mentions_scene(commentary: str, scene: str) -> bool:
+    """True when the script names real things from the footage, not filler."""
+    def content(text: str) -> set[str]:
+        return {word for word in re.findall(r"[a-z]{4,}", text.lower())} - _SCENE_STOPWORDS
+
+    return len(content(commentary) & content(scene)) >= 2
 
 
 def _editorial_text(payload: Any) -> str:
@@ -238,6 +277,7 @@ def generate_editorial(
     target_seconds: float,
     taken_titles: set[str] | None = None,
     scene: str = "",
+    _strict: bool = False,
 ) -> dict[str, str]:
     """Write title, commentary and description in the channel's exact style.
 
@@ -254,6 +294,9 @@ def generate_editorial(
         + "\n".join(f"- {example}" for example in TITLE_EXAMPLES)
         + "\n\nThese two descriptions define the description style exactly:\n"
         + "\n\n".join(f"---\n{example}" for example in DESCRIPTION_EXAMPLES)
+        + "\n\nThese are the real voice-over scripts from the channel. Copy their rhythm, "
+        "sentence length and energy - this is what the voice must sound like:\n"
+        + "\n\n".join(f"---\n{example}" for example in COMMENTARY_EXAMPLES)
         + "\n\n"
         f"Source clip title: \"{source_title[:160]}\"\n"
         f"Source channel: {channel[:80]}\n"
@@ -264,14 +307,17 @@ def generate_editorial(
         "Reply with the JSON object only - no reasoning, no markdown, no text before or after.\n"
         "Keys: title, commentary, description.\n"
         "title: 5-11 words in the same style as the four examples, 1-2 emojis, then ' #Shorts'. "
-        "It must be a totally new title - never reuse any of the examples.\n"
-        f"commentary: at most {words} words of spoken voice-over for this clip. "
-        "Short punchy present-tense sentences of 6-12 words, building to the payoff, like a "
-        "friend narrating a funny clip - not a scene report. "
+        "It must name the specific thing that happens in this clip - never a generic phrase that "
+        "could fit any video - and it must be totally new: never reuse any of the examples.\n"
+        f"commentary: {words} words of spoken voice-over, written exactly like the scripts above. "
+        "Open with a hook in the first six words, then the setup, then the turn that makes it "
+        "funny, then the payoff, then one short closing line. "
         "Use only what the frame analysis says happens; it is the only source of truth. Never "
         "invent characters, objects, dialogue or events that are not in it. If the frame analysis "
         "is unavailable, stay generic and name no specific objects. "
-        "Never write 'the video shows' or 'in this clip'. "
+        "Every sentence must name something concrete from the frame analysis - a person, an "
+        "object or an action. If a line could describe any other video, cut it. "
+        "Never narrate frame by frame, never write 'the video shows' or 'in this clip'. "
         "No hashtags, no emojis, no quotes, no stage directions.\n"
         "description: two short sentences describing the joke or twist, then a blank line, then a "
         "one-line question starting with an emoji and ending with 'Drop your answer below!', then a "
@@ -281,6 +327,12 @@ def generate_editorial(
         prompt += (
             "\n\nThese titles are already on the channel and must NOT be reused, echoed or "
             "paraphrased closely:\n" + "\n".join(f"- {title}" for title in sorted(taken)[:60])
+        )
+    if _strict:
+        prompt += (
+            "\n\nYour previous narration was too generic. Rewrite the commentary so every "
+            "sentence names a specific person, object or action from the frame analysis. A line "
+            "that could describe a different video is not acceptable."
         )
     try:
         url = settings.inference_url.rstrip("/") + settings.inference_generation_path
@@ -327,9 +379,18 @@ def generate_editorial(
             # which would otherwise be accepted as a real title.
             if len(title.split()) < 4 or not title.strip(" ."):
                 continue
+            commentary = _trim_to_sentence(payload.get("commentary") or "")
+            if scene and not _strict and not _mentions_scene(commentary, scene):
+                # A generic script over the wrong footage is exactly what the
+                # channel must never publish; ask once more, grounded.
+                log.info("Editorial narration did not match the footage; retrying once")
+                return generate_editorial(
+                    category, source_title, channel, transcript, target_seconds,
+                    taken_titles, scene=scene, _strict=True,
+                )
             return {
                 "title": title,
-                "commentary": _trim_to_sentence(payload.get("commentary") or ""),
+                "commentary": commentary,
                 "description": str(payload.get("description") or "").strip(),
             }
         log.warning("Editorial reply had no usable new title: %s", str(raw)[:400])
@@ -356,36 +417,44 @@ _ASS_BREAK_STOPWORDS = {
 }
 
 
-def _phrase_chunks(words: list[str], target: int = 3, max_words: int = 4) -> list[list[str]]:
+def _phrase_chunks(
+    words: list[str], target: int = 3, max_words: int = 4, max_chars: int = 26
+) -> list[list[str]]:
     """Split a sentence into caption rows that end on a real word.
 
-    Rows aim for ``target`` words and never end on a stopword, so a row reads as
-    a phrase ("SPRINTING TOWARD THE CAMERA") instead of cutting mid-thought.
+    Rows aim for ``target`` words, never end on a stopword and stay inside
+    ``max_chars`` so a 104pt row fills most of the frame without spilling off it.
     """
     chunks: list[list[str]] = []
     current: list[str] = []
     for word in words:
-        current.append(word)
         clean = re.sub(r"[^A-Z0-9']", "", word.upper())
-        if len(current) >= max_words or (len(current) >= target and clean not in _ASS_BREAK_STOPWORDS):
+        would_be = " ".join(current + [word])
+        if current and (len(would_be) > max_chars or len(current) >= max_words):
+            chunks.append(current)
+            current = []
+        current.append(word)
+        if len(current) >= target and clean not in _ASS_BREAK_STOPWORDS:
             chunks.append(current)
             current = []
     if current:
-        # A lone trailing word looks like a glitch; rebalance with the row before
-        # instead of letting a 1-word caption flash by.
-        if chunks and len(chunks[-1]) + len(current) <= max_words:
-            chunks[-1].extend(current)
-        else:
-            while chunks and len(chunks[-1]) + len(current) > max_words and len(chunks[-1]) > 2:
+        # A lone trailing word looks like a glitch: fold it into the row before,
+        # or borrow one word so the last row is not a single flash.
+        if len(current) == 1 and chunks:
+            merged = " ".join(chunks[-1] + current)
+            if len(chunks[-1]) < max_words and len(merged) <= max_chars:
+                chunks[-1].extend(current)
+                current = []
+            elif len(chunks[-1]) > 2:
                 current.insert(0, chunks[-1].pop())
+        if current:
             chunks.append(current)
     return chunks
 
 
 async def _synthesize_commentary(script: str, voice: str, output_path: Path) -> tuple[Path, list[dict[str, Any]]]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    # Same voice settings as the first four uploads: default rate, 3-word
-    # caption rows so Anton 96pt never runs off the 1080px frame.
+    # Same synthesis call as the first four uploads: default rate, en-US-GuyNeural.
     communicate = edge_tts.Communicate(script, voice)
     audio = bytearray()
     cues: list[dict[str, Any]] = []
@@ -428,7 +497,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: AntonBold,Anton,64,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,0,0,0,0,100,100,1.2,0,1,5.0,3.0,2,80,80,380,1
+Style: AntonBold,Anton,120,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,0,0,0,0,100,100,1.2,0,1,10.0,4.5,2,50,50,400,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -464,11 +533,12 @@ def _ass_time(seconds: float) -> str:
 
 
 def _write_ass(cues: list[dict[str, Any]], ass_path: Path) -> Path:
-    """Anton 64pt uppercase captions, two-tone with a per-cue accent colour.
+    """Anton 104pt uppercase captions, one solid accent colour per row.
 
-    64pt keeps a three-word row inside the 1080px frame; the earlier 96pt style
-    overflowed on longer words. Colour rotates per cue so the edit reads as
-    lively without turning every caption into a rainbow.
+    104pt reads as big captioning on a phone without spilling off the 1080px
+    frame (64pt looked tiny, 96pt with full-width rows looked oversized). Each
+    row takes the next colour in the palette, and numbers / payoff words punch
+    through in white at 110% for contrast.
     """
     events: list[str] = []
     for cue_index, cue in enumerate(cues):
@@ -478,13 +548,14 @@ def _write_ass(cues: list[dict[str, Any]], ass_path: Path) -> Path:
         start = float(cue["start"])
         end = float(cue["end"]) if float(cue["end"]) > start else start + 0.6
         accent = _ASS_PALETTE[cue_index % len(_ASS_PALETTE)]
-        styled: list[str] = []
-        for word_index, word in enumerate(text.split()):
+        styled: list[str] = [accent]
+        for word in text.split():
             clean = re.sub(r"[^A-Z0-9]", "", word)
             emphasis = clean in _HIGHLIGHT_WORDS or any(char.isdigit() for char in clean)
-            colour = accent if (word_index % 2 or emphasis) else _ASS_WHITE
-            pop = _ASS_POP if emphasis else ""
-            styled.append(f"{colour}{pop}{word}{_ASS_WHITE}")
+            if emphasis:
+                styled.append(f"{_ASS_WHITE}{_ASS_POP}{word}{accent}")
+            else:
+                styled.append(word)
         events.append(
             f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},AntonBold,,0,0,0,,"
             + " ".join(styled)
