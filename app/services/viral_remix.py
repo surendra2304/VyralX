@@ -139,6 +139,24 @@ def download_source_video(video_id: str, destination_dir: Path) -> Path:
     raise RuntimeError(f"Source download produced no playable file for {video_id}")
 
 
+def _salvage_object(text: str) -> dict[str, str] | None:
+    """Recover title/commentary/description from a truncated JSON reply.
+
+    When the model hits its token cap mid-string the object never closes, so the
+    balanced-brace scan finds nothing. The fields themselves are still readable,
+    and half a script is better than falling back to generic template copy.
+    """
+    fields: dict[str, str] = {}
+    for key in ("title", "commentary", "description"):
+        match = re.search(rf'"{key}"\s*:\s*"(.*?)(?:"\s*[,}}]|$)', text, re.S)
+        if not match:
+            continue
+        value = match.group(1)
+        value = value.replace('\\"', '"').replace("\\n", "\n").replace("\\t", " ").replace("\\\\", "\\")
+        fields[key] = value.strip()
+    return fields or None
+
+
 def _json_objects(text: str) -> list[dict[str, Any]]:
     """Pull every balanced JSON object out of a possibly noisy model reply."""
     objects: list[dict[str, Any]] = []
@@ -176,6 +194,10 @@ def _json_objects(text: str) -> list[dict[str, Any]]:
                         continue
                 if isinstance(parsed, dict):
                     objects.append(parsed)
+    if not objects:
+        salvaged = _salvage_object(text)
+        if salvaged:
+            objects.append(salvaged)
     return objects
 
 
@@ -361,7 +383,7 @@ def generate_editorial(
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.95,
-            "max_tokens": 1600,
+            "max_tokens": 2400,
             "response_format": {"type": "json_object"},
             "stream": False,
         }
@@ -399,7 +421,7 @@ def generate_editorial(
                 "commentary": commentary,
                 "description": str(payload.get("description") or "").strip(),
             }
-        log.warning("Editorial reply had no usable new title: %s", str(raw)[:400])
+        log.warning("Editorial reply had no usable new title: %s", str(raw)[:4000])
     except Exception as exc:
         log.info(
             "Editorial generation unavailable (%s: %s); using template",
