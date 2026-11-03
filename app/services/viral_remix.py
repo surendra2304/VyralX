@@ -167,7 +167,13 @@ def _json_objects(text: str) -> list[dict[str, Any]]:
                 try:
                     parsed = json.loads(text[start:index + 1])
                 except json.JSONDecodeError:
-                    continue
+                    # Models routinely emit raw newlines inside the description
+                    # string; strict=False accepts those instead of throwing the
+                    # whole reply away and falling back to template copy.
+                    try:
+                        parsed = json.loads(text[start:index + 1], strict=False)
+                    except json.JSONDecodeError:
+                        continue
                 if isinstance(parsed, dict):
                     objects.append(parsed)
     return objects
@@ -399,6 +405,17 @@ def generate_editorial(
             "Editorial generation unavailable (%s: %s); using template",
             type(exc).__name__, str(exc)[:200],
         )
+
+    # Last resort. If vision gave us a description, narrate that instead of a
+    # generic template: an accurate description beats invented filler.
+    if scene:
+        grounded = _trim_to_sentence(" ".join(str(scene).split()[:70]))
+        if len(grounded.split()) >= 12:
+            return {
+                "title": _fallback_title(category, source_title, taken),
+                "commentary": grounded,
+                "description": "",
+            }
 
     return {
         "title": _fallback_title(category, source_title, taken),
