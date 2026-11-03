@@ -337,7 +337,7 @@ def generate_editorial(
         "title: 5-11 words in the same style as the four examples, 1-2 emojis, then ' #Shorts'. "
         "It must name the specific thing that happens in this clip - never a generic phrase that "
         "could fit any video - and it must be totally new: never reuse any of the examples.\n"
-        f"commentary: {words} words of spoken voice-over, written exactly like the scripts above. "
+        f"commentary: about {words} words of spoken voice-over, written exactly like the scripts above. "
         "Open with a hook in the first six words, then the setup, then the turn that makes it "
         "funny, then the payoff, then one short closing line. "
         "Use only what the frame analysis says happens; it is the only source of truth. Never "
@@ -345,8 +345,15 @@ def generate_editorial(
         "is unavailable, stay generic and name no specific objects. "
         "Every sentence must name something concrete from the frame analysis - a person, an "
         "object or an action. If a line could describe any other video, cut it. "
-        "Never narrate frame by frame, never write 'the video shows' or 'in this clip'. "
-        "No hashtags, no emojis, no quotes, no stage directions.\n"
+        "The frame analysis has three numbered beats covering the start, middle and "
+        "end of the clip. Write one sentence for each beat, in that order "
+
+        "and in the order given, so the words match what is on screen at that "
+        "moment. Do not merge beats, skip one, or reorder them. "
+        "No rhetorical filler: never open with 'First glance', 'You won't believe' or "
+        "'The joke is', and never say 'only on screen' or 'the feast exists'. Say what the person "
+        "is holding and what they do with it. "
+        "Never narrate frame by frame, never write 'the video shows' or 'in this clip'. "        "No hashtags, no emojis, no quotes, no stage directions.\n"
         "description: two short sentences describing the joke or twist, then a blank line, then a "
         "one-line question starting with an emoji and ending with 'Drop your answer below!', then a "
         "blank line, then ten hashtags starting with #Shorts."
@@ -377,7 +384,9 @@ def generate_editorial(
                     "role": "system",
                     "content": (
                         "You are a short-form video editor. Output one compact JSON object with "
-                        "the keys title, commentary and description. Never explain your reasoning."
+                        "the keys title, commentary and description. Output ONLY the JSON object - "
+                        "no analysis, no reasoning, no word counting, no explanation, no markdown. "
+                        "Never explain your reasoning."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -386,6 +395,8 @@ def generate_editorial(
             "max_tokens": 2400,
             "response_format": {"type": "json_object"},
             "stream": False,
+            "reasoning_effort": "none",
+            "chat_template_kwargs": {"enable_thinking": False},
         }
         response = httpx.post(
             url,
@@ -491,15 +502,61 @@ def _phrase_chunks(
     return chunks
 
 
+def _row_cue(row: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "start": round(row[0]["start"], 2),
+        "end": round(row[-1]["end"] + 0.06, 2),
+        "text": " ".join(str(word["text"]) for word in row),
+    }
+
+
+def _cues_from_words(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build caption rows from real per-word timings.
+
+    Edge TTS reports when each word is actually spoken. Spreading words evenly
+    across a sentence instead (the old behaviour) put "then a woman" on screen
+    while a man was still in frame.
+    """
+    cues: list[dict[str, Any]] = []
+    row: list[dict[str, Any]] = []
+    for word in words:
+        text = " ".join([str(item["text"]) for item in row] + [str(word["text"])])
+        clean = re.sub(r"[^A-Z0-9']", "", str(word["text"]).upper())
+        if row and (len(text) > 26 or len(row) >= 4):
+            cues.append(_row_cue(row))
+            row = []
+        row.append(word)
+        ends_sentence = bool(re.search(r"[.!?]$", str(word["text"])))
+        if ends_sentence or (len(row) >= 3 and clean not in _ASS_BREAK_STOPWORDS):
+            cues.append(_row_cue(row))
+            row = []
+    if row:
+        if cues and len(row) == 1:
+            previous = cues[-1]
+            previous["text"] = f"{previous['text']} {row[0]['text']}"
+            previous["end"] = round(row[0]["end"] + 0.06, 2)
+        else:
+            cues.append(_row_cue(row))
+    return cues
+
+
 async def _synthesize_commentary(script: str, voice: str, output_path: Path) -> tuple[Path, list[dict[str, Any]]]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     # Same synthesis call as the first four uploads: default rate, en-US-GuyNeural.
     communicate = edge_tts.Communicate(script, voice)
     audio = bytearray()
     cues: list[dict[str, Any]] = []
+    word_events: list[dict[str, Any]] = []
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":
             audio.extend(chunk["data"])
+        elif chunk["type"] == "WordBoundary":
+            offset = chunk["offset"] / 10_000_000.0
+            word_events.append({
+                "text": str(chunk["text"]),
+                "start": offset,
+                "end": offset + chunk["duration"] / 10_000_000.0,
+            })
         elif chunk["type"] == "SentenceBoundary":
             start = chunk["offset"] / 10_000_000.0
             duration = chunk["duration"] / 10_000_000.0
@@ -520,6 +577,10 @@ async def _synthesize_commentary(script: str, voice: str, output_path: Path) -> 
     if not audio:
         raise RuntimeError("edge-tts returned no audio")
     output_path.write_bytes(bytes(audio))
+    if word_events:
+        # Word timings are exact; the sentence estimate above is only a fallback
+        # for voices that do not report boundaries.
+        return output_path, _cues_from_words(word_events)
     return output_path, cues
 
 
@@ -536,7 +597,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: AntonBold,Anton,120,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,0,0,0,0,100,100,1.2,0,1,10.0,4.5,2,50,50,400,1
+Style: AntonBold,Anton,120,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,1.2,0,1,13.0,0,2,50,50,400,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -572,7 +633,7 @@ def _ass_time(seconds: float) -> str:
 
 
 def _write_ass(cues: list[dict[str, Any]], ass_path: Path) -> Path:
-    """Anton 104pt uppercase captions, one solid accent colour per row.
+    """Anton 120pt uppercase captions, one solid accent colour per row.
 
     104pt reads as big captioning on a phone without spilling off the 1080px
     frame (64pt looked tiny, 96pt with full-width rows looked oversized). Each

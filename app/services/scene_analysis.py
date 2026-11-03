@@ -28,11 +28,18 @@ _FRAME_POSITIONS = (0.15, 0.5, 0.85)
 _MAX_EDGE = 640
 
 _PROMPT = (
-    "These frames are sampled from one short vertical comedy clip, in order. "
-    "Describe exactly what is visible: the subject, what they are doing, and how "
-    "the situation resolves. Use only what you can see - never guess a joke, a "
-    "line of dialogue or a detail that is not in the frames. "
-    "Answer in three short sentences, present tense, no preamble."
+    "These frames are sampled from one short vertical comedy clip, in order: "
+    "frame 1 is the start, frame 2 the middle, frame 3 the end. "
+    "For each frame describe exactly what is visible: the subject, what they are "
+    "doing, and how the situation changes. Use only what you can see - never guess "
+    "a joke, a line of dialogue or a detail that is not in the frames. "
+    "Reply with exactly three numbered lines, one per frame, in this exact format "
+    "and nothing else:\n"
+    "1) <what is on screen in frame 1>\n"
+    "2) <what is on screen in frame 2>\n"
+    "3) <what is on screen in frame 3>\n"
+    "Each line one short sentence, present tense. No preamble, no conclusion, no "
+    "extra lines."
 )
 
 
@@ -109,7 +116,7 @@ def describe_scene(source_path: Path | str, duration: float) -> str:
             log.warning("Scene analysis unavailable (%s: %s)", type(exc).__name__, str(exc)[:160])
             return ""
 
-    text = " ".join(text.split())
+    text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
     if text:
-        log.info("Scene analysis: %s", text[:220])
+        log.info("Scene analysis: %s", text.replace("\\n", " | "))
     return text
