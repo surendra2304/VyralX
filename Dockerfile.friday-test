@@ -3,7 +3,8 @@ FROM python:3.11-slim
     RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-ng ca-certificates && rm -rf /var/lib/apt/lists/*
     COPY pyproject.toml README.md ./
     COPY app ./app
-    RUN python -m pip install --no-cache-dir "setuptools==84.2.1" "wheel==0.48.0" "uv==0.13.1" && uv sync --no-cache --no-editable --no-build-isolation
+    ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=5
+RUN python -m pip install --no-cache-dir --upgrade pip && python -m pip install --no-cache-dir .
     ENV PATH="/app/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=8000
     RUN mkdir -p /app/data /app/media /app/renders /app/secrets && useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
     USER appuser
